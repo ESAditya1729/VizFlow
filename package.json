@@ -1,8 +1,8 @@
 {
   "name": "vizflow",
   "displayName": "VizFlow",
-  "description": "Visual development and local execution for Azure Data Factory dataflows",
-  "version": "0.0.1",
+  "description": "Analyze, transform, and visualize CSV data directly inside Visual Studio Code.",
+  "version": "0.0.2",
 
   "publisher": "IBM",
   

@@ -1,6 +1,8 @@
 # VizFlow
 
-**VizFlow** is a Visual Studio Code extension for exploring and transforming CSV data without leaving your editor.  
+> Created by **Aditya Mukherjee** · [aditya.mukherjee1@ibm.com](mailto:aditya.mukherjee1@ibm.com)
+
+**VizFlow** is a Visual Studio Code extension for exploring and transforming CSV data without leaving your editor.
 Open a CSV file, run a command from the Command Palette, and get instant results — aggregations, duplicate reports, column statistics, and a full visual transformation studio — all in one place.
 
 <br>
