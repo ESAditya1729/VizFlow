@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'nonce-{{NONCE}}'; style-src 'nonce-{{NONCE}}'; img-src vscode-resource: https:;">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VizFlow — Transform Columns</title>
+
+  <link nonce="{{NONCE}}" rel="stylesheet" href="{{WEBVIEW_CSS_URI}}">
+</head>
+<body>
+
+  <!-- ═══════════════ BRAND HEADER ═══════════════ -->
+  <div class="brand-header">
+    <img class="brand-icon" src="{{ICON_URI}}" alt="VizFlow icon">
+    <div class="brand-text">
+      <span class="brand-name">VizFlow</span>
+      <span class="brand-tagline">Data Transformation Studio</span>
+    </div>
+  </div>
+
+  <!-- ═══════════════ MAIN CONTENT ═══════════════ -->
+  <h1 class="main-title">
+    <span>🔄 Transform Columns</span>
+    <span class="badge">powered by VizFlow</span>
+  </h1>
+
+  <!-- ── Rule Builder ─────────────────────────── -->
+  <div class="section-label">➕ Add a transformation rule</div>
+
+  <div class="rule-builder">
+    <!-- Column Selector -->
+    <div class="form-group">
+      <label for="columnSelect">📊 Column</label>
+      <select id="columnSelect"></select>
+    </div>
+
+    <!-- Operation Selector -->
+    <div class="form-group">
+      <label for="opSelect">⚙️ Operation</label>
+      <select id="opSelect"></select>
+    </div>
+
+    <!-- Dynamic Parameters -->
+    <div id="params-section"></div>
+
+    <!-- Row Scope -->
+    <div class="form-group">
+      <label>🎯 Apply to</label>
+      <div class="scope-toggle">
+        <label class="scope-radio-label">
+          <input type="radio" name="rowScope" id="scopeAll" value="all" checked>
+          All rows
+        </label>
+        <label class="scope-radio-label">
+          <input type="radio" name="rowScope" id="scopeSelected" value="selected">
+          Selected rows only
+        </label>
+      </div>
+    </div>
+
+    <!-- Row index input (hidden unless Selected is active) -->
+    <div class="form-group" id="rowIndexGroup" style="display:none;">
+      <label for="rowIndexInput">📍 Row numbers</label>
+      <input type="text" id="rowIndexInput" placeholder="e.g. 1, 3, 5-8, 10">
+      <p class="param-hint">Comma-separated numbers or ranges (e.g. 1, 3, 5-8). Row 1 = first data row.</p>
+    </div>
+
+    <div class="button-row">
+      <button id="addRuleBtn">➕ Add Rule</button>
+    </div>
+  </div>
+
+  <!-- ── Transformation Queue ─────────────────── -->
+  <div class="section-label" id="queueLabel" style="display:none;">📋 Transformation Queue</div>
+  <div id="ruleList"></div>
+
+  <!-- ── Action Buttons ────────────────────────── -->
+  <div class="button-row queue-actions" id="queueActions" style="display:none;">
+    <button id="previewBtn">👁️ Preview (5 rows)</button>
+    <button id="applyBtn">✅ Apply &amp; Save</button>
+  </div>
+
+  <!-- Status Banner -->
+  <div id="status"></div>
+
+  <!-- Preview Section -->
+  <div id="preview-section">
+    <h2>📋 Preview Results</h2>
+    <div class="preview-meta" id="preview-meta"></div>
+    <div class="table-wrapper" id="preview-table-wrapper">
+      <!-- table rendered dynamically -->
+    </div>
+  </div>
+
+  <!-- ═══════════════ FOOTER ═════════════════════ -->
+  <div class="brand-footer">
+    <strong>VizFlow</strong> — Transforming data, one column at a time.<br>
+    v{{VERSION}} &middot; Built for VS Code
+  </div>
+
+  <!-- ═══════════════ SCRIPTS ═══════════════════ -->
+  <script nonce="{{NONCE}}">
+    // ── State ──────────────────────────────────────────────────────────────
+    const vscode = acquireVsCodeApi();
+    let operations = [];
+    let columns    = [];
+    let totalRowCount = 0;   // set from init message
+
+    /**
+     * @typedef {{ id: number, column: string, opKey: string, params: string[], rowScope: 'all'|'selected', rowIndices: number[] }} Rule
+     * @type {Rule[]}
+     */
+    let rules  = [];
+    let nextId = 0;
+
+    // ── DOM Refs ────────────────────────────────────────────────────────────
+    const columnSelect  = document.getElementById('columnSelect');
+    const opSelect      = document.getElementById('opSelect');
+    const paramsSection = document.getElementById('params-section');
+    const scopeAll      = document.getElementById('scopeAll');
+    const scopeSelected = document.getElementById('scopeSelected');
+    const rowIndexGroup = document.getElementById('rowIndexGroup');
+    const rowIndexInput = document.getElementById('rowIndexInput');
+    const addRuleBtn    = document.getElementById('addRuleBtn');
+    const ruleList      = document.getElementById('ruleList');
+    const queueLabel    = document.getElementById('queueLabel');
+    const queueActions  = document.getElementById('queueActions');
+    const previewBtn    = document.getElementById('previewBtn');
+    const applyBtn      = document.getElementById('applyBtn');
+    const statusEl      = document.getElementById('status');
+    const previewSection       = document.getElementById('preview-section');
+    const previewMeta          = document.getElementById('preview-meta');
+    const previewTableWrapper  = document.getElementById('preview-table-wrapper');
+
+    // ── Helpers ─────────────────────────────────────────────────────────────
+    function showStatus(msg, type) {
+      statusEl.textContent = msg;
+      statusEl.className   = type;
+      statusEl.style.display = 'block';
+    }
+    function hideStatus() {
+      statusEl.style.display = 'none';
+    }
+    function collectParams() {
+      return Array.from(paramsSection.querySelectorAll('input[type="text"]'))
+        .map(i => i.value);
+    }
+    function currentOp() {
+      return operations.find(o => o.key === opSelect.value);
+    }
+    function resetPreview() {
+      previewSection.style.display = 'none';
+      previewTableWrapper.innerHTML = '';
+    }
+
+    // ── Scope toggle ─────────────────────────────────────────────────────────
+    function currentScope() {
+      return scopeSelected.checked ? 'selected' : 'all';
+    }
+
+    function updateScopeUI() {
+      rowIndexGroup.style.display = scopeSelected.checked ? 'block' : 'none';
+    }
+
+    scopeAll.addEventListener('change', updateScopeUI);
+    scopeSelected.addEventListener('change', updateScopeUI);
+
+    /**
+     * Parse a row-index string like "1, 3, 5-8, 10" into a sorted unique
+     * array of 1-based integers.  Returns null + shows an error if invalid.
+     * @returns {number[]|null}
+     */
+    function parseRowIndices() {
+      const raw = rowIndexInput.value.trim();
+      if (!raw) {
+        showStatus('⚠️ Please enter at least one row number.', 'error');
+        return null;
+      }
+
+      const indices = new Set();
+      const parts   = raw.split(',');
+
+      for (const part of parts) {
+        const p = part.trim();
+        if (!p) continue;
+
+        // Range "5-8"
+        const rangeMatch = p.match(/^(\d+)\s*-\s*(\d+)$/);
+        if (rangeMatch) {
+          const lo = parseInt(rangeMatch[1], 10);
+          const hi = parseInt(rangeMatch[2], 10);
+          if (lo < 1 || hi < lo) {
+            showStatus(`⚠️ Invalid range "${p}". Use "lo-hi" where lo ≥ 1 and lo ≤ hi.`, 'error');
+            return null;
+          }
+          if (totalRowCount > 0 && hi > totalRowCount) {
+            showStatus(`⚠️ Row ${hi} exceeds the dataset size (${totalRowCount} rows).`, 'error');
+            return null;
+          }
+          for (let i = lo; i <= hi; i++) indices.add(i);
+          continue;
+        }
+
+        // Single number
+        const num = parseInt(p, 10);
+        if (isNaN(num) || num < 1 || String(num) !== p) {
+          showStatus(`⚠️ "${p}" is not a valid row number. Use positive integers or ranges like "5-8".`, 'error');
+          return null;
+        }
+        if (totalRowCount > 0 && num > totalRowCount) {
+          showStatus(`⚠️ Row ${num} exceeds the dataset size (${totalRowCount} rows).`, 'error');
+          return null;
+        }
+        indices.add(num);
+      }
+
+      if (indices.size === 0) {
+        showStatus('⚠️ Please enter at least one row number.', 'error');
+        return null;
+      }
+
+      return Array.from(indices).sort((a, b) => a - b);
+    }
+
+    // ── Populate Columns ─────────────────────────────────────────────────────
+    function populateColumns(cols) {
+      columns = cols;
+      columnSelect.innerHTML = '';
+      cols.forEach(col => {
+        const opt = document.createElement('option');
+        opt.value = col;
+        opt.textContent = col;
+        columnSelect.appendChild(opt);
+      });
+    }
+
+    // ── Populate Operations (Grouped) ────────────────────────────────────────
+    function populateOperations(ops) {
+      operations = ops;
+      opSelect.innerHTML = '';
+      const groups = {};
+      ops.forEach(op => {
+        if (!groups[op.category]) groups[op.category] = [];
+        groups[op.category].push(op);
+      });
+      Object.entries(groups).forEach(([cat, items]) => {
+        const grp = document.createElement('optgroup');
+        grp.label = cat;
+        items.forEach(op => {
+          const opt = document.createElement('option');
+          opt.value = op.key;
+          opt.textContent = op.label;
+          grp.appendChild(opt);
+        });
+        opSelect.appendChild(grp);
+      });
+      renderParams();
+    }
+
+    // ── Render Dynamic Params ────────────────────────────────────────────────
+    function renderParams() {
+      paramsSection.innerHTML = '';
+      const op = currentOp();
+      if (!op || op.params.length === 0) return;
+
+      op.params.forEach(param => {
+        const group = document.createElement('div');
+        group.className = 'form-group';
+
+        const lbl = document.createElement('label');
+        lbl.textContent = param.name;
+
+        const inp = document.createElement('input');
+        inp.type = 'text';
+        inp.placeholder = param.placeholder;
+        inp.id = 'param-' + param.name.replace(/\s/g, '-');
+
+        const hint = document.createElement('p');
+        hint.className = 'param-hint';
+        hint.textContent = param.placeholder;
+
+        group.appendChild(lbl);
+        group.appendChild(inp);
+        group.appendChild(hint);
+        paramsSection.appendChild(group);
+      });
+    }
+
+    // ── Add Rule ─────────────────────────────────────────────────────────────
+    function addRule() {
+      const col    = columnSelect.value;
+      const opKey  = opSelect.value;
+      const params = collectParams();
+      const op     = currentOp();
+
+      if (!col || !opKey) {
+        showStatus('⚠️ Please select a column and an operation.', 'error');
+        return;
+      }
+
+      // Validate that required params are filled
+      if (op && op.params.length > 0) {
+        const inputs = Array.from(paramsSection.querySelectorAll('input[type="text"]'));
+        for (let i = 0; i < op.params.length; i++) {
+          const isOptional = op.params[i].placeholder.includes('optional');
+          if (!isOptional && (!inputs[i] || inputs[i].value.trim() === '')) {
+            showStatus(`⚠️ Parameter "${op.params[i].name}" is required.`, 'error');
+            return;
+          }
+        }
+      }
+
+      // Collect row scope
+      const rowScope = currentScope();
+      let rowIndices = [];
+      if (rowScope === 'selected') {
+        rowIndices = parseRowIndices();
+        if (rowIndices === null) return;  // validation failed, error already shown
+      }
+
+      hideStatus();
+      resetPreview();
+
+      const rule = { id: nextId++, column: col, opKey, params, rowScope, rowIndices };
+      rules.push(rule);
+      renderRuleList();
+    }
+
+    // ── Remove Rule ───────────────────────────────────────────────────────────
+    function removeRule(id) {
+      rules = rules.filter(r => r.id !== id);
+      renderRuleList();
+      resetPreview();
+      hideStatus();
+    }
+
+    // ── Move Rule Up/Down ─────────────────────────────────────────────────────
+    function moveRule(id, dir) {
+      const idx = rules.findIndex(r => r.id === id);
+      const target = idx + dir;
+      if (target < 0 || target >= rules.length) return;
+      const tmp = rules[idx];
+      rules[idx] = rules[target];
+      rules[target] = tmp;
+      renderRuleList();
+      resetPreview();
+    }
+
+    // ── Render Rule List ──────────────────────────────────────────────────────
+    function renderRuleList() {
+      ruleList.innerHTML = '';
+
+      const hasRules = rules.length > 0;
+      queueLabel.style.display  = hasRules ? 'block' : 'none';
+      queueActions.style.display = hasRules ? 'flex'  : 'none';
+
+      rules.forEach((rule, idx) => {
+        const op = operations.find(o => o.key === rule.opKey);
+        const opLabel = op ? op.label : rule.opKey;
+        const paramsText = rule.params.length
+          ? rule.params.join(', ')
+          : '—';
+
+        const card = document.createElement('div');
+        card.className = 'rule-card';
+        card.dataset.id = String(rule.id);
+
+        const scopeBadge = rule.rowScope === 'selected'
+          ? '<span class="rule-scope-badge scope-selected">rows ' + escapeHtml(rule.rowIndices.join(', ')) + '</span>'
+          : '<span class="rule-scope-badge scope-all">all rows</span>';
+
+        card.innerHTML =
+          '<div class="rule-card-main">' +
+            '<span class="rule-index">' + (idx + 1) + '</span>' +
+            '<div class="rule-card-info">' +
+              '<span class="rule-col-name">' + escapeHtml(rule.column) + '</span>' +
+              '<span class="rule-op-label">' + escapeHtml(opLabel) + '</span>' +
+              (rule.params.length
+                ? '<span class="rule-params">' + escapeHtml(paramsText) + '</span>'
+                : '') +
+              scopeBadge +
+            '</div>' +
+          '</div>' +
+          '<div class="rule-card-actions">' +
+            '<button class="rule-btn" data-action="up"   title="Move up">↑</button>' +
+            '<button class="rule-btn" data-action="down" title="Move down">↓</button>' +
+            '<button class="rule-btn rule-btn-delete" data-action="delete" title="Remove rule">✕</button>' +
+          '</div>';
+
+        // Disable up/down at boundaries
+        card.querySelector('[data-action="up"]').disabled   = idx === 0;
+        card.querySelector('[data-action="down"]').disabled = idx === rules.length - 1;
+
+        card.querySelector('[data-action="up"]').addEventListener('click',
+          () => moveRule(rule.id, -1));
+        card.querySelector('[data-action="down"]').addEventListener('click',
+          () => moveRule(rule.id, 1));
+        card.querySelector('[data-action="delete"]').addEventListener('click',
+          () => removeRule(rule.id));
+
+        ruleList.appendChild(card);
+      });
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    // ── Render Preview Table ──────────────────────────────────────────────────
+    /**
+     * @param {{ column: string, original: any, result: any }[][]} perRuleRows
+     * @param {string[]} ruleLabels
+     */
+    function renderPreview(previewCols, rows) {
+      previewSection.style.display = 'block';
+
+      // Build a table: one column per "original + result" pair
+      const table = document.createElement('table');
+
+      // Header row
+      const thead = document.createElement('thead');
+      const htr   = document.createElement('tr');
+
+      // Row # header
+      const thIdx = document.createElement('th');
+      thIdx.textContent = '#';
+      thIdx.className = 'row-idx-col';
+      htr.appendChild(thIdx);
+
+      previewCols.forEach(({ column, opLabel, rowScope }) => {
+        const thOrig = document.createElement('th');
+        thOrig.className = 'original-col';
+        thOrig.textContent = column + ' (before)';
+        htr.appendChild(thOrig);
+
+        const thArrow = document.createElement('th');
+        thArrow.className = 'arrow-col';
+        htr.appendChild(thArrow);
+
+        const thRes = document.createElement('th');
+        thRes.className = 'result-col';
+        thRes.textContent = column + ' → ' + opLabel + '  [' + rowScope + ']';
+        htr.appendChild(thRes);
+      });
+
+      thead.appendChild(htr);
+      table.appendChild(thead);
+
+      // Body rows
+      const tbody = document.createElement('tbody');
+      rows.forEach((rowEntries, i) => {
+        const tr = document.createElement('tr');
+
+        const tdIdx = document.createElement('td');
+        tdIdx.className = 'row-idx-col';
+        tdIdx.textContent = String(i + 1);
+        tr.appendChild(tdIdx);
+
+        rowEntries.forEach(entry => {
+          const tdOrig = document.createElement('td');
+          tdOrig.className = 'original-col' + (entry.skipped ? ' skipped-cell' : '');
+          tdOrig.textContent = String(entry.original);
+
+          const tdArrow = document.createElement('td');
+          tdArrow.className = 'arrow-col';
+          tdArrow.textContent = entry.skipped ? '—' : '→';
+
+          const tdRes = document.createElement('td');
+          tdRes.className = entry.skipped ? 'skipped-cell' : 'result-col';
+          tdRes.textContent = entry.skipped ? '(skipped)' : String(entry.result);
+
+          tr.appendChild(tdOrig);
+          tr.appendChild(tdArrow);
+          tr.appendChild(tdRes);
+        });
+
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+
+      previewTableWrapper.innerHTML = '';
+      previewTableWrapper.appendChild(table);
+    }
+
+    // ── Event: Operation Changed ──────────────────────────────────────────────
+    opSelect.addEventListener('change', renderParams);
+
+    // ── Event: Add Rule Button ────────────────────────────────────────────────
+    addRuleBtn.addEventListener('click', addRule);
+
+    // ── Event: Preview Button ─────────────────────────────────────────────────
+    previewBtn.addEventListener('click', () => {
+      hideStatus();
+      resetPreview();
+      vscode.postMessage({ type: 'previewQueue', rules });
+    });
+
+    // ── Event: Apply Button ───────────────────────────────────────────────────
+    applyBtn.addEventListener('click', () => {
+      applyBtn.disabled = true;
+      hideStatus();
+      vscode.postMessage({ type: 'applyQueue', rules });
+    });
+
+    // ── Messages from Extension Host ──────────────────────────────────────────
+    window.addEventListener('message', ({ data }) => {
+      switch (data.type) {
+
+        case 'init':
+          totalRowCount = data.rowCount || 0;
+          populateColumns(data.columns);
+          populateOperations(data.operations);
+          // Update placeholder to reflect actual row count
+          if (totalRowCount > 0) {
+            rowIndexInput.placeholder = 'e.g. 1, 3, 5-8  (1–' + totalRowCount + ')';
+          }
+          break;
+
+        case 'previewQueueResult': {
+          const { previewCols, rows, ruleCount } = data;
+          previewMeta.textContent =
+            `Showing first ${rows.length} row(s) — ${ruleCount} rule(s) applied in sequence`;
+          renderPreview(previewCols, rows);
+          break;
+        }
+
+        case 'previewQueueError':
+          showStatus('⚠️ Preview error: ' + data.message, 'error');
+          break;
+
+        case 'applyQueueDone': {
+          let msg = '✅ ' + data.count + ' rows transformed across ' +
+                    data.ruleCount + ' rule(s) — results written to Output.';
+          if (data.saved && data.savedPath) {
+            const filename = data.savedPath.replace(/.*[\\/]/, '');
+            msg += ' Saved as: ' + filename;
+          }
+          showStatus(msg, 'success');
+          applyBtn.disabled = false;
+          break;
+        }
+
+        case 'applyQueueError':
+          showStatus('❌ Error: ' + data.message, 'error');
+          applyBtn.disabled = false;
+          break;
+
+        // Legacy single-column messages kept for backwards compatibility
+        case 'previewResult':
+        case 'previewError':
+        case 'applyDone':
+        case 'applyError':
+          break;
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,97 @@
+{
+  "name": "vizflow",
+  "displayName": "VizFlow",
+  "description": "Visual development and local execution for Azure Data Factory dataflows",
+  "version": "0.0.1",
+
+  "publisher": "IBM",
+  
+  "icon": "images/icon.png",
+  
+  "engines": {
+    "vscode": "^1.125.0"
+  },
+  "categories": [
+    "Data Science",
+    "Visualization"
+  ],
+  
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/vizflow"
+  },
+  
+  "keywords": [
+    "data-analysis",
+    "csv",
+    "visualization"
+  ],
+  
+  "activationEvents": [],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "vizflow.sum",
+        "title": "VizFlow: Sum Column"
+      },
+      {
+        "command": "vizflow.average",
+        "title": "VizFlow: Average Column"
+      },
+      {
+        "command": "vizflow.min",
+        "title": "VizFlow: Minimum Value"
+      },
+      {
+        "command": "vizflow.max",
+        "title": "VizFlow: Maximum Value"
+      },
+      {
+        "command": "vizflow.count",
+        "title": "VizFlow: Count Values"
+      },
+      {
+        "command": "vizflow.duplicates",
+        "title": "VizFlow: Find Duplicate Values"
+      },
+      {
+        "command": "vizflow.statistics",
+        "title": "VizFlow: Show Column Statistics"
+      },
+      {
+        "command": "vizflow.distinctValues",
+        "title": "VizFlow: Show Distinct Values"
+      },
+      {
+        "command": "vizflow.transform",
+        "title": "VizFlow: Transform Column"
+      },
+      {
+        "command": "vizflow.transformWebview",
+        "title": "VizFlow: Transform Column (Visual)"
+      }
+    ]
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "pretest": "npm run lint",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "24.x",
+    "@types/vscode": "^1.125.0",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.0.0",
+    "eslint": "^10.5.0"
+  },
+  "overrides": {
+    "diff": "^8.0.4",
+    "serialize-javascript": "^7.0.6"
+  },
+  "dependencies": {
+    "axios": "^1.18.1",
+    "papaparse": "^5.5.4"
+  }
+}
