@@ -129,6 +129,16 @@ function getAboutHtml() {
             margin: 0;
         }
 
+        .link {
+            color: var(--vscode-textLink-foreground, #3794ff);
+            text-decoration: none;
+            word-break: break-all;
+        }
+
+        .link:hover {
+            text-decoration: underline;
+        }
+
         /* ── Extension info strip ── */
         .ext-strip {
             padding: 14px 32px;
@@ -169,6 +179,15 @@ function getAboutHtml() {
             <div class="info-row">
                 <span class="info-label">Creator of</span>
                 <span class="info-value">VizFlow — CSV Analysis &amp; Visualization for VS Code</span>
+            </div>
+
+            <div class="info-row">
+                <span class="info-label">GitHub</span>
+                <span class="info-value">
+                    <a class="link" href="https://github.ibm.com/Aditya-Mukherjee1/VizFlow">
+                        github.ibm.com/Aditya-Mukherjee1/VizFlow
+                    </a>
+                </span>
             </div>
 
         </div>

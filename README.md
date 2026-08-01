@@ -1,9 +1,10 @@
 # VizFlow
 
-> Created by **Aditya Mukherjee** · [aditya.mukherjee1@ibm.com](mailto:aditya.mukherjee1@ibm.com)
+> Created by **Aditya Mukherjee** · Application Developer — Azure Cloud FullStack · **IBM**
+> [aditya.mukherjee1@ibm.com](mailto:aditya.mukherjee1@ibm.com) · [github.ibm.com/Aditya-Mukherjee1/VizFlow](https://github.ibm.com/Aditya-Mukherjee1/VizFlow)
 
 **VizFlow** is a Visual Studio Code extension for exploring and transforming CSV data without leaving your editor.
-Open a CSV file, run a command from the Command Palette, and get instant results — aggregations, duplicate reports, column statistics, and a full visual transformation studio — all in one place.
+Open a CSV file, run a command from the Command Palette, and get instant results — aggregations, duplicate reports, column statistics, a full visual transformation studio, side-by-side CSV comparison, and more — all in one place.
 
 <br>
 
@@ -17,6 +18,8 @@ Open a CSV file, run a command from the Command Palette, and get instant results
 | **Exploration** | List all distinct values in a column |
 | **Transformation (CLI)** | Apply one operation to a column via Command Palette prompts |
 | **Transformation (Visual)** | Multi-rule transformation studio in a side panel — preview, reorder, target specific rows, and save |
+| **CSV Comparison** | Side-by-side column comparison across two files with match / only-A / only-B breakdown |
+| **About / Creator** | View creator info and project links directly inside VS Code |
 
 <br>
 
@@ -26,7 +29,7 @@ Open a CSV file, run a command from the Command Palette, and get instant results
 2. Press `Ctrl+Shift+P` (or `Cmd+Shift+P` on macOS) to open the Command Palette.
 3. Type **VizFlow** and choose any command.
 
-All results appear in the dedicated **VizFlow Output** panel.
+All results appear in the dedicated **VizFlow Output** panel (or a WebView panel where applicable).
 
 <br>
 
@@ -56,6 +59,18 @@ All results appear in the dedicated **VizFlow Output** panel.
 |---|---|
 | `VizFlow: Transform Column` | Command-line workflow — pick column → operation → parameters → preview 5 rows → apply to all |
 | `VizFlow: Transform Column (Visual)` | Opens the **Visual Transformation Studio** as a side panel |
+
+### Comparison
+
+| Command | Description |
+|---|---|
+| `VizFlow: Compare CSV Files` | Select a column in the active CSV and compare it against a column in a second CSV file. Results are grouped into **common**, **only in File A**, and **only in File B** values, each with exact row numbers and column profiles |
+
+### General
+
+| Command | Description |
+|---|---|
+| `VizFlow: About / Creator` | Opens a WebView panel with information about the extension creator |
 
 <br>
 
@@ -108,9 +123,9 @@ Add a rule  →  Add more rules  →  Preview  →  Apply & Save
 | Operation | Description |
 |---|---|
 | Coalesce (fallback) | Replaces blank or null values with a fallback |
-| Starts With (check) | Returns true/false — does the value start with a prefix? |
-| Ends With (check) | Returns true/false — does the value end with a suffix? |
-| Contains (check) | Returns true/false — does the value contain a substring? |
+| Starts With (check) | Returns `true`/`false` — does the value start with a prefix? |
+| Ends With (check) | Returns `true`/`false` — does the value end with a suffix? |
+| Contains (check) | Returns `true`/`false` — does the value contain a substring? |
 
 ### Targeted Row Transformation
 
@@ -124,6 +139,28 @@ Every rule in the queue can target **all rows** or a **subset of rows**:
 
 <br>
 
+## 🔍 CSV Comparison
+
+The **Compare CSV Files** command (`VizFlow: Compare CSV Files`) lets you pick one column from the currently open CSV and compare it against a column from any other CSV file on disk.
+
+### How it works
+
+1. Run `VizFlow: Compare CSV Files` with a CSV open in the editor.
+2. Select the **column** to compare from the active file (File A).
+3. Pick the **second CSV file** from a file-open dialog.
+4. Select the **column** to compare from File B.
+5. A **WebView panel** opens with a full side-by-side report:
+
+| Section | What it shows |
+|---|---|
+| **Summary bar** | Total rows, match count, only-A count, only-B count |
+| **Column profiles** | Distinct count, null count, inferred data type for each column |
+| **Results table** | Every distinct value labelled `common`, `only A`, or `only B`, with row-number lists for both files |
+
+The comparison is **value-based** (set logic) — row order and row count don't matter, only whether the value exists in each file's column.
+
+<br>
+
 ## 🗂️ Architecture
 
 ```
@@ -132,11 +169,14 @@ vizflow/
 ├── commands/
 │   ├── sum.js                 # Aggregation commands
 │   ├── average.js
+│   ├── aggregate.js           # Shared min / max / count handler
 │   ├── statistics.js
 │   ├── duplicate.js
 │   ├── distinctValues.js
 │   ├── transform.js           # CLI-based transform workflow
-│   └── transformWebview.js    # Visual Transformation Studio host
+│   ├── transformWebview.js    # Visual Transformation Studio host
+│   ├── compareCSV.js          # CSV Comparison WebView host
+│   └── about.js               # About / Creator WebView panel
 ├── engine/
 │   ├── dataset.js             # Dataset model (rows, columns, profiling)
 │   ├── duplicateFinder.js     # Duplicate detection engine
@@ -148,10 +188,13 @@ vizflow/
 ├── services/
 │   ├── csvReader.js           # Reads the active editor's CSV text
 │   ├── csvParser.js           # PapaParse wrapper with type inference
+│   ├── csvCompare.js          # Pure comparison engine (no VS Code deps)
 │   └── output.js              # Shared VizFlow Output Channel helpers
 └── media/
-    ├── transform.html         # Visual Studio WebView markup
-    └── transform.css          # WebView stylesheet (VS Code theme-aware)
+    ├── transform.html         # Visual Transformation Studio — WebView markup
+    ├── transform.css          # Visual Transformation Studio — stylesheet
+    ├── compare.html           # CSV Comparison — WebView markup
+    └── compare.css            # CSV Comparison — stylesheet
 ```
 
 <br>
@@ -172,13 +215,13 @@ Search for **VizFlow** in the Extensions view (`Ctrl+Shift+X`) and click **Insta
 
 ### From a `.vsix` file
 ```bash
-code --install-extension vizflow-0.0.1.vsix
+code --install-extension vizflow-0.0.2.vsix
 ```
 
 ### From source
 ```bash
-git clone https://github.com/your-username/vizflow.git
-cd vizflow
+git clone https://github.ibm.com/Aditya-Mukherjee1/VizFlow.git
+cd VizFlow
 npm install
 # Press F5 in VS Code to launch the Extension Development Host
 ```
@@ -220,5 +263,6 @@ MIT — see [LICENSE](LICENSE) for details.
 ---
 
 <div align="center">
-  Built with ❤️ for data engineers, analysts, and anyone who works with CSV files in VS Code.
+  Built with ❤️ for data engineers, analysts, and anyone who works with CSV files in VS Code.<br>
+  <strong>Aditya Mukherjee</strong> · Application Developer — Azure Cloud FullStack · IBM
 </div>
