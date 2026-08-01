@@ -3,11 +3,8 @@
   "displayName": "VizFlow",
   "description": "Analyze, transform, and visualize CSV data directly inside Visual Studio Code.",
   "version": "0.0.2",
-
   "publisher": "IBM",
-  
   "icon": "images/icon.png",
-  
   "engines": {
     "vscode": "^1.125.0"
   },
@@ -15,18 +12,15 @@
     "Data Science",
     "Visualization"
   ],
-  
   "repository": {
     "type": "git",
     "url": "https://github.com/your-username/vizflow"
   },
-  
   "keywords": [
     "data-analysis",
     "csv",
     "visualization"
   ],
-  
   "activationEvents": [],
   "main": "./extension.js",
   "contributes": {
@@ -70,6 +64,14 @@
       {
         "command": "vizflow.transformWebview",
         "title": "VizFlow: Transform Column (Visual)"
+      },
+      {
+        "command": "vizflow.compareCSV",
+        "title": "VizFlow: Compare CSV Files"
+      },
+      {
+        "command": "vizflow.about",
+        "title": "VizFlow: About / Creator"
       }
     ]
   },
@@ -84,7 +86,8 @@
     "@types/vscode": "^1.125.0",
     "@vscode/test-cli": "^0.0.15",
     "@vscode/test-electron": "^3.0.0",
-    "eslint": "^10.5.0"
+    "eslint": "^10.5.0",
+    "globals": "^17.8.0"
   },
   "overrides": {
     "diff": "^8.0.4",

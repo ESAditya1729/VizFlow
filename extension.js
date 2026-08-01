@@ -7,6 +7,8 @@ const statsCommand = require('./commands/statistics');
 const distinctValuesCommand = require('./commands/distinctValues');
 const transformCommand = require('./commands/transform');
 const transformWebviewCommand = require('./commands/transformWebview');
+const compareCSVCommand       = require('./commands/compareCSV');
+const aboutCommand            = require('./commands/about');
 
 /**
  * @param {vscode.ExtensionContext} context
@@ -60,6 +62,16 @@ function activate(context) {
         vscode.commands.registerCommand(
             'vizflow.transformWebview',
             transformWebviewCommand(context)
+        ),
+
+        vscode.commands.registerCommand(
+            'vizflow.compareCSV',
+            compareCSVCommand(context)
+        ),
+
+        vscode.commands.registerCommand(
+            'vizflow.about',
+            aboutCommand(context)
         )
 
     );

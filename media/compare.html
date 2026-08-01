@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'nonce-{{NONCE}}'; style-src 'nonce-{{NONCE}}'; img-src vscode-resource: https:;">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VizFlow — Compare CSV Files</title>
+  <link nonce="{{NONCE}}" rel="stylesheet" href="{{WEBVIEW_CSS_URI}}">
+</head>
+<body>
+
+  <!-- ═══════════════ BRAND HEADER ═══════════════ -->
+  <div class="brand-header">
+    <img class="brand-icon" src="{{ICON_URI}}" alt="VizFlow icon">
+    <div class="brand-text">
+      <span class="brand-name">VizFlow</span>
+      <span class="brand-tagline">CSV Comparison Studio</span>
+    </div>
+  </div>
+
+  <!-- ═══════════════ MAIN CONTENT ═══════════════ -->
+  <h1 class="main-title">
+    <span>⚡ Compare CSV Files</span>
+    <span class="badge">powered by VizFlow</span>
+  </h1>
+
+  <!-- ── File Setup ──────────────────────────────── -->
+  <div class="section-label">📂 Select files &amp; columns to compare</div>
+
+  <div class="file-setup">
+
+    <!-- File A -->
+    <div class="file-card">
+      <div class="file-card-header">
+        <span class="file-label-a">▌</span> File A
+      </div>
+      <div class="file-name" id="fileNameA">No file loaded — open a CSV then run this command.</div>
+      <div class="form-group">
+        <label for="columnSelectA">Column</label>
+        <select id="columnSelectA" disabled>
+          <option value="">— load a file first —</option>
+        </select>
+      </div>
+      <button class="btn-secondary btn-small" id="browseA">📂 Browse…</button>
+    </div>
+
+    <!-- File B -->
+    <div class="file-card">
+      <div class="file-card-header">
+        <span class="file-label-b">▌</span> File B
+      </div>
+      <div class="file-name" id="fileNameB">No file loaded.</div>
+      <div class="form-group">
+        <label for="columnSelectB">Column</label>
+        <select id="columnSelectB" disabled>
+          <option value="">— load a file first —</option>
+        </select>
+      </div>
+      <button class="btn-secondary btn-small" id="browseB">📂 Browse…</button>
+    </div>
+
+  </div>
+
+  <!-- ── Run Button ────────────────────────────── -->
+  <div class="button-row">
+    <button class="btn-primary" id="runBtn" disabled>⚡ Run Comparison</button>
+  </div>
+
+  <!-- ── Progress ─────────────────────────────── -->
+  <div id="progressBar">
+    <div class="progress-track">
+      <div class="progress-fill" id="progressFill"></div>
+    </div>
+    <div class="progress-label" id="progressLabel">Comparing…</div>
+  </div>
+
+  <!-- ── Status Banner ────────────────────────── -->
+  <div id="status"></div>
+
+  <!-- ═══════════════ RESULTS ═══════════════════ -->
+  <div id="results-section">
+
+    <!-- Summary Cards -->
+    <div class="section-label">📊 Summary</div>
+    <div class="summary-cards">
+      <div class="summary-card card-total">
+        <div class="card-label">File A rows</div>
+        <div class="card-value" id="cardRowsA">—</div>
+      </div>
+      <div class="summary-card card-total">
+        <div class="card-label">File B rows</div>
+        <div class="card-value" id="cardRowsB">—</div>
+      </div>
+      <div class="summary-card card-match">
+        <div class="card-label">Common values</div>
+        <div class="card-value" id="cardMatch">—</div>
+        <div class="card-sub" id="cardMatchPct"></div>
+      </div>
+      <div class="summary-card card-only-a">
+        <div class="card-label">Only in A</div>
+        <div class="card-value" id="cardOnlyA">—</div>
+        <div class="card-sub" id="cardOnlyAPct"></div>
+      </div>
+      <div class="summary-card card-only-b">
+        <div class="card-label">Only in B</div>
+        <div class="card-value" id="cardOnlyB">—</div>
+        <div class="card-sub" id="cardOnlyBPct"></div>
+      </div>
+    </div>
+
+    <!-- Column Profiles -->
+    <div class="section-label">🔍 Column Profiles</div>
+    <div class="profile-grid">
+      <div class="profile-card profile-card-a">
+        <div class="profile-card-title">File A — <span id="profileColA"></span></div>
+        <div class="profile-row"><span class="pkey">Distinct values</span><span class="pval" id="pDistinctA">—</span></div>
+        <div class="profile-row"><span class="pkey">Null / empty</span><span class="pval" id="pNullA">—</span></div>
+        <div class="profile-row"><span class="pkey">Inferred type</span><span class="pval" id="pTypeA">—</span></div>
+      </div>
+      <div class="profile-card profile-card-b">
+        <div class="profile-card-title">File B — <span id="profileColB"></span></div>
+        <div class="profile-row"><span class="pkey">Distinct values</span><span class="pval" id="pDistinctB">—</span></div>
+        <div class="profile-row"><span class="pkey">Null / empty</span><span class="pval" id="pNullB">—</span></div>
+        <div class="profile-row"><span class="pkey">Inferred type</span><span class="pval" id="pTypeB">—</span></div>
+      </div>
+    </div>
+
+    <!-- Tabs + Table -->
+    <div class="section-label">📋 Comparison Details</div>
+
+    <div class="tab-bar">
+      <button class="tab tab-all   active"   data-filter="all"    id="tabAll">
+        All <span class="tab-count" id="tabCountAll">0</span>
+      </button>
+      <button class="tab tab-match"          data-filter="common" id="tabMatch">
+        Common <span class="tab-count" id="tabCountMatch">0</span>
+      </button>
+      <button class="tab tab-only-a"         data-filter="onlyA"  id="tabOnlyA">
+        Only in A <span class="tab-count" id="tabCountOnlyA">0</span>
+      </button>
+      <button class="tab tab-only-b"         data-filter="onlyB"  id="tabOnlyB">
+        Only in B <span class="tab-count" id="tabCountOnlyB">0</span>
+      </button>
+    </div>
+
+    <div class="controls-bar">
+      <input type="text" id="searchInput" placeholder="Search values…">
+      <button class="sort-btn" id="sortValueBtn"  data-col="value">Value ↕</button>
+      <button class="sort-btn" id="sortCountABtn" data-col="countA">Count A ↕</button>
+      <button class="sort-btn" id="sortCountBBtn" data-col="countB">Count B ↕</button>
+    </div>
+
+    <div class="table-wrapper">
+      <table id="resultTable">
+        <thead>
+          <tr>
+            <th data-col="type">Type <span class="sort-indicator">↕</span></th>
+            <th data-col="value">Value <span class="sort-indicator">↕</span></th>
+            <th data-col="countA">Count A <span class="sort-indicator">↕</span></th>
+            <th data-col="rowsA">Rows A</th>
+            <th data-col="countB">Count B <span class="sort-indicator">↕</span></th>
+            <th data-col="rowsB">Rows B</th>
+          </tr>
+        </thead>
+        <tbody id="resultBody"></tbody>
+      </table>
+    </div>
+
+    <div class="empty-state" id="emptyState" style="display:none;">
+      No values match the current filter.
+    </div>
+
+    <!-- Export -->
+    <div class="section-label">💾 Export</div>
+    <div class="export-row">
+      <button class="btn-secondary btn-small" id="exportCSVBtn">📄 Export as CSV</button>
+      <button class="btn-secondary btn-small" id="exportJSONBtn">📦 Export as JSON</button>
+    </div>
+
+  </div><!-- /#results-section -->
+
+  <!-- ═══════════════ FOOTER ════════════════════ -->
+  <div class="brand-footer">
+    <strong>VizFlow</strong> — Compare. Validate. Understand.<br>
+    v{{VERSION}} &middot; Built for VS Code
+  </div>
+
+  <!-- ═══════════════ SCRIPTS ══════════════════ -->
+  <script nonce="{{NONCE}}">
+    'use strict';
+
+    const vscode = acquireVsCodeApi();
+
+    // ── State ──────────────────────────────────────────────────────────────────
+    let allRows     = [];   // full ComparisonResult.rows from host
+    let activeFilter = 'all';
+    let searchQuery  = '';
+    let sortCol      = 'type';
+    let sortDir      = 1;   // 1 = asc, -1 = desc
+
+    // Result snapshot kept for export
+    let lastResult = null;
+
+    // ── DOM refs ────────────────────────────────────────────────────────────────
+    const fileNameA      = document.getElementById('fileNameA');
+    const fileNameB      = document.getElementById('fileNameB');
+    const columnSelectA  = document.getElementById('columnSelectA');
+    const columnSelectB  = document.getElementById('columnSelectB');
+    const browseA        = document.getElementById('browseA');
+    const browseB        = document.getElementById('browseB');
+    const runBtn         = document.getElementById('runBtn');
+    const progressBar    = document.getElementById('progressBar');
+    const progressFill   = document.getElementById('progressFill');
+    const progressLabel  = document.getElementById('progressLabel');
+    const statusEl       = document.getElementById('status');
+    const resultsSection = document.getElementById('results-section');
+
+    // Cards
+    const cardRowsA    = document.getElementById('cardRowsA');
+    const cardRowsB    = document.getElementById('cardRowsB');
+    const cardMatch    = document.getElementById('cardMatch');
+    const cardMatchPct = document.getElementById('cardMatchPct');
+    const cardOnlyA    = document.getElementById('cardOnlyA');
+    const cardOnlyAPct = document.getElementById('cardOnlyAPct');
+    const cardOnlyB    = document.getElementById('cardOnlyB');
+    const cardOnlyBPct = document.getElementById('cardOnlyBPct');
+
+    // Profiles
+    const profileColA  = document.getElementById('profileColA');
+    const profileColB  = document.getElementById('profileColB');
+    const pDistinctA   = document.getElementById('pDistinctA');
+    const pNullA       = document.getElementById('pNullA');
+    const pTypeA       = document.getElementById('pTypeA');
+    const pDistinctB   = document.getElementById('pDistinctB');
+    const pNullB       = document.getElementById('pNullB');
+    const pTypeB       = document.getElementById('pTypeB');
+
+    // Tabs
+    const tabs         = document.querySelectorAll('.tab');
+    const tabCountAll  = document.getElementById('tabCountAll');
+    const tabCountMatch  = document.getElementById('tabCountMatch');
+    const tabCountOnlyA  = document.getElementById('tabCountOnlyA');
+    const tabCountOnlyB  = document.getElementById('tabCountOnlyB');
+
+    // Table
+    const searchInput  = document.getElementById('searchInput');
+    const resultBody   = document.getElementById('resultBody');
+    const emptyState   = document.getElementById('emptyState');
+    const tableEl      = document.getElementById('resultTable');
+    const exportCSVBtn = document.getElementById('exportCSVBtn');
+    const exportJSONBtn = document.getElementById('exportJSONBtn');
+
+    // ── Utilities ───────────────────────────────────────────────────────────────
+    function escHtml(s) {
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function pct(n, total) {
+      if (total === 0) return '0%';
+      return (n / total * 100).toFixed(1) + '%';
+    }
+
+    function showStatus(msg, type) {
+      statusEl.textContent = msg;
+      statusEl.className   = type;
+      statusEl.style.display = 'block';
+    }
+
+    function hideStatus() {
+      statusEl.style.display = 'none';
+    }
+
+    function tryEnableRunBtn() {
+      const colA = columnSelectA.value;
+      const colB = columnSelectB.value;
+      const hasA = columnSelectA.options.length > 0 && colA && !columnSelectA.disabled;
+      const hasB = columnSelectB.options.length > 0 && colB && !columnSelectB.disabled;
+      runBtn.disabled = !(hasA && hasB);
+    }
+
+    // ── Populate column dropdowns ────────────────────────────────────────────────
+    function populateColumns(selectEl, columns) {
+      selectEl.innerHTML = '';
+      columns.forEach(col => {
+        const opt = document.createElement('option');
+        opt.value = col;
+        opt.textContent = col;
+        selectEl.appendChild(opt);
+      });
+      selectEl.disabled = false;
+    }
+
+    // ── Render table ─────────────────────────────────────────────────────────────
+    function getFilteredRows() {
+      const q = searchQuery.toLowerCase();
+      return allRows.filter(row => {
+        // Tab filter
+        if (activeFilter === 'common' && row.type !== 'common') return false;
+        if (activeFilter === 'onlyA'  && row.type !== 'onlyA')  return false;
+        if (activeFilter === 'onlyB'  && row.type !== 'onlyB')  return false;
+        // Search
+        if (q && !row.value.toLowerCase().includes(q)) return false;
+        return true;
+      });
+    }
+
+    const TYPE_ORDER = { 'onlyA': 0, 'onlyB': 1, 'common': 2 };
+
+    function sortRows(rows) {
+      return [...rows].sort((a, b) => {
+        let va, vb;
+        switch (sortCol) {
+          case 'type':   va = TYPE_ORDER[a.type];  vb = TYPE_ORDER[b.type];  break;
+          case 'value':  va = a.value.toLowerCase(); vb = b.value.toLowerCase(); break;
+          case 'countA': va = a.countA; vb = b.countA; break;
+          case 'countB': va = a.countB; vb = b.countB; break;
+          default:       va = a.value;  vb = b.value;
+        }
+        if (va < vb) return -sortDir;
+        if (va > vb) return  sortDir;
+        return 0;
+      });
+    }
+
+    function MAX_ROWS_DISPLAY() { return 2000; }
+
+    function renderTable() {
+      const filtered = sortRows(getFilteredRows());
+      resultBody.innerHTML = '';
+
+      if (filtered.length === 0) {
+        emptyState.style.display = 'block';
+        tableEl.style.display    = 'none';
+        return;
+      }
+
+      emptyState.style.display = 'none';
+      tableEl.style.display    = '';
+
+      const limit = Math.min(filtered.length, MAX_ROWS_DISPLAY());
+      const frag  = document.createDocumentFragment();
+
+      for (let i = 0; i < limit; i++) {
+        const row = filtered[i];
+        const tr  = document.createElement('tr');
+
+        const chipClass = row.type === 'common' ? 'chip-common'
+                        : row.type === 'onlyA'  ? 'chip-only-a'
+                        : 'chip-only-b';
+
+        const chipLabel = row.type === 'common' ? 'Common'
+                        : row.type === 'onlyA'  ? 'Only A'
+                        : 'Only B';
+
+        const valClass  = row.type === 'common' ? 'val-common'
+                        : row.type === 'onlyA'  ? 'val-only-a'
+                        : 'val-only-b';
+
+        // Truncate row lists for display
+        const rowsADisplay = row.rowsA.length > 8
+          ? row.rowsA.slice(0, 8).join(', ') + '…'
+          : row.rowsA.join(', ') || '—';
+
+        const rowsBDisplay = row.rowsB.length > 8
+          ? row.rowsB.slice(0, 8).join(', ') + '…'
+          : row.rowsB.join(', ') || '—';
+
+        tr.innerHTML =
+          '<td><span class="type-chip ' + chipClass + '">' + chipLabel + '</span></td>' +
+          '<td class="' + valClass + '">' + escHtml(row.value) + '</td>' +
+          '<td>' + (row.countA || '—') + '</td>' +
+          '<td>' + escHtml(rowsADisplay) + '</td>' +
+          '<td>' + (row.countB || '—') + '</td>' +
+          '<td>' + escHtml(rowsBDisplay) + '</td>';
+
+        frag.appendChild(tr);
+      }
+
+      resultBody.appendChild(frag);
+
+      if (filtered.length > limit) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = '<td colspan="6" style="text-align:center;color:var(--vscode-descriptionForeground);padding:8px;">… ' + (filtered.length - limit) + ' more rows hidden. Narrow filter or export to see all.</td>';
+        resultBody.appendChild(tr);
+      }
+    }
+
+    // ── Update tab counts ─────────────────────────────────────────────────────────
+    function updateTabCounts() {
+      const countCommon = allRows.filter(r => r.type === 'common').length;
+      const countOnlyA  = allRows.filter(r => r.type === 'onlyA').length;
+      const countOnlyB  = allRows.filter(r => r.type === 'onlyB').length;
+
+      tabCountAll.textContent   = allRows.length;
+      tabCountMatch.textContent = countCommon;
+      tabCountOnlyA.textContent = countOnlyA;
+      tabCountOnlyB.textContent = countOnlyB;
+    }
+
+    // ── Render full results ───────────────────────────────────────────────────────
+    function renderResults(result) {
+      lastResult = result;
+      allRows    = result.rows;
+
+      const total = result.matchCount + result.onlyACount + result.onlyBCount;
+
+      // Summary cards
+      cardRowsA.textContent    = result.totalRowsA.toLocaleString();
+      cardRowsB.textContent    = result.totalRowsB.toLocaleString();
+      cardMatch.textContent    = result.matchCount.toLocaleString();
+      cardMatchPct.textContent = pct(result.matchCount, total) + ' of distinct values';
+      cardOnlyA.textContent    = result.onlyACount.toLocaleString();
+      cardOnlyAPct.textContent = pct(result.onlyACount, total) + ' of distinct values';
+      cardOnlyB.textContent    = result.onlyBCount.toLocaleString();
+      cardOnlyBPct.textContent = pct(result.onlyBCount, total) + ' of distinct values';
+
+      // Profiles
+      profileColA.textContent = result.columnA;
+      profileColB.textContent = result.columnB;
+      pDistinctA.textContent  = result.profileA.distinctCount;
+      pNullA.textContent      = result.profileA.nullCount;
+      pTypeA.textContent      = result.profileA.dataType;
+      pDistinctB.textContent  = result.profileB.distinctCount;
+      pNullB.textContent      = result.profileB.nullCount;
+      pTypeB.textContent      = result.profileB.dataType;
+
+      // Tab counts
+      updateTabCounts();
+
+      // Reset filter state for a fresh comparison
+      activeFilter = 'all';
+      searchQuery  = '';
+      searchInput.value = '';
+      sortCol = 'type';
+      sortDir = 1;
+
+      tabs.forEach(t => t.classList.remove('active'));
+      document.getElementById('tabAll').classList.add('active');
+
+      // Show results
+      resultsSection.style.display = 'block';
+      renderTable();
+    }
+
+    // ── Tab clicks ─────────────────────────────────────────────────────────────────
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        tabs.forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        activeFilter = tab.dataset.filter;
+        renderTable();
+      });
+    });
+
+    // ── Search ─────────────────────────────────────────────────────────────────────
+    searchInput.addEventListener('input', () => {
+      searchQuery = searchInput.value.trim();
+      renderTable();
+    });
+
+    // ── Column header sort ─────────────────────────────────────────────────────────
+    tableEl.querySelectorAll('thead th[data-col]').forEach(th => {
+      th.addEventListener('click', () => {
+        const col = th.dataset.col;
+        if (['rowsA', 'rowsB'].includes(col)) return; // not sortable
+        if (sortCol === col) {
+          sortDir = -sortDir;
+        } else {
+          sortCol = col;
+          sortDir = 1;
+        }
+        tableEl.querySelectorAll('thead th').forEach(h => h.classList.remove('sorted'));
+        th.classList.add('sorted');
+        th.querySelector('.sort-indicator').textContent = sortDir === 1 ? '↑' : '↓';
+        renderTable();
+      });
+    });
+
+    // ── Sort buttons ────────────────────────────────────────────────────────────────
+    document.getElementById('sortValueBtn').addEventListener('click', () => {
+      if (sortCol === 'value') { sortDir = -sortDir; } else { sortCol = 'value'; sortDir = 1; }
+      renderTable();
+    });
+    document.getElementById('sortCountABtn').addEventListener('click', () => {
+      if (sortCol === 'countA') { sortDir = -sortDir; } else { sortCol = 'countA'; sortDir = -1; }
+      renderTable();
+    });
+    document.getElementById('sortCountBBtn').addEventListener('click', () => {
+      if (sortCol === 'countB') { sortDir = -sortDir; } else { sortCol = 'countB'; sortDir = -1; }
+      renderTable();
+    });
+
+    // ── Browse buttons ──────────────────────────────────────────────────────────────
+    browseA.addEventListener('click', () => {
+      vscode.postMessage({ type: 'loadFileA' });
+    });
+
+    browseB.addEventListener('click', () => {
+      vscode.postMessage({ type: 'loadFileB' });
+    });
+
+    columnSelectA.addEventListener('change', tryEnableRunBtn);
+    columnSelectB.addEventListener('change', tryEnableRunBtn);
+
+    // ── Run comparison ──────────────────────────────────────────────────────────────
+    runBtn.addEventListener('click', () => {
+      hideStatus();
+      resultsSection.style.display = 'none';
+      progressBar.style.display = 'block';
+      progressFill.style.width  = '0%';
+      progressLabel.textContent = 'Comparing…';
+      runBtn.disabled = true;
+
+      vscode.postMessage({
+        type:    'runCompare',
+        columnA: columnSelectA.value,
+        columnB: columnSelectB.value,
+      });
+    });
+
+    // ── Export ────────────────────────────────────────────────────────────────────
+    function exportRows(format) {
+      if (!lastResult) return;
+      const filtered = sortRows(getFilteredRows());
+      vscode.postMessage({
+        type:    'exportResult',
+        format,
+        rows:    filtered,
+        columnA: lastResult.columnA,
+        columnB: lastResult.columnB,
+      });
+    }
+
+    exportCSVBtn.addEventListener('click', () => exportRows('csv'));
+    exportJSONBtn.addEventListener('click', () => exportRows('json'));
+
+    // ── Messages from extension host ───────────────────────────────────────────────
+    window.addEventListener('message', ({ data }) => {
+      switch (data.type) {
+
+        case 'initFileA':
+          fileNameA.textContent = data.fileName || 'Loaded';
+          populateColumns(columnSelectA, data.columns);
+          tryEnableRunBtn();
+          break;
+
+        case 'columnsB':
+          fileNameB.textContent = data.fileName || 'Loaded';
+          populateColumns(columnSelectB, data.columns);
+          tryEnableRunBtn();
+          break;
+
+        case 'progress':
+          progressFill.style.width = data.pct + '%';
+          progressLabel.textContent = 'Comparing… ' + data.pct + '%';
+          break;
+
+        case 'compareResult':
+          progressBar.style.display = 'none';
+          runBtn.disabled = false;
+          renderResults(data.result);
+          break;
+
+        case 'compareError':
+          progressBar.style.display = 'none';
+          runBtn.disabled = false;
+          showStatus('❌ ' + data.message, 'error');
+          break;
+
+        case 'exportDone': {
+          const filename = (data.savedPath || '').replace(/.*[\\/]/, '');
+          showStatus('✅ Exported to: ' + filename, 'success');
+          break;
+        }
+      }
+    });
+  </script>
+</body>
+</html>
