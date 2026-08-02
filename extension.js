@@ -9,6 +9,8 @@ const transformCommand = require('./commands/transform');
 const transformWebviewCommand = require('./commands/transformWebview');
 const compareCSVCommand       = require('./commands/compareCSV');
 const aboutCommand            = require('./commands/about');
+const dashboardCommand        = require('./commands/dashboard');
+const chartsCommand = require('./commands/charts')
 
 /**
  * @param {vscode.ExtensionContext} context
@@ -72,7 +74,17 @@ function activate(context) {
         vscode.commands.registerCommand(
             'vizflow.about',
             aboutCommand(context)
-        )
+        ),
+
+        vscode.commands.registerCommand(
+            'vizflow.dashboard',
+            dashboardCommand(context)
+        ),
+        
+        vscode.commands.registerCommand(
+        'vizflow.charts',
+        chartsCommand(context)
+    )
 
     );
 }

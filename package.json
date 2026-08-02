@@ -72,6 +72,14 @@
       {
         "command": "vizflow.about",
         "title": "VizFlow: About / Creator"
+      },
+      {
+        "command": "vizflow.dashboard",
+        "title": "VizFlow: Dataset Summary Dashboard"
+      },
+      {
+        "command": "vizflow.charts",
+        "title": "VizFlow: Interactive Charts"
       }
     ]
   },

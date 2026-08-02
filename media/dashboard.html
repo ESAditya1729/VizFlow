@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'nonce-{{NONCE}}'; style-src 'nonce-{{NONCE}}'; img-src vscode-resource: https: data:;">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VizFlow — Dataset Summary Dashboard</title>
+  <link nonce="{{NONCE}}" rel="stylesheet" href="{{WEBVIEW_CSS_URI}}">
+</head>
+<body>
+
+<!-- ══════════════════ BRAND HEADER ══════════════════════ -->
+<div class="brand-header">
+  <img class="brand-icon" src="{{ICON_URI}}" alt="VizFlow icon">
+  <div>
+    <div class="brand-name">VizFlow</div>
+    <div class="brand-tagline">Dataset Summary Dashboard</div>
+  </div>
+  <div class="brand-header-right">
+    <span class="version-badge">v{{VERSION}}</span>
+  </div>
+</div>
+
+<!-- ══════════════════ LOADING OVERLAY ═══════════════════ -->
+<div id="loading-overlay">
+  <div class="spinner"></div>
+  <div>Profiling dataset…</div>
+</div>
+
+<!-- ══════════════════ MAIN DASHBOARD (hidden until data arrives) ══════════════════ -->
+<div class="page-content" id="dashboard" style="display:none;">
+
+  <!-- ─── FILE INFO BAR ───────────────────────────────── -->
+  <div id="file-info-bar" style="
+    display:flex; align-items:center; gap:12px;
+    margin-bottom:16px; padding:10px 14px;
+    background:var(--vscode-sideBar-background,#252526);
+    border:1px solid var(--vscode-panel-border,#3c3c3c);
+    border-radius:6px; font-size:12px; flex-wrap:wrap;">
+    <span style="font-weight:600; font-size:14px;" id="file-name-display">—</span>
+    <span style="color:var(--vscode-descriptionForeground,#858585);" id="file-meta-display">—</span>
+    <span style="margin-left:auto; display:flex; gap:6px; flex-wrap:wrap;" id="header-actions"></span>
+  </div>
+
+  <!-- ─── SECTION: SUMMARY CARDS ──────────────────────── -->
+  <div class="section">
+    <div class="section-header" data-target="summary-body">
+      <span class="section-icon">📊</span>
+      <span class="section-title">Dataset Overview</span>
+      <span class="section-toggle" id="toggle-summary">▼</span>
+    </div>
+    <div class="section-body" id="summary-body">
+
+      <div class="cards-grid" id="summary-cards"></div>
+
+      <!-- Type distribution bar -->
+      <div style="margin-top:14px; padding:12px 14px; background:var(--vscode-sideBar-background,#252526); border:1px solid var(--vscode-panel-border,#3c3c3c); border-radius:6px;">
+        <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.07em; color:var(--vscode-descriptionForeground,#858585); margin-bottom:8px;">Column Type Distribution</div>
+        <div class="type-bar-row">
+          <div class="type-bar" id="type-dist-bar"></div>
+        </div>
+        <div class="type-bar-legend" id="type-dist-legend"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ─── SECTION: COLUMN EXPLORER + DETAILS ──────────── -->
+  <div class="section">
+    <div class="section-header" data-target="explorer-body">
+      <span class="section-icon">🔍</span>
+      <span class="section-title">Column Explorer</span>
+      <span class="section-count" id="col-count-badge">0</span>
+      <span class="section-toggle" id="toggle-explorer">▼</span>
+    </div>
+    <div class="section-body" id="explorer-body">
+
+      <div class="explorer-controls">
+        <input type="text" class="explorer-search" id="col-search"   placeholder="Search columns…">
+        <select class="explorer-filter" id="col-type-filter">
+          <option value="">All types</option>
+          <option value="numeric">Numeric</option>
+          <option value="text">Text</option>
+          <option value="date">Date</option>
+          <option value="boolean">Boolean</option>
+          <option value="mixed">Mixed</option>
+        </select>
+        <select class="explorer-sort" id="col-sort">
+          <option value="">Sort: Default</option>
+          <option value="name-asc">Name A→Z</option>
+          <option value="name-desc">Name Z→A</option>
+          <option value="nulls-desc">Most Nulls</option>
+          <option value="nulls-asc">Fewest Nulls</option>
+          <option value="distinct-desc">Most Distinct</option>
+          <option value="complete-asc">Least Complete</option>
+        </select>
+      </div>
+
+      <div class="explorer-details-layout">
+        <!-- left: table -->
+        <div>
+          <div class="column-table-wrapper">
+            <table class="column-table" id="col-table">
+              <thead>
+                <tr>
+                  <th data-sort="name">Column <span class="sort-arrow">↕</span></th>
+                  <th>Type</th>
+                  <th data-sort="nulls">Nulls <span class="sort-arrow">↕</span></th>
+                  <th data-sort="distinct">Distinct <span class="sort-arrow">↕</span></th>
+                  <th data-sort="dupes">Dupes <span class="sort-arrow">↕</span></th>
+                  <th data-sort="complete">Complete <span class="sort-arrow">↕</span></th>
+                  <th>Distribution</th>
+                </tr>
+              </thead>
+              <tbody id="col-table-body"></tbody>
+            </table>
+          </div>
+          <div id="col-empty-msg" style="display:none; text-align:center; padding:20px; font-size:12px; color:var(--vscode-descriptionForeground,#858585);">No columns match the current filter.</div>
+        </div>
+
+        <!-- right: details panel -->
+        <div class="details-panel" id="details-panel">
+          <div class="details-panel-header">
+            <span style="font-size:14px;">📋</span>
+            <span class="details-panel-title" id="details-col-name">Column Details</span>
+            <span class="type-badge" id="details-type-badge" style="margin-left:auto;"></span>
+          </div>
+          <div class="details-panel-body" id="details-panel-body">
+            <div class="details-empty">Select a column from the table to see detailed statistics and patterns.</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ─── SECTION: INSIGHTS & RECOMMENDATIONS ─────────── -->
+  <div class="section">
+    <div class="section-header" data-target="insights-body">
+      <span class="section-icon">💡</span>
+      <span class="section-title">Insights &amp; Recommendations</span>
+      <span class="section-count" id="insight-count-badge">0</span>
+      <span class="section-toggle" id="toggle-insights">▼</span>
+    </div>
+    <div class="section-body" id="insights-body">
+      <div class="insights-grid" id="insights-grid"></div>
+      <div id="no-insights-msg" style="display:none; padding:20px; text-align:center; font-size:12px; color:var(--vscode-descriptionForeground,#858585);">No critical issues detected. Your dataset looks healthy!</div>
+    </div>
+  </div>
+
+  <!-- ─── SECTION: COMING SOON ─────────────────────────── -->
+  <div class="section">
+    <div class="section-header" data-target="coming-body">
+      <span class="section-icon">🚀</span>
+      <span class="section-title">Coming Soon</span>
+      <span class="section-toggle" id="toggle-coming">▼</span>
+    </div>
+    <div class="section-body" id="coming-body">
+      <div class="coming-soon-grid">
+        <div class="coming-soon-card"><div class="coming-soon-icon">🤖</div><div class="coming-soon-title">AI Insights</div><div class="coming-soon-desc">Natural language summaries and anomaly explanations powered by AI</div><div class="coming-soon-chip">Planned</div></div>
+        <div class="coming-soon-card"><div class="coming-soon-icon">📈</div><div class="coming-soon-title">Interactive Charts</div><div class="coming-soon-desc">Histogram, scatter, box plot and distribution charts per column</div><div class="coming-soon-chip">Planned</div></div>
+        <div class="coming-soon-card"><div class="coming-soon-icon">🔗</div><div class="coming-soon-title">Correlation Analysis</div><div class="coming-soon-desc">Detect numeric correlations and visualize the correlation matrix</div><div class="coming-soon-chip">Planned</div></div>
+        <div class="coming-soon-card"><div class="coming-soon-icon">🔄</div><div class="coming-soon-title">Transformation History</div><div class="coming-soon-desc">Track all applied transformations with undo/redo support</div><div class="coming-soon-chip">Planned</div></div>
+        <div class="coming-soon-card"><div class="coming-soon-icon">📐</div><div class="coming-soon-title">Schema Drift Detection</div><div class="coming-soon-desc">Compare schema changes across different versions of a dataset</div><div class="coming-soon-chip">Planned</div></div>
+        <div class="coming-soon-card"><div class="coming-soon-icon">📄</div><div class="coming-soon-title">Report Generation</div><div class="coming-soon-desc">Export a full data quality PDF/HTML report with one click</div><div class="coming-soon-chip">Planned</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="brand-footer">
+    <strong>VizFlow</strong> — Dataset Summary Dashboard &middot; v{{VERSION}} &middot; Built for VS Code<br>
+    Publisher: <strong>IBM</strong>
+  </div>
+
+</div><!-- /#dashboard -->
+
+<!-- ═══════════════════════ SCRIPTS ═══════════════════════════ -->
+<script nonce="{{NONCE}}">
+'use strict';
+
+const vscode = acquireVsCodeApi();
+
+// ── State ────────────────────────────────────────────────────
+/** @type {{ fileName:string, fileSize:string, rowCount:number, colCount:number, columns: any[], qualityScore:number, nullTotal:number, duplicateRows:number, duplicateValues:number, memoryKB:number }} */
+let dashData = null;
+let selectedCol = null;
+
+// ── DOM refs ─────────────────────────────────────────────────
+const loadingOverlay    = document.getElementById('loading-overlay');
+const dashboard         = document.getElementById('dashboard');
+const summaryCards      = document.getElementById('summary-cards');
+const fileNameDisplay   = document.getElementById('file-name-display');
+const fileMetaDisplay   = document.getElementById('file-meta-display');
+const headerActions     = document.getElementById('header-actions');
+const typDistBar        = document.getElementById('type-dist-bar');
+const typeDistLegend    = document.getElementById('type-dist-legend');
+const colCountBadge     = document.getElementById('col-count-badge');
+const insightCountBadge = document.getElementById('insight-count-badge');
+const colTableBody      = document.getElementById('col-table-body');
+const colEmptyMsg       = document.getElementById('col-empty-msg');
+const colSearch         = document.getElementById('col-search');
+const colTypeFilter     = document.getElementById('col-type-filter');
+const colSort           = document.getElementById('col-sort');
+const insightsGrid      = document.getElementById('insights-grid');
+const noInsightsMsg     = document.getElementById('no-insights-msg');
+const detailsPanelBody  = document.getElementById('details-panel-body');
+const detailsColName    = document.getElementById('details-col-name');
+const detailsTypeBadge  = document.getElementById('details-type-badge');
+
+// ── Utilities ─────────────────────────────────────────────────
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function fmt(n, dec=2) {
+  if (n == null) return '—';
+  return typeof n === 'number' ? n.toLocaleString(undefined,{maximumFractionDigits:dec}) : String(n);
+}
+function pct(n, total) {
+  if (!total) return '0%';
+  return ((n / total) * 100).toFixed(1) + '%';
+}
+function completenessColor(pct) {
+  if (pct >= 95) return '#4caf50';
+  if (pct >= 70) return '#ffc107';
+  return '#f44336';
+}
+function qualityColor(score) {
+  if (score >= 80) return '#4caf50';
+  if (score >= 55) return '#ffc107';
+  return '#f44336';
+}
+function typeColor(type) {
+  const map = { numeric:'#64b5f6', text:'#ce93d8', date:'#80cbc4', boolean:'#ffe082', mixed:'#ffcc80' };
+  return map[type] || '#aaaaaa';
+}
+
+// ── Section collapse/expand ───────────────────────────────────
+document.querySelectorAll('.section-header').forEach(header => {
+  header.addEventListener('click', () => {
+    const target = document.getElementById(header.dataset.target);
+    const toggle = header.querySelector('.section-toggle');
+    if (!target) return;
+    const collapsed = target.classList.toggle('collapsed');
+    if (toggle) toggle.textContent = collapsed ? '▶' : '▼';
+  });
+});
+
+// ── Render Summary Cards ──────────────────────────────────────
+function renderSummaryCards(d) {
+  const numCols   = d.columns.filter(c => c.type === 'numeric').length;
+  const textCols  = d.columns.filter(c => c.type === 'text').length;
+  const dateCols  = d.columns.filter(c => c.type === 'date').length;
+  const boolCols  = d.columns.filter(c => c.type === 'boolean').length;
+  const mem       = d.memoryKB >= 1024 ? (d.memoryKB/1024).toFixed(1) + ' MB' : d.memoryKB + ' KB';
+
+  const cards = [
+    { label:'Rows',          value: fmt(d.rowCount, 0),      sub:'total data rows',          accent:'accent-blue',   tip:'Total non-header rows' },
+    { label:'Columns',       value: fmt(d.colCount, 0),      sub:numCols+' num · '+textCols+' text · '+dateCols+' date',  accent:'accent-purple' },
+    { label:'File Size',     value: d.fileSize,              sub:mem+' memory est.',          accent:'accent-teal' },
+    { label:'Quality Score', value: null, isQuality: true,    accent: d.qualityScore >= 80 ? 'accent-green' : d.qualityScore >= 55 ? 'accent-yellow' : 'accent-red' },
+    { label:'Null Values',   value: fmt(d.nullTotal, 0),     sub:pct(d.nullTotal, d.rowCount*d.colCount)+' of cells', accent: d.nullTotal > 0 ? 'accent-yellow' : 'accent-green' },
+    { label:'Duplicate Rows',value: fmt(d.duplicateRows,0),  sub:pct(d.duplicateRows,d.rowCount)+' of rows',          accent: d.duplicateRows > 0 ? 'accent-yellow' : 'accent-green' },
+    { label:'Dup. Values',   value: fmt(d.duplicateValues,0),sub:'across all columns',        accent:'accent-orange' },
+    { label:'Memory Usage',  value: mem,                     sub:'estimated in-memory size',  accent:'accent-teal' },
+    { label:'Numeric Cols',  value: numCols,                 sub:'of '+d.colCount+' total',   accent:'accent-blue' },
+    { label:'Text Cols',     value: textCols,                sub:'of '+d.colCount+' total',   accent:'accent-purple' },
+    { label:'Date Cols',     value: dateCols,                sub:'of '+d.colCount+' total',   accent:'accent-teal' },
+    { label:'Boolean Cols',  value: boolCols,                sub:'of '+d.colCount+' total',   accent:'accent-yellow' },
+  ];
+
+  summaryCards.innerHTML = '';
+  cards.forEach(card => {
+    const el = document.createElement('div');
+    el.className = 'stat-card ' + (card.accent || '');
+    if (card.tip) el.dataset.tooltip = card.tip;
+
+    if (card.isQuality) {
+      const r = 18;
+      const circ = 2 * Math.PI * r;
+      const offset = circ - (d.qualityScore / 100) * circ;
+      const color = qualityColor(d.qualityScore);
+      el.innerHTML =
+        '<div class="stat-card-label">' + esc(card.label) + '</div>' +
+        '<div class="quality-score">' +
+          '<svg class="quality-ring" viewBox="0 0 44 44">' +
+            '<circle class="quality-ring-bg" cx="22" cy="22" r="'+r+'"/>' +
+            '<circle class="quality-ring-fg" cx="22" cy="22" r="'+r+'"' +
+              ' stroke="'+color+'"' +
+              ' stroke-dasharray="'+circ+'"' +
+              ' stroke-dashoffset="'+offset+'"/>' +
+            '<text class="quality-ring-text" x="22" y="26" text-anchor="middle">'+d.qualityScore+'</text>' +
+          '</svg>' +
+          '<div><div style="font-size:22px;font-weight:700;">'+d.qualityScore+'<span style="font-size:14px;">/100</span></div>' +
+          '<div class="stat-card-sub" style="color:'+color+';">'+
+            (d.qualityScore >= 80 ? 'Good' : d.qualityScore >= 55 ? 'Fair' : 'Poor') +
+          '</div></div>' +
+        '</div>';
+    } else {
+      el.innerHTML =
+        '<div class="stat-card-label">' + esc(card.label) + '</div>' +
+        '<div class="stat-card-value">' + esc(card.value) + '</div>' +
+        (card.sub ? '<div class="stat-card-sub">' + esc(card.sub) + '</div>' : '');
+    }
+    summaryCards.appendChild(el);
+  });
+
+  // Type distribution bar
+  const typeCounts = { numeric: numCols, text: textCols, date: dateCols, boolean: boolCols, mixed: d.columns.filter(c=>c.type==='mixed').length };
+  const typeLabels = { numeric:'Numeric', text:'Text', date:'Date', boolean:'Boolean', mixed:'Mixed' };
+  const total = d.colCount || 1;
+  typDistBar.innerHTML = '';
+  typeDistLegend.innerHTML = '';
+  Object.entries(typeCounts).forEach(([type, count]) => {
+    if (count === 0) return;
+    const seg = document.createElement('div');
+    seg.className = 'type-bar-seg';
+    seg.style.width = pct(count, total);
+    seg.style.background = typeColor(type);
+    seg.dataset.tooltip = typeLabels[type] + ': ' + count;
+    typDistBar.appendChild(seg);
+
+    const leg = document.createElement('div');
+    leg.className = 'type-legend-item';
+    leg.innerHTML = '<div class="type-legend-dot" style="background:'+typeColor(type)+'"></div>' +
+      esc(typeLabels[type]) + ' (' + count + ')';
+    typeDistLegend.appendChild(leg);
+  });
+}
+
+// ── Render Column Table ───────────────────────────────────────
+let sortKey = '';
+let sortDir = 1;
+
+function getFilteredColumns() {
+  let cols = dashData ? [...dashData.columns] : [];
+  const q = colSearch.value.toLowerCase();
+  const typeF = colTypeFilter.value;
+  if (q) cols = cols.filter(c => c.name.toLowerCase().includes(q));
+  if (typeF) cols = cols.filter(c => c.type === typeF);
+
+  const sortVal = colSort.value;
+  if (sortVal === 'name-asc')      cols.sort((a,b) => a.name.localeCompare(b.name));
+  else if (sortVal === 'name-desc')     cols.sort((a,b) => b.name.localeCompare(a.name));
+  else if (sortVal === 'nulls-desc')    cols.sort((a,b) => (b.nullCount||0)-(a.nullCount||0));
+  else if (sortVal === 'nulls-asc')     cols.sort((a,b) => (a.nullCount||0)-(b.nullCount||0));
+  else if (sortVal === 'distinct-desc') cols.sort((a,b) => (b.distinctCount||0)-(a.distinctCount||0));
+  else if (sortVal === 'complete-asc')  cols.sort((a,b) => (a.completeness||0)-(b.completeness||0));
+  else if (sortKey) {
+    const keyMap = { name:'name', nulls:'nullCount', distinct:'distinctCount', dupes:'duplicateValues', complete:'completeness' };
+    const k = keyMap[sortKey];
+    if (k) cols.sort((a,b) => sortDir * (a[k] > b[k] ? 1 : a[k] < b[k] ? -1 : 0));
+  }
+  return cols;
+}
+
+function renderColumnTable() {
+  if (!dashData) return;
+  const cols = getFilteredColumns();
+  colCountBadge.textContent = dashData.columns.length;
+  colTableBody.innerHTML = '';
+  if (cols.length === 0) {
+    colEmptyMsg.style.display = 'block';
+    return;
+  }
+  colEmptyMsg.style.display = 'none';
+
+  const totalRows = dashData.rowCount || 1;
+  cols.forEach(col => {
+    const completePct = col.completeness != null ? col.completeness : ((totalRows - (col.nullCount||0)) / totalRows * 100);
+    const colFill = completePct.toFixed(1);
+    const tr = document.createElement('tr');
+    if (selectedCol === col.name) tr.classList.add('selected');
+
+    tr.innerHTML =
+      '<td style="font-weight:600; max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="'+esc(col.name)+'">'+esc(col.name)+'</td>' +
+      '<td><span class="type-badge '+esc(col.type)+'">'+esc(col.type)+'</span></td>' +
+      '<td>'+fmt(col.nullCount,0)+'</td>' +
+      '<td>'+fmt(col.distinctCount,0)+'</td>' +
+      '<td>'+fmt(col.duplicateValues,0)+'</td>' +
+      '<td>' +
+        '<div class="completeness-cell">' +
+          '<span class="completeness-pct" style="color:'+completenessColor(completePct)+'">'+colFill+'%</span>' +
+          '<div class="completeness-bar"><div class="completeness-fill" style="width:'+colFill+'%;background:'+completenessColor(completePct)+'"></div></div>' +
+        '</div>' +
+      '</td>' +
+      '<td>' +
+        '<div class="mini-bar"><div class="mini-bar-fill" style="width:'+colFill+'%"></div></div>' +
+      '</td>';
+
+    tr.addEventListener('click', () => {
+      selectedCol = col.name;
+      renderColumnTable();
+      renderDetailsPanel(col);
+    });
+
+    colTableBody.appendChild(tr);
+  });
+}
+
+// sortable column headers
+document.querySelectorAll('#col-table th[data-sort]').forEach(th => {
+  th.addEventListener('click', () => {
+    const key = th.dataset.sort;
+    if (sortKey === key) sortDir *= -1; else { sortKey = key; sortDir = 1; }
+    document.querySelectorAll('#col-table th').forEach(t => t.classList.remove('sorted'));
+    th.classList.add('sorted');
+    th.querySelector('.sort-arrow').textContent = sortDir === 1 ? '↑' : '↓';
+    renderColumnTable();
+  });
+});
+
+colSearch.addEventListener('input', renderColumnTable);
+colTypeFilter.addEventListener('change', renderColumnTable);
+colSort.addEventListener('change', renderColumnTable);
+
+// ── Render Details Panel ──────────────────────────────────────
+function renderDetailsPanel(col) {
+  detailsColName.textContent = col.name;
+  detailsTypeBadge.className = 'type-badge ' + col.type;
+  detailsTypeBadge.textContent = col.type;
+
+  const totalRows = dashData.rowCount || 1;
+  const completePct = col.completeness != null ? col.completeness : ((totalRows - (col.nullCount||0)) / totalRows * 100);
+
+  let html = '';
+
+  // ── Basic Stats ──
+  html += '<div class="detail-group">';
+  html += '<div class="detail-group-title">Basic Statistics</div>';
+  html += detailRow('Total Values', fmt(totalRows, 0));
+  html += detailRow('Non-Null Count', fmt(totalRows - (col.nullCount||0), 0));
+  html += detailRow('Null Count', fmt(col.nullCount, 0));
+  html += detailRow('Null %', pct(col.nullCount||0, totalRows));
+  html += detailRow('Distinct Values', fmt(col.distinctCount, 0));
+  html += detailRow('Duplicate Values', fmt(col.duplicateValues, 0));
+  html += detailRow('Completeness', completePct.toFixed(1) + '%');
+  html += '</div>';
+
+  // ── Numeric stats ──
+  if (col.type === 'numeric' && col.stats) {
+    const s = col.stats;
+    html += '<div class="detail-group">';
+    html += '<div class="detail-group-title">Numeric Statistics</div>';
+    html += detailRow('Minimum', fmt(s.min));
+    html += detailRow('Maximum', fmt(s.max));
+    html += detailRow('Mean / Average', fmt(s.mean));
+    html += detailRow('Median', fmt(s.median));
+    html += detailRow('Std. Deviation', fmt(s.stdDev));
+    html += detailRow('Sum', fmt(s.sum));
+    html += detailRow('Range', fmt(s.max != null && s.min != null ? s.max - s.min : null));
+    html += '</div>';
+  }
+
+  // ── Detected Patterns ──
+  if (col.patterns && col.patterns.length > 0) {
+    html += '<div class="detail-group">';
+    html += '<div class="detail-group-title">Detected Patterns</div>';
+    html += '<div class="pattern-tags">';
+    col.patterns.forEach(p => { html += '<span class="pattern-tag">'+esc(p)+'</span>'; });
+    html += '</div></div>';
+  }
+
+  // ── Top Values ──
+  if (col.topValues && col.topValues.length > 0) {
+    const maxCount = col.topValues[0].count || 1;
+    html += '<div class="detail-group">';
+    html += '<div class="detail-group-title">Top Frequent Values</div>';
+    html += '<div class="top-values-bar">';
+    col.topValues.slice(0, 8).forEach(tv => {
+      const barPct = Math.round((tv.count / maxCount) * 100);
+      html +=
+        '<div class="top-val-row">' +
+          '<span class="top-val-label" title="'+esc(tv.value)+'">'+esc(String(tv.value).substring(0,30))+'</span>' +
+          '<div class="top-val-bar"><div class="top-val-fill" style="width:'+barPct+'%"></div></div>' +
+          '<span class="top-val-count">'+tv.count+'</span>' +
+        '</div>';
+    });
+    html += '</div></div>';
+  }
+
+  // ── Sample Values ──
+  if (col.sampleValues && col.sampleValues.length > 0) {
+    html += '<div class="detail-group">';
+    html += '<div class="detail-group-title">Sample Values</div>';
+    html += '<div class="sample-values">';
+    col.sampleValues.slice(0, 10).forEach(v => {
+      html += '<span class="sample-chip">'+esc(String(v).substring(0, 30))+'</span>';
+    });
+    html += '</div></div>';
+  }
+
+  // ── Quality Issues ──
+  if (col.issues && col.issues.length > 0) {
+    html += '<div class="detail-group">';
+    html += '<div class="detail-group-title">Quality Issues</div>';
+    html += '<div class="quality-issues">';
+    col.issues.forEach(issue => {
+      html += '<div class="issue-item '+esc(issue.level||'warn')+'">'+esc(issue.message)+'</div>';
+    });
+    html += '</div></div>';
+  }
+
+  // ── Quick Actions ──
+  html += '<div class="detail-group">';
+  html += '<div class="detail-group-title">Quick Actions</div>';
+  html += '<div class="details-actions" id="detail-quick-actions">';
+  html += '<button data-action="duplicates" data-col="'+esc(col.name)+'">View Duplicates</button>';
+  html += '<button data-action="distinct"   data-col="'+esc(col.name)+'">Show Distinct</button>';
+  html += '<button class="primary" data-action="transform" data-col="'+esc(col.name)+'">Transform Column</button>';
+  html += '<button data-action="chart"   data-col="'+esc(col.name)+'">Generate Chart</button>';
+  html += '<button data-action="compare" data-col="'+esc(col.name)+'">Compare CSV</button>';
+  html += '</div></div>';
+
+  detailsPanelBody.innerHTML = html;
+
+  // Attach click handlers after innerHTML is set (CSP forbids inline onclick)
+  detailsPanelBody.querySelectorAll('[data-action]').forEach(btn => {
+    btn.addEventListener('click', () => postAction(btn.dataset.action, btn.dataset.col || ''));
+  });
+}
+
+function detailRow(label, value) {
+  return '<div class="detail-row"><span class="detail-label">'+esc(label)+'</span><span class="detail-value">'+esc(value)+'</span></div>';
+}
+
+// ── Render Insights ───────────────────────────────────────────
+function renderInsights(insights) {
+  insightsGrid.innerHTML = '';
+  insightCountBadge.textContent = insights.length;
+
+  if (insights.length === 0) {
+    noInsightsMsg.style.display = 'block';
+    return;
+  }
+  noInsightsMsg.style.display = 'none';
+
+  insights.forEach(ins => {
+    const card = document.createElement('div');
+    card.className = 'insight-card severity-' + (ins.severity || 'info');
+
+    let actionsHtml = '';
+    if (ins.actions) {
+      ins.actions.forEach(act => {
+        // Use data attributes — CSP forbids inline onclick handlers
+        actionsHtml += '<button data-action="'+esc(act.type)+'" data-col="'+esc(act.column||'')+'">'+esc(act.label)+'</button>';
+      });
+    }
+
+    card.innerHTML =
+      '<div class="insight-header">' +
+        '<span class="insight-icon">'+esc(ins.icon||'💡')+'</span>' +
+        '<span class="insight-title">'+esc(ins.title)+'</span>' +
+        '<span class="insight-severity '+esc(ins.severity||'info')+'">'+esc(ins.severity||'info')+'</span>' +
+      '</div>' +
+      '<div class="insight-body">'+esc(ins.body)+'</div>' +
+      (actionsHtml ? '<div class="insight-actions">'+actionsHtml+'</div>' : '');
+
+    // Attach listeners after innerHTML is written (CSP forbids inline onclick)
+    card.querySelectorAll('[data-action]').forEach(btn => {
+      btn.addEventListener('click', () => postAction(btn.dataset.action, btn.dataset.col || ''));
+    });
+
+    insightsGrid.appendChild(card);
+  });
+}
+
+// ── Quick-action message to host ──────────────────────────────
+function postAction(type, column) {
+  vscode.postMessage({ type: 'action', action: type, column });
+}
+
+// ── Header action buttons ─────────────────────────────────────
+function renderHeaderActions() {
+  headerActions.innerHTML =
+    '<button data-action="transform">🔄 Transform</button>' +
+    '<button data-action="compare">⚖️ Compare CSV</button>' +
+    '<button data-action="export">📤 Export Report</button>';
+
+  // Attach listeners after innerHTML is written (CSP forbids inline onclick)
+  headerActions.querySelectorAll('[data-action]').forEach(btn => {
+    btn.addEventListener('click', () => postAction(btn.dataset.action, ''));
+  });
+}
+
+// ── Message handler ───────────────────────────────────────────
+window.addEventListener('message', ({ data }) => {
+  switch (data.type) {
+
+    case 'init': {
+      dashData = data.payload;
+      loadingOverlay.style.display = 'none';
+      dashboard.style.display = 'block';
+
+      fileNameDisplay.textContent = dashData.fileName;
+      fileMetaDisplay.textContent =
+        dashData.rowCount.toLocaleString() + ' rows · ' +
+        dashData.colCount + ' columns · ' +
+        dashData.fileSize;
+
+      renderHeaderActions();
+      renderSummaryCards(dashData);
+      renderColumnTable();
+      renderInsights(dashData.insights || []);
+      break;
+    }
+
+    case 'error': {
+      loadingOverlay.innerHTML =
+        '<div style="color:#ef9a9a; font-size:13px;">⚠️ ' + esc(data.message) + '</div>';
+      break;
+    }
+  }
+});
+</script>
+</body>
+</html>
