@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'nonce-{{NONCE}}'; style-src 'nonce-{{NONCE}}'; img-src vscode-resource: https: data: blob:;">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VizFlow — Chart Explorer</title>
+  <link nonce="{{NONCE}}" rel="stylesheet" href="{{WEBVIEW_CSS_URI}}">
+</head>
+<body>
+
+<!-- Brand Header -->
+<div class="brand-header">
+  <img class="brand-icon" src="{{ICON_URI}}" alt="VizFlow icon">
+  <div>
+    <div class="brand-name">VizFlow</div>
+    <div class="brand-tagline">Chart Explorer</div>
+  </div>
+  <div class="brand-header-right">
+    <span class="version-badge">v{{VERSION}}</span>
+  </div>
+</div>
+
+<!-- Main Container -->
+<div class="container">
+  <!-- Controls Panel -->
+  <div class="controls-panel">
+    <div class="control-group">
+      <label for="chart-type">Chart Type</label>
+      <select id="chart-type">
+        <option value="line">📈 Line / Area</option>
+        <option value="bar">📊 Bar Chart</option>
+        <option value="pie">🥧 Pie / Donut</option>
+      </select>
+    </div>
+
+    <div class="control-group" id="x-axis-group">
+      <label for="x-axis">X-Axis / Categories</label>
+      <select id="x-axis"></select>
+    </div>
+
+    <div class="control-group" id="y-axis-group">
+      <label for="y-axis">Y-Axis / Values</label>
+      <select id="y-axis"></select>
+    </div>
+
+    <div class="control-group">
+      <label for="color-theme">Color Theme</label>
+      <select id="color-theme">
+        <option value="vscode">VS Code Blue</option>
+        <option value="ocean">Ocean</option>
+        <option value="sunset">Sunset</option>
+        <option value="forest">Forest</option>
+        <option value="neon">Neon</option>
+        <option value="mono">Monochrome</option>
+      </select>
+    </div>
+
+    <div class="control-group actions">
+      <button id="render-btn" class="primary">▶ Render</button>
+      <button id="export-png-btn">📥 Export PNG</button>
+    </div>
+  </div>
+
+  <!-- Stats Bar -->
+  <div class="stats-bar" id="stats-bar" style="display:none;">
+    <div class="stat-item" id="stat-points"></div>
+    <div class="stat-item" id="stat-min"></div>
+    <div class="stat-item" id="stat-max"></div>
+    <div class="stat-item" id="stat-avg"></div>
+    <div class="stat-item" id="stat-range"></div>
+  </div>
+
+  <!-- Chart + Insights Layout -->
+  <div class="chart-insights-layout">
+    <!-- Chart Container -->
+    <div class="chart-container" id="chart-container">
+      <canvas id="chart-canvas"></canvas>
+      <!-- Tooltip -->
+      <div id="chart-tooltip" class="chart-tooltip" style="display:none;"></div>
+      <div id="chart-overlay">
+        <div class="chart-empty-msg">
+          <div class="empty-icon">📊</div>
+          <div class="empty-title">Configure your chart</div>
+          <div class="empty-sub">Select columns above and click "Render"</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Insights Panel -->
+    <div class="insights-panel" id="insights-panel">
+      <div class="insights-header">
+        <span>💡</span>
+        <span style="font-weight:600;">Auto Insights</span>
+        <span class="insights-badge" id="insights-count">0</span>
+      </div>
+      <div class="insights-content" id="insights-content">
+        <div class="insights-empty">Rendered chart insights will appear here</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Details Panel -->
+  <div class="details-panel" id="details-panel" style="display:none;">
+    <div class="details-header">
+      <span>📋</span>
+      <span style="font-weight:600;">Data Point Details</span>
+      <span class="details-close" id="details-close">✕</span>
+    </div>
+    <div class="details-content" id="details-content"></div>
+  </div>
+</div>
+
+<script nonce="{{NONCE}}">
+'use strict';
+
+const vscode = acquireVsCodeApi();
+
+// ── State ────────────────────────────────────────────────────
+let chartData = null;
+let columns = [];
+let numericCols = [];
+let categoricalCols = [];
+let rowCount = 0;
+let currentChartType = 'line';
+let currentXCol = '';
+let currentYCol = '';
+let isRendered = false;
+let animFrame = null;
+let hoverIdx = -1;
+
+// ── Color Themes ─────────────────────────────────────────────
+const COLOR_THEMES = {
+  vscode:  ['#4fc1ff','#4ec9b0','#dcdcaa','#c586c0','#ce9178','#569cd6','#9cdcfe','#007acc','#b5cea8','#c8a0d0'],
+  ocean:   ['#0a84ff','#2ec4b6','#3d9970','#4ecdc4','#74b9ff','#0984e3','#00cec9','#81ecec','#55efc4','#a29bfe'],
+  sunset:  ['#e17055','#fd79a8','#fdcb6e','#e84393','#d63031','#fab1a0','#ff7675','#e056fd','#fd9644','#f9ca24'],
+  forest:  ['#00b894','#55efc4','#00cec9','#81ecec','#2d3436','#6c5ce7','#a29bfe','#badc58','#f9ca24','#6ab04c'],
+  neon:    ['#ff3cac','#784ba0','#2b86c5','#00f0ff','#a8ff3e','#f953c6','#b91d73','#ff6b6b','#48dbfb','#1dd1a1'],
+  mono:    ['#eeeeee','#cccccc','#aaaaaa','#888888','#666666','#555555','#444444','#333333','#222222','#111111']
+};
+
+// ── DOM Refs ─────────────────────────────────────────────────
+const chartTypeEl = document.getElementById('chart-type');
+const xAxis       = document.getElementById('x-axis');
+const yAxis       = document.getElementById('y-axis');
+const colorTheme  = document.getElementById('color-theme');
+const renderBtn   = document.getElementById('render-btn');
+const exportPngBtn = document.getElementById('export-png-btn');
+const canvas      = document.getElementById('chart-canvas');
+const chartOverlay = document.getElementById('chart-overlay');
+const insightsContent = document.getElementById('insights-content');
+const insightsCount   = document.getElementById('insights-count');
+const detailsPanel    = document.getElementById('details-panel');
+const detailsContent  = document.getElementById('details-content');
+const detailsClose    = document.getElementById('details-close');
+const chartContainer  = document.getElementById('chart-container');
+const tooltip         = document.getElementById('chart-tooltip');
+const statsBar        = document.getElementById('stats-bar');
+
+// ── Chart Type Handler ────────────────────────────────────────
+chartTypeEl.addEventListener('change', () => {
+  currentChartType = chartTypeEl.value;
+  updateControls();
+});
+
+function updateControls() {
+  const isLine = currentChartType === 'line' || currentChartType === 'bar';
+  document.getElementById('y-axis-group').style.display = isLine ? 'flex' : 'none';
+
+  if (isLine) {
+    const xOptions = [...categoricalCols, ...numericCols];
+    xAxis.innerHTML = xOptions.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+    if (xOptions.length > 0) xAxis.value = xOptions[0];
+
+    yAxis.innerHTML = numericCols.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+    if (numericCols.length > 1) yAxis.value = numericCols[1];
+    else if (numericCols.length > 0) yAxis.value = numericCols[0];
+  } else {
+    const pieOptions = [...categoricalCols, ...numericCols];
+    xAxis.innerHTML = pieOptions.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+    if (pieOptions.length > 0) xAxis.value = pieOptions[0];
+  }
+
+  currentXCol = xAxis.value;
+  currentYCol = yAxis.value || '';
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Render Request ────────────────────────────────────────────
+function renderChart() {
+  const type = chartTypeEl.value;
+  const xCol = xAxis.value;
+  const yCol = yAxis.value || '';
+
+  if (!xCol) { showError('Please select a column.'); return; }
+  if ((type === 'line' || type === 'bar') && !yCol) { showError('Please select a Y-axis column.'); return; }
+
+  currentChartType = type;
+  currentXCol = xCol;
+  currentYCol = yCol;
+
+  vscode.postMessage({ type: 'getChartData', chartType: type, xCol, yCol });
+}
+
+function showError(msg) {
+  insightsContent.innerHTML = `
+    <div class="insight-card severity-warning">
+      <div class="insight-card-header"><span class="insight-icon">⚠️</span><span class="insight-title">Error</span></div>
+      <div class="insight-detail">${msg}</div>
+    </div>`;
+}
+
+// ── Stats Bar ─────────────────────────────────────────────────
+function updateStatsBar(data, type) {
+  if (type === 'pie' || !data.points || data.points.length === 0) {
+    statsBar.style.display = 'none';
+    return;
+  }
+  const pts = data.points;
+  const sum = pts.reduce((a, b) => a + b, 0);
+  const avg = sum / pts.length;
+  const mn  = Math.min(...pts);
+  const mx  = Math.max(...pts);
+  const fmt = v => v >= 1e6 ? (v/1e6).toFixed(2)+'M' : v >= 1e3 ? (v/1e3).toFixed(1)+'K' : v.toFixed(2);
+
+  document.getElementById('stat-points').innerHTML = `<span class="stat-label">Points</span><span class="stat-val">${pts.length.toLocaleString()}</span>`;
+  document.getElementById('stat-min').innerHTML    = `<span class="stat-label">Min</span><span class="stat-val">${fmt(mn)}</span>`;
+  document.getElementById('stat-max').innerHTML    = `<span class="stat-label">Max</span><span class="stat-val">${fmt(mx)}</span>`;
+  document.getElementById('stat-avg').innerHTML    = `<span class="stat-label">Avg</span><span class="stat-val">${fmt(avg)}</span>`;
+  document.getElementById('stat-range').innerHTML  = `<span class="stat-label">Range</span><span class="stat-val">${fmt(mx - mn)}</span>`;
+  statsBar.style.display = 'flex';
+}
+
+// ── Draw Chart Dispatcher ─────────────────────────────────────
+function drawChart(data, type, insights) {
+  chartData = data;
+  isRendered = true;
+  hoverIdx = -1;
+
+  chartOverlay.style.display = 'none';
+  canvas.style.display = 'block';
+  tooltip.style.display = 'none';
+
+  resizeCanvas();
+  paintChart();
+  updateStatsBar(data, type);
+  renderInsights(insights);
+}
+
+function resizeCanvas() {
+  const rect = chartContainer.getBoundingClientRect();
+  const W = Math.max(300, rect.width - 2);
+  const H = Math.max(400, rect.height - 2);
+  canvas.width  = W;
+  canvas.height = H;
+}
+
+function paintChart() {
+  if (!chartData) return;
+  const W = canvas.width;
+  const H = canvas.height;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+
+  const isDark    = !document.body.classList.contains('vscode-light');
+  const textColor = isDark ? '#d4d4d4' : '#1f2328';
+  const gridColor = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.08)';
+  const bgColor   = isDark ? '#1e1e1e' : '#ffffff';
+
+  ctx.fillStyle = bgColor;
+  ctx.fillRect(0, 0, W, H);
+
+  const pad = { top: 52, right: 36, bottom: 68, left: 72 };
+  const cW  = W - pad.left - pad.right;
+  const cH  = H - pad.top  - pad.bottom;
+  const colors = COLOR_THEMES[colorTheme.value] || COLOR_THEMES.vscode;
+
+  if (currentChartType === 'pie') {
+    drawPieChart(ctx, chartData, pad, cW, cH, textColor, colors, W, H);
+  } else if (currentChartType === 'bar') {
+    drawBarChart(ctx, chartData, pad, cW, cH, textColor, gridColor, colors, W, H);
+  } else {
+    drawLineChart(ctx, chartData, pad, cW, cH, textColor, gridColor, colors, W, H);
+  }
+}
+
+// ── Line / Area Chart ─────────────────────────────────────────
+function drawLineChart(ctx, data, pad, cW, cH, textColor, gridColor, colors, W, H) {
+  const { points, labels, xCol, yCol } = data;
+  // ↑ FIX: use pad.left / pad.top (not destructured x/y which would be undefined)
+  const ox = pad.left;
+  const oy = pad.top;
+
+  if (!points || points.length === 0) {
+    drawEmpty(ctx, W, H, textColor, 'No valid numeric data for Y-axis');
+    return;
+  }
+
+  const mn    = Math.min(...points);
+  const mx    = Math.max(...points);
+  const range = mx - mn || 1;
+  const color = colors[0];
+
+  // Grid + Y ticks
+  const yTicks = 6;
+  ctx.font = '11px "Segoe UI", system-ui, sans-serif';
+  for (let i = 0; i <= yTicks; i++) {
+    const val  = mn + (i / yTicks) * range;
+    const yPos = oy + cH - (i / yTicks) * cH;
+
+    ctx.strokeStyle = gridColor;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 4]);
+    ctx.beginPath();
+    ctx.moveTo(ox, yPos);
+    ctx.lineTo(ox + cW, yPos);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = textColor;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.globalAlpha = 0.7;
+    ctx.fillText(fmtNum(val), ox - 8, yPos);
+    ctx.globalAlpha = 1;
+  }
+
+  // Axes
+  ctx.strokeStyle = textColor;
+  ctx.lineWidth = 1.5;
+  ctx.globalAlpha = 0.5;
+  ctx.beginPath();
+  ctx.moveTo(ox, oy);
+  ctx.lineTo(ox, oy + cH);
+  ctx.lineTo(ox + cW, oy + cH);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  // Axis labels
+  ctx.fillStyle = textColor;
+  ctx.font = 'bold 11px "Segoe UI", system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.globalAlpha = 0.6;
+  ctx.fillText(xCol, ox + cW / 2, H - 6);
+  ctx.save();
+  ctx.translate(14, oy + cH / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.textBaseline = 'bottom';
+  ctx.fillText(yCol, 0, 0);
+  ctx.restore();
+  ctx.globalAlpha = 1;
+
+  // X tick labels
+  const step = Math.max(1, Math.ceil(labels.length / 14));
+  ctx.font = '10px "Segoe UI", system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.globalAlpha = 0.55;
+  for (let i = 0; i < labels.length; i += step) {
+    const px  = ox + (i / (points.length - 1 || 1)) * cW;
+    const lbl = String(labels[i]);
+    ctx.fillStyle = textColor;
+    ctx.fillText(lbl.length > 11 ? lbl.slice(0, 9) + '…' : lbl, px, oy + cH + 8);
+  }
+  ctx.globalAlpha = 1;
+
+  // ── Area fill ──────────────────────────────────────────────
+  const grad = ctx.createLinearGradient(0, oy, 0, oy + cH);
+  grad.addColorStop(0, color + 'a0');
+  grad.addColorStop(0.6, color + '28');
+  grad.addColorStop(1, color + '00');
+  ctx.beginPath();
+  ctx.moveTo(ox, oy + cH);
+  for (let i = 0; i < points.length; i++) {
+    const px = ox + (i / (points.length - 1 || 1)) * cW;
+    const py = oy + cH - ((points[i] - mn) / range) * cH;
+    i === 0 ? ctx.moveTo(px, oy + cH) : null;
+    ctx.lineTo(px, py);
+  }
+  ctx.lineTo(ox + (points.length - 1) / (points.length - 1 || 1) * cW + ox - ox + cW, oy + cH);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // ── Smooth line (catmull-rom) ──────────────────────────────
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2.5;
+  ctx.lineJoin = 'round';
+  ctx.lineCap  = 'round';
+  ctx.beginPath();
+  for (let i = 0; i < points.length; i++) {
+    const px = ox + (i / (points.length - 1 || 1)) * cW;
+    const py = oy + cH - ((points[i] - mn) / range) * cH;
+    if (i === 0) { ctx.moveTo(px, py); continue; }
+    const ppx = ox + ((i-1) / (points.length - 1 || 1)) * cW;
+    const ppy = oy + cH - ((points[i-1] - mn) / range) * cH;
+    const cpx = (ppx + px) / 2;
+    ctx.bezierCurveTo(cpx, ppy, cpx, py, px, py);
+  }
+  ctx.stroke();
+
+  // ── Data points ────────────────────────────────────────────
+  const r = Math.max(3, Math.min(7, 55 / Math.sqrt(points.length || 1)));
+  for (let i = 0; i < points.length; i++) {
+    const px = ox + (i / (points.length - 1 || 1)) * cW;
+    const py = oy + cH - ((points[i] - mn) / range) * cH;
+    const isHover = i === hoverIdx;
+
+    if (isHover) {
+      // Larger glow ring
+      ctx.beginPath();
+      ctx.arc(px, py, r * 2.8, 0, Math.PI * 2);
+      ctx.fillStyle = color + '30';
+      ctx.fill();
+      // Vertical guide line
+      ctx.strokeStyle = color + '40';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.moveTo(px, oy + cH);
+      ctx.lineTo(px, py);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(px, py, isHover ? r * 1.6 : r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // White inner highlight
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.beginPath();
+    ctx.arc(px - r * 0.28, py - r * 0.28, r * 0.32, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Chart title
+  drawTitle(ctx, `${yCol} by ${xCol}`, ox, oy, textColor);
+}
+
+// ── Bar Chart ─────────────────────────────────────────────────
+function drawBarChart(ctx, data, pad, cW, cH, textColor, gridColor, colors, W, H) {
+  const { points, labels, xCol, yCol } = data;
+  const ox = pad.left;
+  const oy = pad.top;
+
+  if (!points || points.length === 0) {
+    drawEmpty(ctx, W, H, textColor, 'No valid numeric data for Y-axis');
+    return;
+  }
+
+  const mn    = Math.min(0, Math.min(...points));
+  const mx    = Math.max(...points);
+  const range = mx - mn || 1;
+  const n     = Math.min(points.length, 80); // cap at 80 bars
+
+  const barW   = cW / n;
+  const barGap = Math.max(1, barW * 0.15);
+  const barSlot = barW - barGap;
+
+  // Grid + Y ticks
+  const yTicks = 5;
+  ctx.font = '11px "Segoe UI", system-ui, sans-serif';
+  for (let i = 0; i <= yTicks; i++) {
+    const val  = mn + (i / yTicks) * range;
+    const yPos = oy + cH - ((val - mn) / range) * cH;
+
+    ctx.strokeStyle = gridColor;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 4]);
+    ctx.beginPath();
+    ctx.moveTo(ox, yPos);
+    ctx.lineTo(ox + cW, yPos);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = textColor;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.globalAlpha = 0.7;
+    ctx.fillText(fmtNum(val), ox - 8, yPos);
+    ctx.globalAlpha = 1;
+  }
+
+  // Axes
+  ctx.strokeStyle = textColor;
+  ctx.lineWidth = 1.5;
+  ctx.globalAlpha = 0.5;
+  ctx.beginPath();
+  ctx.moveTo(ox, oy);
+  ctx.lineTo(ox, oy + cH);
+  ctx.lineTo(ox + cW, oy + cH);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  // Zero line
+  const zeroY = oy + cH - ((0 - mn) / range) * cH;
+  if (mn < 0 && mx > 0) {
+    ctx.strokeStyle = textColor;
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.3;
+    ctx.beginPath();
+    ctx.moveTo(ox, zeroY);
+    ctx.lineTo(ox + cW, zeroY);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  // Axis labels
+  ctx.fillStyle = textColor;
+  ctx.font = 'bold 11px "Segoe UI", system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.globalAlpha = 0.6;
+  ctx.fillText(xCol, ox + cW / 2, H - 6);
+  ctx.save();
+  ctx.translate(14, oy + cH / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText(yCol, 0, 0);
+  ctx.restore();
+  ctx.globalAlpha = 1;
+
+  // Bars
+  for (let i = 0; i < n; i++) {
+    const color = colors[i % colors.length];
+    const bx    = ox + i * barW + barGap / 2;
+    const val   = points[i];
+    const barH  = Math.abs(((val - 0) / range)) * cH;
+    const by    = val >= 0 ? zeroY - barH : zeroY;
+
+    const isHover = i === hoverIdx;
+
+    // Bar body with rounded top
+    ctx.fillStyle = color + (isHover ? 'ff' : 'cc');
+    roundRect(ctx, bx, by, barSlot, Math.max(2, barH), isHover ? 5 : 3);
+    ctx.fill();
+
+    // Highlight stripe
+    const hiGrad = ctx.createLinearGradient(bx, by, bx + barSlot, by);
+    hiGrad.addColorStop(0, 'rgba(255,255,255,0.18)');
+    hiGrad.addColorStop(0.5, 'rgba(255,255,255,0.05)');
+    hiGrad.addColorStop(1, 'rgba(0,0,0,0.08)');
+    ctx.fillStyle = hiGrad;
+    roundRect(ctx, bx, by, barSlot, Math.max(2, barH), isHover ? 5 : 3);
+    ctx.fill();
+
+    // Value label on top (only if bars are wide enough)
+    if (barSlot > 22 && barH > 14) {
+      ctx.fillStyle = textColor;
+      ctx.font = '9px "Segoe UI", system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = val >= 0 ? 'bottom' : 'top';
+      ctx.globalAlpha = 0.75;
+      ctx.fillText(fmtNum(val), bx + barSlot / 2, val >= 0 ? by - 2 : by + barH + 2);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // X tick labels
+  const step = Math.max(1, Math.ceil(n / 14));
+  ctx.font = '10px "Segoe UI", system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.globalAlpha = 0.55;
+  for (let i = 0; i < n; i += step) {
+    const px  = ox + i * barW + barW / 2;
+    const lbl = String(labels[i] || '');
+    ctx.fillStyle = textColor;
+    ctx.fillText(lbl.length > 10 ? lbl.slice(0, 8) + '…' : lbl, px, oy + cH + 8);
+  }
+  ctx.globalAlpha = 1;
+
+  drawTitle(ctx, `${yCol} by ${xCol}`, ox, oy, textColor);
+}
+
+// ── Pie / Donut Chart ─────────────────────────────────────────
+function drawPieChart(ctx, data, pad, cW, cH, textColor, colors, W, H) {
+  const { entries, total, col } = data;
+  const ox = pad.left;
+  const oy = pad.top;
+
+  if (!entries || entries.length === 0) {
+    drawEmpty(ctx, W, H, textColor, 'No valid data for this column');
+    return;
+  }
+
+  const maxSlices = Math.min(entries.length, 12);
+  const cx     = ox + cW * 0.38;
+  const cy     = oy + cH / 2;
+  const outerR = Math.min(cW * 0.34, cH * 0.44);
+  const innerR = outerR * 0.42; // donut hole
+
+  drawTitle(ctx, `Distribution of ${col}`, ox, oy, textColor);
+
+  // Slices
+  let startAngle = -Math.PI / 2;
+  const isHoverPie = hoverIdx >= 0 && hoverIdx < maxSlices;
+  for (let i = 0; i < maxSlices; i++) {
+    const e     = entries[i];
+    const angle = (e.count / total) * 2 * Math.PI;
+    const end   = startAngle + angle;
+    const mid   = startAngle + angle / 2;
+    const pullOut = (i === hoverIdx) ? 10 : 0;
+    const sx    = cx + Math.cos(mid) * pullOut;
+    const sy    = cy + Math.sin(mid) * pullOut;
+
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.arc(sx, sy, outerR, startAngle, end);
+    ctx.lineTo(sx + Math.cos(mid) * innerR, sy + Math.sin(mid) * innerR);
+    ctx.arc(sx, sy, innerR, end, startAngle, true);
+    ctx.closePath();
+    ctx.fillStyle = colors[i % colors.length];
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Slice label (> 5%)
+    if (e.count / total > 0.045) {
+      const lr  = innerR + (outerR - innerR) * 0.55;
+      const lx  = sx + Math.cos(mid) * lr;
+      const ly  = sy + Math.sin(mid) * lr;
+      const pct = ((e.count / total) * 100).toFixed(1);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `bold ${Math.max(9, Math.min(12, outerR / 5))}px "Segoe UI", system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = 'rgba(0,0,0,0.6)';
+      ctx.shadowBlur = 3;
+      ctx.fillText(pct + '%', lx, ly);
+      ctx.shadowBlur = 0;
+    }
+
+    startAngle = end;
+  }
+
+  // Donut center label
+  ctx.fillStyle = textColor;
+  ctx.font = `bold ${Math.round(innerR * 0.55)}px "Segoe UI", system-ui, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(fmtNum(total), cx, cy - 7);
+  ctx.font = `${Math.round(innerR * 0.32)}px "Segoe UI", system-ui, sans-serif`;
+  ctx.globalAlpha = 0.6;
+  ctx.fillText('total', cx, cy + Math.round(innerR * 0.3));
+  ctx.globalAlpha = 1;
+
+  // Legend
+  const legendX = ox + cW * 0.73;
+  let legendY   = oy + 6;
+  const maxLeg  = Math.min(entries.length, 10);
+  ctx.font = '11px "Segoe UI", system-ui, sans-serif';
+
+  for (let i = 0; i < maxLeg; i++) {
+    const e   = entries[i];
+    const pct = ((e.count / total) * 100).toFixed(1);
+    const col = colors[i % colors.length];
+    const isH = i === hoverIdx;
+
+    // Swatch
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(legendX, legendY, 12, 12, 3) : null;
+    if (!ctx.roundRect) {
+      ctx.rect(legendX, legendY, 12, 12);
+    }
+    ctx.fill();
+
+    // Label
+    ctx.fillStyle = textColor;
+    ctx.textAlign  = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.globalAlpha = isH ? 1 : 0.85;
+    ctx.font = isH ? 'bold 11px "Segoe UI", system-ui, sans-serif' : '11px "Segoe UI", system-ui, sans-serif';
+    const lbl = String(e.label).length > 17 ? String(e.label).slice(0, 15) + '…' : String(e.label);
+    ctx.fillText(`${lbl}  (${pct}%)`, legendX + 17, legendY + 6);
+    ctx.globalAlpha = 1;
+
+    legendY += 20;
+    if (legendY > oy + cH - 6) break;
+  }
+
+  if (entries.length > maxLeg) {
+    ctx.fillStyle = textColor;
+    ctx.globalAlpha = 0.5;
+    ctx.font = '10px "Segoe UI", system-ui, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(`+ ${entries.length - maxLeg} more…`, legendX, legendY + 6);
+    ctx.globalAlpha = 1;
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────────
+function drawTitle(ctx, text, ox, oy, textColor) {
+  ctx.fillStyle = textColor;
+  ctx.font = 'bold 13px "Segoe UI", system-ui, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.globalAlpha = 0.9;
+  ctx.fillText(text, ox, 12);
+  ctx.globalAlpha = 1;
+}
+
+function drawEmpty(ctx, W, H, textColor, msg) {
+  ctx.fillStyle = textColor;
+  ctx.font = '14px "Segoe UI", system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.globalAlpha = 0.5;
+  ctx.fillText(msg, W / 2, H / 2);
+  ctx.globalAlpha = 1;
+}
+
+function fmtNum(v) {
+  if (Math.abs(v) >= 1e9)  return (v / 1e9).toFixed(2) + 'B';
+  if (Math.abs(v) >= 1e6)  return (v / 1e6).toFixed(2) + 'M';
+  if (Math.abs(v) >= 1e3)  return (v / 1e3).toFixed(1) + 'K';
+  if (Number.isInteger(v)) return v.toString();
+  return v.toFixed(2);
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h);
+  ctx.lineTo(x, y + h);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+// ── Hover / Tooltip ───────────────────────────────────────────
+canvas.addEventListener('mousemove', (e) => {
+  if (!chartData || !isRendered) return;
+
+  const rect   = canvas.getBoundingClientRect();
+  const scaleX = canvas.width  / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const mx     = (e.clientX - rect.left) * scaleX;
+  const my     = (e.clientY - rect.top)  * scaleY;
+
+  const W   = canvas.width;
+  const H   = canvas.height;
+  const pad = { top: 52, right: 36, bottom: 68, left: 72 };
+  const cW  = W - pad.left - pad.right;
+  const cH  = H - pad.top  - pad.bottom;
+  const ox  = pad.left;
+  const oy  = pad.top;
+
+  let newHover = -1;
+
+  if (currentChartType === 'line' && chartData.points) {
+    const pts = chartData.points;
+    if (mx >= ox && mx <= ox + cW) {
+      newHover = Math.round(((mx - ox) / cW) * (pts.length - 1));
+      newHover = Math.max(0, Math.min(pts.length - 1, newHover));
+    }
+  } else if (currentChartType === 'bar' && chartData.points) {
+    const pts = chartData.points;
+    const n   = Math.min(pts.length, 80);
+    const bW  = cW / n;
+    if (mx >= ox && mx <= ox + cW && my >= oy && my <= oy + cH) {
+      const idx = Math.floor((mx - ox) / bW);
+      if (idx >= 0 && idx < n) newHover = idx;
+    }
+  } else if (currentChartType === 'pie' && chartData.entries) {
+    const ents = chartData.entries.slice(0, 12);
+    const total = chartData.total;
+    const cx = ox + cW * 0.38;
+    const cy = oy + cH / 2;
+    const outerR = Math.min(cW * 0.34, cH * 0.44);
+    const innerR = outerR * 0.42;
+    const dx = mx - cx;
+    const dy = my - cy;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    if (dist >= innerR && dist <= outerR) {
+      let angle = Math.atan2(dy, dx) - (-Math.PI / 2);
+      if (angle < 0) angle += 2 * Math.PI;
+      let cumul = 0;
+      for (let i = 0; i < ents.length; i++) {
+        cumul += (ents[i].count / total) * 2 * Math.PI;
+        if (angle <= cumul) { newHover = i; break; }
+      }
+    }
+  }
+
+  if (newHover !== hoverIdx) {
+    hoverIdx = newHover;
+    paintChart();
+  }
+
+  // Show tooltip
+  if (newHover >= 0) {
+    let html = '';
+    if (currentChartType === 'line' && chartData.points) {
+      const pts = chartData.points;
+      html = `<strong>${esc(chartData.labels[newHover] || newHover)}</strong><br>
+              <span style="color:#4fc1ff;">${esc(chartData.yCol)}: <strong>${fmtNum(pts[newHover])}</strong></span>`;
+    } else if (currentChartType === 'bar' && chartData.points) {
+      const pts = chartData.points;
+      html = `<strong>${esc(chartData.labels[newHover] || newHover)}</strong><br>
+              <span style="color:#4fc1ff;">${esc(chartData.yCol)}: <strong>${fmtNum(pts[newHover])}</strong></span>`;
+    } else if (currentChartType === 'pie' && chartData.entries) {
+      const e = chartData.entries[newHover];
+      const pct = ((e.count / chartData.total) * 100).toFixed(1);
+      html = `<strong>${esc(e.label)}</strong><br>
+              <span style="color:#4fc1ff;">Count: <strong>${e.count.toLocaleString()}</strong></span><br>
+              <span>Share: <strong>${pct}%</strong></span>`;
+    }
+
+    tooltip.innerHTML = html;
+    tooltip.style.display = 'block';
+
+    // Position relative to container
+    const containerRect = chartContainer.getBoundingClientRect();
+    let tx = e.clientX - containerRect.left + 14;
+    let ty = e.clientY - containerRect.top  - 10;
+    const tw = 160;
+    if (tx + tw > containerRect.width - 10) tx = e.clientX - containerRect.left - tw - 14;
+    tooltip.style.left = tx + 'px';
+    tooltip.style.top  = ty + 'px';
+  } else {
+    tooltip.style.display = 'none';
+  }
+});
+
+canvas.addEventListener('mouseleave', () => {
+  hoverIdx = -1;
+  tooltip.style.display = 'none';
+  paintChart();
+});
+
+// Canvas click for details
+canvas.addEventListener('click', (e) => {
+  if (!chartData || hoverIdx < 0) return;
+
+  if (currentChartType === 'line' && chartData.points) {
+    const i = hoverIdx;
+    detailsPanel.style.display = 'block';
+    detailsContent.innerHTML = `
+      <div class="detail-row"><span>Index</span><strong>#${i + 1} of ${chartData.points.length}</strong></div>
+      <div class="detail-row"><span>${esc(chartData.xCol)}</span><strong>${esc(chartData.labels[i] || i)}</strong></div>
+      <div class="detail-row"><span>${esc(chartData.yCol)}</span><strong style="color:var(--vscode-activityBarBadge-background,#007acc);font-size:16px;">${fmtNum(chartData.points[i])}</strong></div>
+    `;
+  } else if (currentChartType === 'bar' && chartData.points) {
+    const i = hoverIdx;
+    detailsPanel.style.display = 'block';
+    detailsContent.innerHTML = `
+      <div class="detail-row"><span>Bar</span><strong>#${i + 1}</strong></div>
+      <div class="detail-row"><span>${esc(chartData.xCol)}</span><strong>${esc(chartData.labels[i] || i)}</strong></div>
+      <div class="detail-row"><span>${esc(chartData.yCol)}</span><strong style="color:var(--vscode-activityBarBadge-background,#007acc);font-size:16px;">${fmtNum(chartData.points[i])}</strong></div>
+    `;
+  } else if (currentChartType === 'pie' && chartData.entries) {
+    const e = chartData.entries[hoverIdx];
+    const pct = ((e.count / chartData.total) * 100).toFixed(2);
+    detailsPanel.style.display = 'block';
+    detailsContent.innerHTML = `
+      <div class="detail-row"><span>Category</span><strong>${esc(e.label)}</strong></div>
+      <div class="detail-row"><span>Count</span><strong>${e.count.toLocaleString()}</strong></div>
+      <div class="detail-row"><span>Share</span><strong style="color:var(--vscode-activityBarBadge-background,#007acc);font-size:16px;">${pct}%</strong></div>
+    `;
+  }
+});
+
+// ── Render Insights ───────────────────────────────────────────
+function renderInsights(insights) {
+  insightsContent.innerHTML = '';
+  insightsCount.textContent = insights ? insights.length : 0;
+  if (!insights || insights.length === 0) {
+    insightsContent.innerHTML = '<div class="insights-empty">No insights generated</div>';
+    return;
+  }
+  insights.forEach(insight => {
+    const card = document.createElement('div');
+    card.className = `insight-card severity-${insight.severity || 'info'}`;
+    card.innerHTML = `
+      <div class="insight-card-header">
+        <span class="insight-icon">${insight.icon || '💡'}</span>
+        <span class="insight-title">${insight.title}</span>
+      </div>
+      <div class="insight-detail">${insight.detail}</div>`;
+    insightsContent.appendChild(card);
+  });
+}
+
+// ── Export ────────────────────────────────────────────────────
+exportPngBtn.addEventListener('click', () => {
+  if (!isRendered) { vscode.postMessage({ type: 'error', message: 'Please render a chart first.' }); return; }
+  const dataUrl = canvas.toDataURL('image/png', 1.0);
+  vscode.postMessage({ type: 'exportChart', format: 'png', dataUrl, title: `${currentChartType}-${currentXCol}` });
+});
+
+detailsClose.addEventListener('click', () => { detailsPanel.style.display = 'none'; });
+renderBtn.addEventListener('click', renderChart);
+
+// ── Message Handler ───────────────────────────────────────────
+window.addEventListener('message', ({ data }) => {
+  switch (data.type) {
+    case 'init': {
+      columns         = data.payload.columns;
+      numericCols     = data.payload.numericCols;
+      categoricalCols = data.payload.categoricalCols;
+      rowCount        = data.payload.rowCount;
+      updateControls();
+      setTimeout(renderChart, 400);
+      break;
+    }
+    case 'chartData': {
+      drawChart(data.data, data.chartType, data.insights);
+      break;
+    }
+    case 'error': {
+      showError(data.message);
+      break;
+    }
+  }
+});
+
+// ── Resize Handler ─────────────────────────────────────────────
+let resizeTimeout;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimeout);
+  resizeTimeout = setTimeout(() => {
+    if (isRendered && chartData) {
+      resizeCanvas();
+      paintChart();
+    }
+  }, 120);
+});
+
+// ── Ready — post immediately (DOMContentLoaded may already have fired) ──
+vscode.postMessage({ type: 'ready' });
+</script>
+</body>
+</html>
