@@ -80,6 +80,10 @@
       {
         "command": "vizflow.charts",
         "title": "VizFlow: Interactive Charts"
+      },
+      {
+        "command": "vizflow.rbqlQuery",
+        "title": "VizFlow: RBQL Query Console"
       }
     ]
   },
@@ -103,6 +107,7 @@
   },
   "dependencies": {
     "axios": "^1.18.1",
-    "papaparse": "^5.5.4"
+    "papaparse": "^5.5.4",
+    "rbql": "^0.30.0"
   }
 }

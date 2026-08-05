@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'nonce-{{NONCE}}'; style-src 'unsafe-inline' vscode-resource: https:; img-src vscode-resource: https: data:;">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VizFlow — RBQL Query Console</title>
+  <link nonce="{{NONCE}}" rel="stylesheet" href="{{WEBVIEW_CSS_URI}}">
+</head>
+<body>
+
+  <!-- ═══════════════ BRAND HEADER ═══════════════ -->
+  <div class="brand-header">
+    <img class="brand-icon" src="{{ICON_URI}}" alt="VizFlow icon">
+    <div class="brand-text">
+      <span class="brand-name">VizFlow</span>
+      <span class="brand-tagline">RBQL Query Console</span>
+    </div>
+  </div>
+
+  <!-- ═══════════════ MAIN CONTENT ═══════════════ -->
+  <h1 class="main-title">
+    <span>Run RBQL Query</span>
+    <span class="badge">powered by VizFlow</span>
+  </h1>
+
+  <!-- ── Dataset Info ── -->
+  <div class="dataset-info" id="datasetInfo">
+    <span><span id="columnCount">0</span> columns · <span id="rowCount">0</span> rows</span>
+    <span class="column-preview" id="columnPreview"></span>
+  </div>
+
+  <!-- ── Query Editor ── -->
+  <div class="query-section">
+    <div class="query-header">
+      <label for="queryEditor">Query</label>
+      <div class="query-controls">
+        <label class="checkbox-label">
+          <input type="checkbox" id="hasHeader" checked>
+          Has Header Row
+        </label>
+      </div>
+    </div>
+    <textarea id="queryEditor" spellcheck="false" placeholder="SELECT * WHERE a1 == 'value' ORDER BY a2 DESC LIMIT 10">SELECT * LIMIT 10</textarea>
+  </div>
+
+  <!-- ── Actions ── -->
+  <div class="button-row">
+    <button class="btn-primary" id="executeBtn">&#9654; Execute Query</button>
+    <button class="btn-secondary" id="clearBtn">&#x2715; Clear</button>
+  </div>
+
+  <!-- ── Progress ── -->
+  <div id="progressBar" style="display:none;">
+    <div class="progress-track">
+      <div class="progress-fill" id="progressFill"></div>
+    </div>
+    <div class="progress-label" id="progressLabel">Executing query…</div>
+  </div>
+
+  <!-- ── Status ── -->
+  <div id="status"></div>
+
+  <!-- ── Results ── -->
+  <div id="results-section" style="display:none;">
+    <div class="results-header">
+      <div class="results-meta">
+        <span class="result-count" id="resultCount">0 rows returned</span>
+        <span class="result-warnings" id="resultWarnings"></span>
+      </div>
+      <div class="export-actions">
+        <button class="btn-small btn-secondary" id="exportCSV">CSV</button>
+        <button class="btn-small btn-secondary" id="exportJSON">JSON</button>
+      </div>
+    </div>
+
+    <div class="table-wrapper">
+      <table id="resultTable">
+        <thead id="resultHeader"></thead>
+        <tbody id="resultBody"></tbody>
+      </table>
+    </div>
+
+    <div class="query-meta" id="queryMeta"></div>
+  </div>
+
+  <!-- ── Query History ── -->
+  <div class="history-section">
+    <div class="history-header" id="historyToggle">Query History <span class="toggle-icon">&#9654;</span></div>
+    <div class="history-list" id="historyList" style="display:none;"></div>
+  </div>
+
+  <!-- ═══════════════ FOOTER ════════════════════ -->
+  <div class="brand-footer">
+    <strong>VizFlow</strong> — Query. Analyze. Transform.<br>
+    v{{VERSION}} &middot; Built for VS Code
+  </div>
+
+  <!-- ═══════════════ SCRIPTS ══════════════════ -->
+  <script nonce="{{NONCE}}">
+    'use strict';
+
+    const vscode = acquireVsCodeApi();
+
+    // ── State ──────────────────────────────────────────────────────────────────
+    let columns = [];
+    let rowCount = 0;
+    let currentResults = null;
+    let queryHistory = [];
+    let executing = false;
+
+    // ── DOM Refs ──────────────────────────────────────────────────────────────
+    const queryEditor    = document.getElementById('queryEditor');
+    const executeBtn     = document.getElementById('executeBtn');
+    const clearBtn       = document.getElementById('clearBtn');
+    const hasHeaderCheck = document.getElementById('hasHeader');
+    const statusEl       = document.getElementById('status');
+    const progressBar    = document.getElementById('progressBar');
+    const progressFill   = document.getElementById('progressFill');
+    const progressLabel  = document.getElementById('progressLabel');
+    const resultsSection = document.getElementById('results-section');
+    const resultHeader   = document.getElementById('resultHeader');
+    const resultBody     = document.getElementById('resultBody');
+    const resultCount    = document.getElementById('resultCount');
+    const resultWarnings = document.getElementById('resultWarnings');
+    const queryMeta      = document.getElementById('queryMeta');
+    const exportCSV      = document.getElementById('exportCSV');
+    const exportJSON     = document.getElementById('exportJSON');
+    const historyList    = document.getElementById('historyList');
+    const historyToggle  = document.getElementById('historyToggle');
+
+    // ── Utilities ──────────────────────────────────────────────────────────────
+    function showStatus(msg, type) {
+      statusEl.textContent = msg;
+      statusEl.className = type;
+      statusEl.style.display = 'block';
+    }
+
+    function hideStatus() {
+      statusEl.style.display = 'none';
+    }
+
+    function updateDatasetInfo(cols, rows) {
+      document.getElementById('columnCount').textContent = cols.length;
+      document.getElementById('rowCount').textContent = rows.toLocaleString();
+      document.getElementById('columnPreview').textContent = cols.join(', ');
+    }
+
+    function updateQueryMeta(query, backend, rows) {
+      const timestamp = new Date().toLocaleTimeString();
+      queryMeta.textContent = 'Executed at ' + timestamp + ' \u00b7 ' + backend + ' backend \u00b7 ' + rows + ' rows returned';
+    }
+
+    // ── Render Results ──────────────────────────────────────────────────────
+    function renderResults(data) {
+      currentResults = data;
+      resultsSection.style.display = 'block';
+
+      // Header
+      resultHeader.innerHTML = '';
+      const headerRow = document.createElement('tr');
+      data.columns.forEach(function(col) {
+        const th = document.createElement('th');
+        th.textContent = col;
+        headerRow.appendChild(th);
+      });
+      resultHeader.appendChild(headerRow);
+
+      // Body (limit to 1000 rows for display)
+      const displayRows = data.rows.slice(0, 1000);
+      resultBody.innerHTML = '';
+      displayRows.forEach(function(row) {
+        const tr = document.createElement('tr');
+        row.forEach(function(cell) {
+          const td = document.createElement('td');
+          td.textContent = (cell !== undefined && cell !== null) ? String(cell) : '';
+          tr.appendChild(td);
+        });
+        resultBody.appendChild(tr);
+      });
+
+      // Count
+      resultCount.textContent = data.rowCount.toLocaleString() + ' rows returned';
+      if (data.rowCount > 1000) {
+        resultCount.textContent += ' (showing first 1000)';
+      }
+
+      // Warnings
+      if (data.warnings && data.warnings.length > 0) {
+        resultWarnings.textContent = data.warnings.length + ' warning(s)';
+        resultWarnings.style.display = 'inline';
+      } else {
+        resultWarnings.style.display = 'none';
+      }
+
+      // Meta
+      updateQueryMeta(data.query, data.backend, data.rowCount);
+    }
+
+    // ── Execute Query ──────────────────────────────────────────────────────────
+    function executeQuery() {
+      if (executing) return;
+
+      const query = queryEditor.value.trim();
+      if (!query) {
+        showStatus('Please enter a query.', 'error');
+        return;
+      }
+
+      executing = true;
+      executeBtn.disabled = true;
+      hideStatus();
+      progressBar.style.display = 'block';
+      progressFill.style.width = '0%';
+      progressLabel.textContent = 'Preparing query\u2026';
+
+      vscode.postMessage({
+        type: 'execute',
+        query: query,
+        hasHeader: hasHeaderCheck.checked
+      });
+
+      // Add to history
+      if (!queryHistory.includes(query)) {
+        queryHistory.unshift(query);
+        if (queryHistory.length > 20) queryHistory.pop();
+        renderHistory();
+      }
+    }
+
+    // ── Export ──────────────────────────────────────────────────────────────────
+    function exportResults(format) {
+      if (!currentResults) {
+        showStatus('No results to export.', 'error');
+        return;
+      }
+
+      const filename = 'vizflow_query_results_' + Date.now() + '.' + format;
+      vscode.postMessage({
+        type: 'export',
+        format: format,
+        data: currentResults,
+        filename: filename
+      });
+    }
+
+    // ── History ─────────────────────────────────────────────────────────────────
+    function renderHistory() {
+      if (queryHistory.length === 0) {
+        historyList.innerHTML = '<div class="history-empty">No queries in history.</div>';
+        return;
+      }
+
+      historyList.innerHTML = '';
+      queryHistory.forEach(function(q) {
+        const div = document.createElement('div');
+        div.className = 'history-item';
+        div.textContent = q.length > 60 ? q.substring(0, 60) + '\u2026' : q;
+        div.title = q;
+        div.addEventListener('click', function() {
+          queryEditor.value = q;
+          queryEditor.focus();
+        });
+        historyList.appendChild(div);
+      });
+    }
+
+    // ── Event Listeners ──────────────────────────────────────────────────────
+    executeBtn.addEventListener('click', executeQuery);
+
+    clearBtn.addEventListener('click', function() {
+      queryEditor.value = '';
+      queryEditor.focus();
+    });
+
+    exportCSV.addEventListener('click', function() { exportResults('csv'); });
+    exportJSON.addEventListener('click', function() { exportResults('json'); });
+
+    historyToggle.addEventListener('click', function() {
+      const list = document.getElementById('historyList');
+      const icon = historyToggle.querySelector('.toggle-icon');
+      if (list.style.display === 'none') {
+        list.style.display = 'block';
+        icon.textContent = '\u25BC';
+      } else {
+        list.style.display = 'none';
+        icon.textContent = '\u25BA';
+      }
+    });
+
+    queryEditor.addEventListener('keydown', function(e) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        executeQuery();
+      }
+    });
+
+    // ── Messages from Extension Host ──────────────────────────────────────────
+    window.addEventListener('message', function(event) {
+      const data = event.data;
+      switch (data.type) {
+        case 'init':
+          columns  = data.columns;
+          rowCount = data.rowCount;
+          updateDatasetInfo(columns, rowCount);
+          break;
+
+        case 'progress':
+          if (data.pct === -1) {
+            progressBar.style.display = 'none';
+          } else {
+            progressFill.style.width = data.pct + '%';
+            progressLabel.textContent = 'Executing query\u2026 ' + data.pct + '%';
+          }
+          break;
+
+        case 'result':
+          progressBar.style.display = 'none';
+          executing = false;
+          executeBtn.disabled = false;
+          renderResults(data.data);
+          showStatus('\u2705 Query executed successfully \u2014 ' + data.data.rowCount + ' rows returned.', 'success');
+          break;
+
+        case 'error':
+          progressBar.style.display = 'none';
+          executing = false;
+          executeBtn.disabled = false;
+          showStatus('\u274C ' + data.message, 'error');
+          break;
+
+        case 'exportDone': {
+          const fname = (data.savedPath || '').replace(/.*[\\/]/, '');
+          showStatus('\u2705 Exported to: ' + fname, 'success');
+          break;
+        }
+      }
+    });
+  </script>
+</body>
+</html>

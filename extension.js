@@ -10,7 +10,8 @@ const transformWebviewCommand = require('./commands/transformWebview');
 const compareCSVCommand       = require('./commands/compareCSV');
 const aboutCommand            = require('./commands/about');
 const dashboardCommand        = require('./commands/dashboard');
-const chartsCommand = require('./commands/charts')
+const chartsCommand  = require('./commands/charts');
+const rbqlCommand    = require('./commands/rbql');
 
 /**
  * @param {vscode.ExtensionContext} context
@@ -82,9 +83,14 @@ function activate(context) {
         ),
         
         vscode.commands.registerCommand(
-        'vizflow.charts',
-        chartsCommand(context)
-    )
+            'vizflow.charts',
+            chartsCommand(context)
+        ),
+
+        vscode.commands.registerCommand(
+            'vizflow.rbqlQuery',
+            rbqlCommand(context)
+        )
 
     );
 }
