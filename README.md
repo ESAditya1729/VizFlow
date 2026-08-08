@@ -1,10 +1,10 @@
 # VizFlow
 
-> Created by **Aditya Mukherjee** · Application Developer — Azure Cloud FullStack · **IBM**
+> Created by **Aditya Mukherjee** · Application Developer — Azure Cloud FullStack · **IBM**  
 > [aditya.mukherjee1@ibm.com](mailto:aditya.mukherjee1@ibm.com) · [github.ibm.com/Aditya-Mukherjee1/VizFlow](https://github.ibm.com/Aditya-Mukherjee1/VizFlow)
 
-**VizFlow** is a Visual Studio Code extension for exploring and transforming CSV data without leaving your editor.
-Open a CSV file, run a command from the Command Palette, and get instant results — aggregations, duplicate reports, column statistics, a full visual transformation studio, side-by-side CSV comparison, and more — all in one place.
+**VizFlow** is a Visual Studio Code extension for exploring, transforming, and visualizing CSV data — without ever leaving your editor.  
+Open a CSV file, run a command from the Command Palette, and get instant results: aggregations, duplicate reports, column statistics, a full visual transformation studio, side-by-side CSV comparison, an interactive chart builder, a dataset summary dashboard, a full SQL-like RBQL query console, and more — all in one place.
 
 <br>
 
@@ -19,6 +19,9 @@ Open a CSV file, run a command from the Command Palette, and get instant results
 | **Transformation (CLI)** | Apply one operation to a column via Command Palette prompts |
 | **Transformation (Visual)** | Multi-rule transformation studio in a side panel — preview, reorder, target specific rows, and save |
 | **CSV Comparison** | Side-by-side column comparison across two files with match / only-A / only-B breakdown |
+| **Dataset Dashboard** | At-a-glance summary of every column — types, nulls, distinct counts, and top values |
+| **Interactive Charts** | Plot your CSV data as bar, line, pie, scatter, and more in a live chart panel |
+| **RBQL Query Console** | Write and execute SQL-like RBQL queries against your CSV with syntax highlighting, query history, and CSV/JSON export |
 | **About / Creator** | View creator info and project links directly inside VS Code |
 
 <br>
@@ -29,7 +32,7 @@ Open a CSV file, run a command from the Command Palette, and get instant results
 2. Press `Ctrl+Shift+P` (or `Cmd+Shift+P` on macOS) to open the Command Palette.
 3. Type **VizFlow** and choose any command.
 
-All results appear in the dedicated **VizFlow Output** panel (or a WebView panel where applicable).
+All results appear in the dedicated **VizFlow Output** panel or a WebView panel depending on the command.
 
 <br>
 
@@ -66,6 +69,19 @@ All results appear in the dedicated **VizFlow Output** panel (or a WebView panel
 |---|---|
 | `VizFlow: Compare CSV Files` | Select a column in the active CSV and compare it against a column in a second CSV file. Results are grouped into **common**, **only in File A**, and **only in File B** values, each with exact row numbers and column profiles |
 
+### Visualization & Analysis
+
+| Command | Description |
+|---|---|
+| `VizFlow: Dataset Summary Dashboard` | Opens a rich WebView dashboard with per-column type inference, null counts, distinct counts, and top-value charts |
+| `VizFlow: Interactive Charts` | Opens a chart builder — choose chart type, X/Y axes, and render a live interactive chart from your CSV data |
+
+### RBQL Query Console
+
+| Command | Description |
+|---|---|
+| `VizFlow: RBQL Query Console` | Opens a full SQL-like query console powered by [RBQL](https://rbql.org/). Write queries with syntax highlighting, execute against your CSV, browse query history, and export results to CSV or JSON |
+
 ### General
 
 | Command | Description |
@@ -76,7 +92,7 @@ All results appear in the dedicated **VizFlow Output** panel (or a WebView panel
 
 ## 🎨 Visual Transformation Studio
 
-The **Visual Transformation Studio** (`VizFlow: Transform Column (Visual)`) is the centrepiece feature. It opens a dedicated WebView panel beside your CSV file and lets you build, preview, and apply a queue of transformation rules.
+The **Visual Transformation Studio** (`VizFlow: Transform Column (Visual)`) opens a dedicated WebView panel beside your CSV file and lets you build, preview, and apply a queue of transformation rules.
 
 ### Workflow
 
@@ -161,6 +177,41 @@ The comparison is **value-based** (set logic) — row order and row count don't 
 
 <br>
 
+## 🔎 RBQL Query Console
+
+The **RBQL Query Console** (`VizFlow: RBQL Query Console`) brings a full SQL-like query experience to your CSV data, powered by the [RBQL](https://rbql.org/) engine.
+
+### Features
+
+- **Syntax-highlighted editor** — keywords, functions, strings, numbers, and operators each render in a distinct colour with a VS Code–styled gutter.
+- **Query history** — previously run queries are saved and can be re-selected with a single click.
+- **Progress indicator** — a live progress bar tracks execution on large files.
+- **Export** — download results as **CSV** or **JSON** directly from the results panel.
+
+### Example queries
+
+```sql
+SELECT * WHERE a1 == 'Sales' ORDER BY a2 DESC LIMIT 100
+
+SELECT a1, COUNT(*) GROUP BY a1
+
+SELECT * WHERE parseInt(a3) > 500 AND a4 LIKE '%active%'
+```
+
+> **Column naming:** RBQL uses `a1`, `a2`, … for columns by index. Enable **Has Header Row** to also reference columns by name.
+
+<br>
+
+## 📊 Interactive Charts
+
+The **Interactive Charts** panel (`VizFlow: Interactive Charts`) lets you visualize your CSV data without leaving VS Code.
+
+- Choose from **bar**, **line**, **pie**, **scatter**, and other chart types.
+- Map any CSV columns to the X and Y axes.
+- Charts render live inside a WebView panel with full interactivity.
+
+<br>
+
 ## 🗂️ Architecture
 
 ```
@@ -176,6 +227,9 @@ vizflow/
 │   ├── transform.js           # CLI-based transform workflow
 │   ├── transformWebview.js    # Visual Transformation Studio host
 │   ├── compareCSV.js          # CSV Comparison WebView host
+│   ├── dashboard.js           # Dataset Summary Dashboard host
+│   ├── charts.js              # Interactive Charts WebView host
+│   ├── rbql.js                # RBQL Query Console WebView host
 │   └── about.js               # About / Creator WebView panel
 ├── engine/
 │   ├── dataset.js             # Dataset model (rows, columns, profiling)
@@ -191,10 +245,12 @@ vizflow/
 │   ├── csvCompare.js          # Pure comparison engine (no VS Code deps)
 │   └── output.js              # Shared VizFlow Output Channel helpers
 └── media/
-    ├── transform.html         # Visual Transformation Studio — WebView markup
-    ├── transform.css          # Visual Transformation Studio — stylesheet
-    ├── compare.html           # CSV Comparison — WebView markup
-    └── compare.css            # CSV Comparison — stylesheet
+    ├── transform.html / .css  # Visual Transformation Studio
+    ├── compare.html / .css    # CSV Comparison
+    ├── dashboard.html / .css  # Dataset Summary Dashboard
+    ├── charts.html / .css     # Interactive Charts
+    ├── rbql.html / .css       # RBQL Query Console
+    └── rbql-syntax.js         # Client-side RBQL syntax highlighter
 ```
 
 <br>
@@ -241,18 +297,19 @@ npm run lint
 npm test
 ```
 
-The extension uses [PapaParse](https://www.papaparse.com/) for CSV parsing and has no runtime dependencies beyond that.
+The extension uses [PapaParse](https://www.papaparse.com/) for CSV parsing and [RBQL](https://rbql.org/) for query execution, and has no other runtime dependencies.
 
 <br>
 
 ## 🗺️ Roadmap
 
-- [ ] Dataset Summary view (row count, column types, null counts)
+- [x] Dataset Summary view (row count, column types, null counts)
+- [x] SQL-like query support via RBQL Query Console
+- [x] Charts & visualizations
 - [ ] Data Quality Report across all columns
 - [ ] Remove / deduplicate rows
-- [ ] SQL-like query support
-- [ ] Charts & visualizations
 - [ ] Export results to a new CSV directly from the Output panel
+- [ ] Multi-file join support in the RBQL console
 
 <br>
 

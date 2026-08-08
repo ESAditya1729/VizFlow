@@ -106,17 +106,17 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
   flex-wrap: wrap;
   gap: 8px;
 }
 
 .query-header label {
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--vscode-descriptionForeground);
+  letter-spacing: 0.07em;
+  color: var(--vscode-textLink-foreground, #007acc);
 }
 
 .query-controls {
@@ -145,22 +145,42 @@ body {
 }
 
 #queryEditor {
+  /* Must be display:block — the browser default for textarea is inline,
+     which causes vertical-align:middle to push it away from the top of
+     the wrapper and makes the cursor appear centred in empty space. */
+  display: block;
   width: 100%;
-  min-height: 120px;
-  padding: 10px 12px;
-  background: var(--vscode-input-background);
-  color: var(--vscode-input-foreground);
-  border: 1px solid var(--vscode-input-border, #454545);
-  border-radius: 4px;
-  font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 13px;
+  min-height: 160px;
+  /* No explicit height — the textarea grows with content via resize:vertical
+     and the wrapper follows its height automatically. */
+  padding: 14px 14px 14px 48px;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--vscode-editorCursor-foreground, #aeafad);
+  border: none;
+  border-radius: 0;
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', 'Courier New', monospace;
+  font-size: 13.5px;
+  line-height: 1.65;
+  tab-size: 4;
   resize: vertical;
   outline: none;
+  position: relative;
+  z-index: 2;
+  vertical-align: top;
+  /* Spellcheck underlines fight with highlighting — disable visually */
+  -webkit-text-stroke: 0;
 }
 
 #queryEditor:focus {
-  border-color: var(--vscode-focusBorder, #007fd4);
-  box-shadow: 0 0 0 1px var(--vscode-focusBorder);
+  /* Focus ring is shown on the wrapper via :focus-within */
+  box-shadow: none;
+}
+
+#queryEditor::placeholder {
+  color: var(--vscode-input-placeholderForeground, #666);
+  font-style: italic;
+  opacity: 0.7;
 }
 
 /* ── Buttons ────────────────────────────────── */
@@ -424,4 +444,155 @@ button {
   color: var(--vscode-descriptionForeground);
   text-align: center;
   line-height: 1.6;
+}
+
+
+/* ── RBQL Syntax Highlighting ── */
+
+.rbql-editor-wrapper {
+    /* display:block so the wrapper's height is driven by the textarea child.
+       position:relative anchors the absolute overlay. */
+    display: block;
+    position: relative;
+    width: 100%;
+    border: 1px solid var(--vscode-input-border, #3c3c3c);
+    border-radius: 6px;
+    background: var(--vscode-input-background, #1e1e1e);
+    /* overflow:hidden clips the overlay to the wrapper's rounded corners */
+    overflow: hidden;
+    /* Subtle left accent bar – acts as a visual "gutter" indicator */
+    border-left: 3px solid var(--vscode-textLink-foreground, #007acc);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.rbql-editor-wrapper:focus-within {
+    border-color: var(--vscode-focusBorder, #007fd4);
+    border-left-color: var(--vscode-textLink-activeForeground, #1a9cff);
+    box-shadow: 0 0 0 1px var(--vscode-focusBorder, #007fd4),
+                0 4px 12px rgba(0, 127, 212, 0.18);
+}
+
+/* ── Gutter (line-number column) ── */
+.rbql-editor-wrapper::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 36px;
+    height: 100%;
+    background: var(--vscode-editorGutter-background,
+                    color-mix(in srgb, var(--vscode-input-background, #1e1e1e) 85%, #000));
+    border-right: 1px solid var(--vscode-editorGroup-border, #3c3c3c);
+    pointer-events: none;
+    z-index: 3;
+}
+
+.rbql-highlight-overlay {
+    /* Sits behind the textarea (z-index:1 vs textarea z-index:2).
+       Matches the textarea's padding/font exactly so tokens line up. */
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    padding: 14px 14px 14px 48px;
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', 'Courier New', monospace;
+    font-size: 13.5px;
+    line-height: 1.65;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow: hidden;
+    pointer-events: none;
+    background: transparent;
+    color: var(--vscode-editor-foreground, #d4d4d4);
+    /* Prevent the overlay div from adding extra space below the textarea */
+    box-sizing: border-box;
+}
+
+/* Hide overlay scrollbar — scroll is synced from the textarea */
+.rbql-highlight-overlay::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+}
+
+/* Keep text selection visible over transparent textarea */
+#queryEditor::selection {
+    background: rgba(100, 160, 255, 0.25);
+}
+
+.vscode-light #queryEditor::selection {
+    background: rgba(0, 100, 200, 0.15);
+}
+
+/* ── Syntax Token Colors ── */
+
+/* Keywords: SELECT, FROM, WHERE, etc. */
+.rbql-keyword {
+    color: #c586c0;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+
+/* Functions: COUNT(), SUM(), AVG(), etc. */
+.rbql-function {
+    color: #dcdcaa;
+}
+
+/* Strings: 'text', "text" */
+.rbql-string {
+    color: #ce9178;
+}
+
+/* Numbers: 123, 45.67 */
+.rbql-number {
+    color: #b5cea8;
+}
+
+/* Symbol operators: ==, !=, >=, +, -, *, /, % */
+.rbql-operator {
+    color: #569cd6;
+    font-weight: 600;
+}
+
+/* Comments: // … and /* … */
+.rbql-comment {
+    color: #6a9955;
+    font-style: italic;
+}
+
+/* ── Light Theme Overrides ── */
+
+.vscode-light .rbql-editor-wrapper {
+    border-left-color: var(--vscode-textLink-foreground, #005fb8);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.vscode-light .rbql-editor-wrapper:focus-within {
+    box-shadow: 0 0 0 1px var(--vscode-focusBorder, #0090f1),
+                0 4px 12px rgba(0, 90, 180, 0.12);
+}
+
+.vscode-light .rbql-keyword {
+    color: #af00db;
+}
+
+.vscode-light .rbql-function {
+    color: #795e26;
+}
+
+.vscode-light .rbql-string {
+    color: #a31515;
+}
+
+.vscode-light .rbql-number {
+    color: #098658;
+}
+
+.vscode-light .rbql-comment {
+    color: #008000;
+}
+
+.vscode-light .rbql-operator {
+    color: #0000ff;
 }

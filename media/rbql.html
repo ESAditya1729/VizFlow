@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; script-src 'nonce-{{NONCE}}'; style-src 'unsafe-inline' vscode-resource: https:; img-src vscode-resource: https: data:;">
+        content="default-src 'none'; script-src 'nonce-{{NONCE}}' {{WEBVIEW_RESOURCE_ROOT}}; style-src 'unsafe-inline' vscode-resource: https:; img-src vscode-resource: https: data:;">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>VizFlow — RBQL Query Console</title>
   <link nonce="{{NONCE}}" rel="stylesheet" href="{{WEBVIEW_CSS_URI}}">
@@ -260,6 +260,7 @@
         div.title = q;
         div.addEventListener('click', function() {
           queryEditor.value = q;
+          queryEditor.dispatchEvent(new Event('input'));
           queryEditor.focus();
         });
         historyList.appendChild(div);
@@ -338,5 +339,6 @@
       }
     });
   </script>
+  <script nonce="{{NONCE}}" src="{{WEBVIEW_SYNTAX_URI}}"></script>
 </body>
 </html>
