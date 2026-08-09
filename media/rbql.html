@@ -72,6 +72,7 @@
       <div class="export-actions">
         <button class="btn-small btn-secondary" id="exportCSV">CSV</button>
         <button class="btn-small btn-secondary" id="exportJSON">JSON</button>
+        <button class="btn-small btn-secondary" id="exportSQL">DuckDB SQL</button>
       </div>
     </div>
 
@@ -106,6 +107,8 @@
     // ── State ──────────────────────────────────────────────────────────────────
     let columns = [];
     let rowCount = 0;
+    let positional = [];
+    let columnMap = [];
     let currentResults = null;
     let queryHistory = [];
     let executing = false;
@@ -127,6 +130,7 @@
     const queryMeta      = document.getElementById('queryMeta');
     const exportCSV      = document.getElementById('exportCSV');
     const exportJSON     = document.getElementById('exportJSON');
+    const exportSQL      = document.getElementById('exportSQL');
     const historyList    = document.getElementById('historyList');
     const historyToggle  = document.getElementById('historyToggle');
 
@@ -144,7 +148,20 @@
     function updateDatasetInfo(cols, rows) {
       document.getElementById('columnCount').textContent = cols.length;
       document.getElementById('rowCount').textContent = rows.toLocaleString();
-      document.getElementById('columnPreview').textContent = cols.join(', ');
+
+      // Show mapping of positional names (a1, a2, ...) to header names when available
+      const previewEl = document.getElementById('columnPreview');
+      if (Array.isArray(columnMap) && columnMap.length > 0) {
+        // Example: a1 (Name), a2 (Age), a3 (Country)
+        const pieces = columnMap.map(m => `${m.pos} (${m.name || ''})`);
+        previewEl.textContent = pieces.join(', ');
+      } else if (Array.isArray(cols) && cols.length > 0) {
+        previewEl.textContent = cols.join(', ');
+      } else if (Array.isArray(positional) && positional.length > 0) {
+        previewEl.textContent = positional.join(', ');
+      } else {
+        previewEl.textContent = '';
+      }
     }
 
     function updateQueryMeta(query, backend, rows) {
@@ -160,9 +177,34 @@
       // Header
       resultHeader.innerHTML = '';
       const headerRow = document.createElement('tr');
-      data.columns.forEach(function(col) {
+
+      // Build display headers that include positional aliases when available.
+      const displayHeaders = [];
+      if (Array.isArray(data.columns) && data.columns.length > 0) {
+        data.columns.forEach(function(colName, idx) {
+          // Try to find this column name in the original dataset columns
+          const origIndex = Array.isArray(columns) ? columns.indexOf(colName) : -1;
+          if (origIndex >= 0 && Array.isArray(positional) && positional[origIndex]) {
+            displayHeaders.push(`${colName} (${positional[origIndex]})`);
+          } else if (Array.isArray(positional) && positional[idx]) {
+            // Fallback: use the positional alias for the same output position
+            displayHeaders.push(`${colName} (${positional[idx]})`);
+          } else {
+            displayHeaders.push(colName);
+          }
+        });
+      } else {
+        // No column names provided by the backend — show positional aliases only
+        const firstRow = (Array.isArray(data.rows) && data.rows.length > 0) ? data.rows[0] : [];
+        const numCols = Math.max(firstRow.length, Array.isArray(positional) ? positional.length : 0);
+        for (let i = 0; i < numCols; i++) {
+          displayHeaders.push((Array.isArray(positional) && positional[i]) ? positional[i] : `a${i + 1}`);
+        }
+      }
+
+      displayHeaders.forEach(function(text) {
         const th = document.createElement('th');
-        th.textContent = col;
+        th.textContent = text;
         headerRow.appendChild(th);
       });
       resultHeader.appendChild(headerRow);
@@ -236,6 +278,23 @@
         return;
       }
 
+      if (format === 'duckdb_sql') {
+        const filename = 'vizflow_query_' + Date.now() + '.sql';
+        // Send query text + original dataset columns + positional aliases so the host can build SQL
+        vscode.postMessage({
+          type: 'export',
+          format: 'duckdb_sql',
+          data: {
+            results: currentResults,
+            query: queryEditor.value.trim(),
+            origColumns: columns,
+            positional: positional
+          },
+          filename: filename
+        });
+        return;
+      }
+
       const filename = 'vizflow_query_results_' + Date.now() + '.' + format;
       vscode.postMessage({
         type: 'export',
@@ -277,6 +336,7 @@
 
     exportCSV.addEventListener('click', function() { exportResults('csv'); });
     exportJSON.addEventListener('click', function() { exportResults('json'); });
+    exportSQL.addEventListener('click', function() { exportResults('duckdb_sql'); });
 
     historyToggle.addEventListener('click', function() {
       const list = document.getElementById('historyList');
@@ -304,6 +364,8 @@
         case 'init':
           columns  = data.columns;
           rowCount = data.rowCount;
+          if (Array.isArray(data.positional)) positional = data.positional;
+          if (Array.isArray(data.columnMap)) columnMap = data.columnMap;
           updateDatasetInfo(columns, rowCount);
           break;
 

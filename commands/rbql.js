@@ -49,8 +49,11 @@ module.exports = function rbqlCommand(context) {
         // ── 2. Reveal existing panel or create a new one ─────────────────────
         if (panel) {
             panel.reveal(vscode.ViewColumn.One);
-            panel.webview.postMessage({ type: 'init', columns, rowCount });
-            return;
+                // Build positional mapping a1,a2,... to help users write RBQL queries
+                const positional = columns.map((_, i) => `a${i + 1}`);
+                const columnMap = columns.map((name, i) => ({ pos: `a${i + 1}`, name }));
+                panel.webview.postMessage({ type: 'init', columns, rowCount, positional, columnMap });
+                return;
         }
 
         panel = vscode.window.createWebviewPanel(
@@ -101,7 +104,10 @@ module.exports = function rbqlCommand(context) {
         // ── 4. Send dataset info once the webview is ready ───────────────────
         setImmediate(() => {
             if (panel) {
-                panel.webview.postMessage({ type: 'init', columns, rowCount });
+                // Build positional mapping a1,a2,... to help users write RBQL queries
+                const positional = columns.map((_, i) => `a${i + 1}`);
+                const columnMap = columns.map((name, i) => ({ pos: `a${i + 1}`, name }));
+                panel.webview.postMessage({ type: 'init', columns, rowCount, positional, columnMap });
             }
         });
 
@@ -209,29 +215,76 @@ async function handleExport(message, webviewPanel) {
     let ext;
     let filters;
 
-    switch (format) {
-        case 'csv': {
-            const headerRow = data.columns.join(',');
-            const dataRows = data.rows.map(row => row.join(','));
-            content = [headerRow, ...dataRows].join('\n');
-            ext = 'csv';
-            filters = { 'CSV Files': ['csv'], 'All Files': ['*'] };
-            break;
+    if (format === 'duckdb_sql') {
+        // data is expected to be { results, query, origColumns, positional }
+        const { query, origColumns, positional } = data;
+        // Build SQL content
+        function escapeIdent(name) {
+            if (typeof name !== 'string') return name;
+            return '"' + name.replace(/"/g, '""') + '"';
         }
-        case 'json': {
-            const jsonData = data.rows.map(row => {
-                const obj = {};
-                data.columns.forEach((col, idx) => { obj[col] = row[idx]; });
-                return obj;
-            });
-            content = JSON.stringify(jsonData, null, 2);
-            ext = 'json';
-            filters = { 'JSON Files': ['json'], 'All Files': ['*'] };
-            break;
-        }
-        default:
-            vscode.window.showErrorMessage(`Unsupported format: ${format}`);
+
+        let sql = (query || '').trim();
+        if (!sql) {
+            vscode.window.showErrorMessage('No query available to export.');
             return;
+        }
+
+        // If query does not contain FROM, inject FROM vizflow_src before WHERE/GROUP/ORDER/LIMIT
+        if (!/\bfrom\b/i.test(sql)) {
+            const m = sql.match(/\b(WHERE|GROUP\s+BY|ORDER\s+BY|LIMIT|HAVING|UNION)\b/i);
+            if (m && m.index >= 0) {
+                const idx = m.index;
+                sql = sql.slice(0, idx) + ' FROM vizflow_src ' + sql.slice(idx);
+            } else {
+                sql = sql + ' FROM vizflow_src';
+            }
+        }
+
+        // Replace aN tokens with quoted original column names (or positional aliases)
+        sql = sql.replace(/\ba(\d+)\b/g, (match, p1) => {
+            const idx = parseInt(p1, 10) - 1;
+            const orig = Array.isArray(origColumns) && origColumns[idx] ? origColumns[idx] : null;
+            const pos = Array.isArray(positional) && positional[idx] ? positional[idx] : `a${p1}`;
+            const name = orig || pos;
+            return escapeIdent(name);
+        });
+
+        // Build full script: read CSV, run query, write to output path
+        const header = `-- VizFlow-generated DuckDB SQL\n-- INPUT: {{INPUT_PATH}}\n-- OUTPUT: {{OUTPUT_PATH}}\n\n`;
+        const read = `CREATE TEMPORARY VIEW vizflow_src AS SELECT * FROM read_csv_auto('{{INPUT_PATH}}');\n\n`;
+
+        // Wrap the select in a COPY ... TO statement to write CSV
+        const copy = `COPY (\n  ${sql}\n) TO '{{OUTPUT_PATH}}' (FORMAT CSV, HEADER TRUE);\n`;
+
+        content = header + read + copy;
+        ext = 'sql';
+        filters = { 'SQL Files': ['sql'], 'All Files': ['*'] };
+    } else {
+        switch (format) {
+            case 'csv': {
+                const headerRow = data.columns.join(',');
+                const dataRows = data.rows.map(row => row.join(','));
+                content = [headerRow, ...dataRows].join('\n');
+                ext = 'csv';
+                filters = { 'CSV Files': ['csv'], 'All Files': ['*'] };
+                break;
+            }
+            case 'json': {
+                const jsonData = data.rows.map(row => {
+                    const obj = {};
+                    data.columns.forEach((col, idx) => { obj[col] = row[idx]; });
+                    return obj;
+                });
+                content = JSON.stringify(jsonData, null, 2);
+                ext = 'json';
+                filters = { 'JSON Files': ['json'], 'All Files': ['*'] };
+                break;
+            }
+            default:
+                vscode.window.showErrorMessage(`Unsupported format: ${format}`);
+                return;
+        }
     }
 
     const saveUri = await vscode.window.showSaveDialog({

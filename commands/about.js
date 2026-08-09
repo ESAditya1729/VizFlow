@@ -1,12 +1,12 @@
 const vscode = require('vscode');
+const pkg = require('../package.json');
 
 /**
  * Shows a webview panel with information about the creator of VizFlow.
  *
- * @param {vscode.ExtensionContext} context
  * @returns {() => void}
  */
-function aboutCommand(context) {
+function aboutCommand() {
     return function () {
         const panel = vscode.window.createWebviewPanel(
             'vizflowAbout',
@@ -20,6 +20,10 @@ function aboutCommand(context) {
 }
 
 function getAboutHtml() {
+    const version = pkg.version || '0.0.0';
+    const publisher = pkg.publisher || 'IBM';
+    const displayName = pkg.displayName || 'VizFlow';
+
     return /* html */`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -33,35 +37,38 @@ function getAboutHtml() {
             font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
             font-size: 14px;
             line-height: 1.6;
-            background: var(--vscode-editor-background, #1e1e1e);
+            background: linear-gradient(135deg, var(--vscode-editor-background, #1e1e1e), var(--vscode-sideBar-background, #252526));
             color: var(--vscode-editor-foreground, #d4d4d4);
             display: flex;
             justify-content: center;
-            padding: 48px 16px;
+            align-items: center;
+            min-height: 100vh;
+            padding: 32px 16px;
         }
 
         .card {
             width: 100%;
-            max-width: 520px;
-            background: var(--vscode-sideBar-background, #252526);
+            max-width: 560px;
+            background: rgba(37, 37, 38, 0.95);
             border: 1px solid var(--vscode-panel-border, #3c3c3c);
-            border-radius: 8px;
+            border-radius: 16px;
             overflow: hidden;
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+            backdrop-filter: blur(8px);
         }
 
-        /* ── Header band ── */
         .card-header {
-            background: var(--vscode-button-background, #0e639c);
-            color: var(--vscode-button-foreground, #ffffff);
+            background: linear-gradient(135deg, #2563eb, #7c3aed 70%, #0f766e);
+            color: #fff;
             padding: 28px 32px 24px;
             text-align: center;
         }
 
         .avatar {
-            width: 72px;
-            height: 72px;
+            width: 78px;
+            height: 78px;
             border-radius: 50%;
-            background: rgba(255, 255, 255, 0.18);
+            background: rgba(255, 255, 255, 0.2);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -70,23 +77,35 @@ function getAboutHtml() {
             font-weight: 700;
             letter-spacing: -1px;
             color: #ffffff;
+            border: 2px solid rgba(255,255,255,0.35);
         }
 
         .card-header h1 {
-            font-size: 20px;
-            font-weight: 600;
-            margin-bottom: 4px;
+            font-size: 22px;
+            font-weight: 700;
+            margin-bottom: 6px;
         }
 
         .card-header .role {
             font-size: 13px;
-            opacity: 0.85;
-            font-weight: 400;
+            opacity: 0.95;
+            font-weight: 500;
         }
 
-        /* ── Body rows ── */
+        .hero-tag {
+            display: inline-block;
+            margin-top: 12px;
+            padding: 6px 12px;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.16);
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
         .card-body {
-            padding: 24px 32px;
+            padding: 24px 32px 18px;
             display: flex;
             flex-direction: column;
             gap: 16px;
@@ -99,11 +118,11 @@ function getAboutHtml() {
         }
 
         .info-label {
-            min-width: 80px;
+            min-width: 90px;
             font-size: 11px;
-            font-weight: 600;
+            font-weight: 700;
             text-transform: uppercase;
-            letter-spacing: 0.06em;
+            letter-spacing: 0.08em;
             color: var(--vscode-descriptionForeground, #858585);
             padding-top: 2px;
         }
@@ -115,12 +134,39 @@ function getAboutHtml() {
 
         .badge {
             display: inline-block;
-            padding: 2px 10px;
-            border-radius: 12px;
+            padding: 3px 10px;
+            border-radius: 999px;
             font-size: 12px;
-            font-weight: 600;
-            background: var(--vscode-badge-background, #0e639c);
+            font-weight: 700;
+            background: var(--vscode-badge-background, #2563eb);
             color: var(--vscode-badge-foreground, #ffffff);
+        }
+
+        .link-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 4px;
+        }
+
+        .link-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            text-decoration: none;
+            padding: 9px 12px;
+            border-radius: 10px;
+            border: 1px solid var(--vscode-panel-border, #3c3c3c);
+            background: var(--vscode-input-background, #2d2d2d);
+            color: var(--vscode-editor-foreground, #d4d4d4);
+            font-size: 13px;
+            font-weight: 600;
+            transition: transform 120ms ease, border-color 120ms ease;
+        }
+
+        .link-btn:hover {
+            transform: translateY(-1px);
+            border-color: var(--vscode-textLink-foreground, #3794ff);
         }
 
         hr {
@@ -129,21 +175,12 @@ function getAboutHtml() {
             margin: 0;
         }
 
-        .link {
-            color: var(--vscode-textLink-foreground, #3794ff);
-            text-decoration: none;
-            word-break: break-all;
-        }
-
-        .link:hover {
-            text-decoration: underline;
-        }
-
-        /* ── Extension info strip ── */
         .ext-strip {
-            padding: 14px 32px;
+            padding: 14px 32px 16px;
             display: flex;
             justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 8px;
             font-size: 12px;
             color: var(--vscode-descriptionForeground, #858585);
         }
@@ -155,20 +192,17 @@ function getAboutHtml() {
 </head>
 <body>
     <div class="card">
-
         <div class="card-header">
             <div class="avatar">AM</div>
             <h1>Aditya Mukherjee</h1>
             <div class="role">Application Developer · Azure Cloud FullStack</div>
+            <div class="hero-tag">Built with passion for better data workflows</div>
         </div>
 
         <div class="card-body">
-
             <div class="info-row">
                 <span class="info-label">Company</span>
-                <span class="info-value">
-                    <span class="badge">IBM</span>
-                </span>
+                <span class="info-value"><span class="badge">IBM</span></span>
             </div>
 
             <div class="info-row">
@@ -178,27 +212,27 @@ function getAboutHtml() {
 
             <div class="info-row">
                 <span class="info-label">Creator of</span>
-                <span class="info-value">VizFlow — CSV Analysis &amp; Visualization for VS Code</span>
+                <span class="info-value">VizFlow — CSV analysis, transformation, and visualization for VS Code</span>
             </div>
 
             <div class="info-row">
-                <span class="info-label">GitHub</span>
+                <span class="info-label">Connect</span>
                 <span class="info-value">
-                    <a class="link" href="https://github.ibm.com/Aditya-Mukherjee1/VizFlow">
-                        github.ibm.com/Aditya-Mukherjee1/VizFlow
-                    </a>
+                    <div class="link-row">
+                        <a class="link-btn" href="https://github.com/ESAditya1729/VizFlow.git" target="_blank" rel="noopener noreferrer">GitHub</a>
+                        <a class="link-btn" href="https://www.linkedin.com/in/aditya-mukherjee-b15428239/" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+                    </div>
                 </span>
             </div>
-
         </div>
 
         <hr />
 
         <div class="ext-strip">
-            <span>Extension: <strong>VizFlow</strong></span>
-            <span>Publisher: <strong>IBM</strong></span>
+            <span>Extension: <strong>${displayName}</strong></span>
+            <span>Version: <strong>${version}</strong></span>
+            <span>Publisher: <strong>${publisher}</strong></span>
         </div>
-
     </div>
 </body>
 </html>`;
