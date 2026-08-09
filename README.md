@@ -1,56 +1,114 @@
 # VizFlow
 
-VizFlow is a lightweight, local-first Visual Studio Code extension for exploring, transforming, and visualizing CSV and TSV data without leaving your editor.
+<div align="center">
 
-Why VizFlow
-- Immediate dataset profiling and lightweight analytics inside VS Code
-- Visual, repeatable transforms with preview before apply
-- RBQL-powered SQL-like querying and easy exports (CSV / JSON / DuckDB SQL)
-- Interactive charts and dataset dashboard for quick exploration
+**Lightweight • Local-First • Powerful**
 
-Core features
-- Dataset profiling: column types, null counts, distinct values, top values
-- Aggregations & statistics: sum, avg, min, max, count
-- Data quality helpers: find duplicates, distinct value listings
-- Visual Transformation Studio: build rule queues, preview first rows, apply & save
-- RBQL Query Console: SQL-like queries (a1/a2 or header names), history, progress indicator
-- Interactive Charts: bar, line, scatter, pie with live mapping
-- CSV comparison: value-based set comparison across two files
-- Exports: CSV / JSON and DuckDB-compatible SQL export with {{INPUT_PATH}} / {{OUTPUT_PATH}} placeholders
+[![VS Code Marketplace](https://img.shields.io/badge/VS%20Code-Marketplace-blue?logo=visual-studio-code)](https://marketplace.visualstudio.com/items?itemName=ESAditya1729.vizflow)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![GitHub Stars](https://img.shields.io/github/stars/ESAditya1729/VizFlow.svg?style=social)](https://github.com/ESAditya1729/VizFlow)
 
-Quick start
-1. Install VizFlow from the VS Code Marketplace or open the extension in dev mode (press F5).
-2. Open a CSV/TSV file in the editor.
-3. Press `Ctrl+Shift+P` (or `Cmd+Shift+P` on macOS) and run any `VizFlow` command (e.g., `VizFlow: Dataset Summary Dashboard`).
+**Explore, transform, and visualize CSV/TSV data without leaving VS Code**
 
-Commands (high level)
-- Aggregations: Sum / Average / Min / Max / Count
-- Profiling & Data Quality: Show statistics, find duplicates, list distinct values
-- Transformation: Transform Column (CLI) and Transform Column (Visual)
-- Comparison: Compare CSV Files
-- Analysis: Dataset Summary Dashboard, Interactive Charts
-- RBQL Query Console: run RBQL queries, export results
-- About / Creator: view extension author info
+</div>
 
-RBQL notes
-- Use positional references `a1`, `a2`, ... or enable **Has Header Row** to use header names.
-- Results can be exported to CSV, JSON, or a DuckDB SQL script (with placeholders) for reproducible runs.
+---
 
-Privacy & offline
-VizFlow runs locally by default — parsing, transforms and queries are performed on your machine. Any cloud or AI features would be opt-in and clearly indicated.
+## 🚀 Why VizFlow?
 
-Support & links
-- GitHub: https://github.com/ESAditya1729/VizFlow.git
-- Creator: Aditya Mukherjee (IBM)
-- LinkedIn: https://www.linkedin.com/in/aditya-mukherjee-b15428239/
+VizFlow brings **data exploration** and **lightweight analytics** directly into your editor. No need to switch contexts, open external tools, or worry about data leaving your machine.
 
-Architecture
-Detailed architecture and implementation notes are kept in a separate document: [ARCHITECTURE.md](./ARCHITECTURE.md)
+- 📊 **Immediate dataset profiling** — understand your data at a glance
+- 🔄 **Visual, repeatable transforms** — preview before applying changes
+- 🗄️ **RBQL-powered SQL-like querying** — familiar syntax, instant results
+- 📈 **Interactive charts** — bar, line, scatter, and pie visualizations
+- 🎯 **Local-first by default** — your data stays on your machine
 
-Installation
-From Marketplace: Search **VizFlow** in the Extensions view and install.
+---
 
-From source:
+## ✨ Core Features
+
+### 📋 Dataset Profiling
+- Column types, null counts, distinct values, top values
+- Quick stats: sum, avg, min, max, count
+
+### 🔍 Data Quality Helpers
+- Find duplicates in your dataset
+- List distinct values for any column
+
+### 🎨 Visual Transformation Studio
+- Build queues of transformation rules
+- Preview first rows before applying changes
+- Apply & save with confidence
+
+### ⚡ RBQL Query Console
+- Write SQL-like queries using `a1`, `a2` or header names
+- History tracking for reproducible analysis
+- Progress indicators for long-running queries
+
+### 📊 Interactive Charts
+- Bar charts, line charts, scatter plots, pie charts
+- Live mapping with instant updates
+
+### 🔄 CSV Comparison
+- Value-based set comparison across two files
+
+### 💾 Exports
+- CSV / JSON export
+- DuckDB-compatible SQL with `{{INPUT_PATH}}` / `{{OUTPUT_PATH}}` placeholders
+
+---
+
+## 🏃 Quick Start
+
+1. Install **VizFlow** from the VS Code Marketplace
+2. Open a CSV/TSV file in the editor
+3. Press `Ctrl+Shift+P` (`Cmd+Shift+P` on macOS)
+4. Run any `VizFlow:` command, for example: `VizFlow: Dataset Summary Dashboard`
+
+---
+
+## 📝 Commands
+
+| Category | Command |
+|----------|---------|
+| **Aggregations** | Sum / Average / Min / Max / Count |
+| **Profiling & Quality** | Show Statistics, Find Duplicates, List Distinct Values |
+| **Transformation** | Transform Column (CLI), Transform Column (Visual) |
+| **Analysis** | Dataset Summary Dashboard, Interactive Charts |
+| **Comparison** | Compare CSV Files |
+| **RBQL** | Run RBQL Queries, Export Results |
+| **About** | View Extension Author Info |
+
+---
+
+## 🧠 RBQL Notes
+
+- Use **positional references** (`a1`, `a2`, ...) or enable **Has Header Row** to use header names
+- Export results to CSV, JSON, or DuckDB SQL scripts
+- Placeholders like `{{INPUT_PATH}}` / `{{OUTPUT_PATH}}` make scripts reproducible
+
+---
+
+## 🔒 Privacy & Offline
+
+VizFlow runs **locally by default** — parsing, transforms, and queries are performed on your machine. Any cloud or AI features would be **opt-in** and clearly indicated.
+
+---
+
+## 📚 Documentation
+
+- **Architecture & Implementation**: See [ARCHITECTURE.md](./ARCHITECTURE.md)
+- **Full Documentation**: Coming soon!
+
+---
+
+## 🔧 Installation
+
+### From VS Code Marketplace
+Search **VizFlow** in the Extensions view and install.
+
+### From Source
 ```bash
 git clone https://github.com/ESAditya1729/VizFlow.git
 cd VizFlow
@@ -58,16 +116,32 @@ npm install
 # Press F5 in VS Code to launch the Extension Development Host
 ```
 
-Development
+## 🛠️ Development
+
+Run these locally during development:
+
 ```bash
-npm install
-npm run lint
-npm test
+npm install          # Install dependencies
+npm run lint         # Run linter
+npm test             # Run tests
 ```
 
-License
-MIT — see [LICENSE](LICENSE)
+## 🤝 Support & Links
+
+- **GitHub**: [ESAditya1729/VizFlow](https://github.com/ESAditya1729/VizFlow)
+- **Creator**: Aditya Mukherjee (IBM)
+- **LinkedIn**: [Aditya Mukherjee](https://www.linkedin.com/in/aditya-mukherjee-b15428239/)
 
 ---
 
-Built with ❤️ by Aditya Mukherjee · IBM
+## 📄 License
+
+MIT — see [LICENSE](./LICENSE)
+
+---
+
+<div align="center">
+
+**Built with ❤️ by Aditya Mukherjee · IBM**
+
+</div>

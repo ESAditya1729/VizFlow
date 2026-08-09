@@ -20,7 +20,7 @@ This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 ### Fixed
 - ActivationEvents were empty; now properly register onLanguage/onCommand triggers to ensure activation.
 
-## [0.0.2] - YYYY-MM-DD
+## [0.0.1] - YYYY-MM-DD
 
 - Initial public release notes placeholder.
 
