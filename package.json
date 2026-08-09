@@ -1,9 +1,9 @@
 {
-  "name": "vizflow",
-  "displayName": "VizFlow",
+  "name": "vizflow-studio",
+  "displayName": "VizFlow Studio",
   "description": "Analyze, transform, and visualize CSV data directly inside Visual Studio Code.",
-  "version": "0.0.2",
-  "publisher": "IBM",
+  "version": "0.0.1",
+  "publisher": "adoenixes-vizflow",
   "icon": "images/icon.png",
   "engines": {
     "vscode": "^1.125.0"
@@ -14,14 +14,38 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-username/vizflow"
+    "url": "https://github.com/ESAditya1729/VizFlow"
   },
   "keywords": [
     "data-analysis",
     "csv",
-    "visualization"
+    "visualization",
+    "RBQL",
+    "data-science",
+    "data-transformation",
+    "data-visualization",
+    "data-insights",
+    "data-exploration"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onLanguage:csv",
+    "onLanguage:tsv",
+    "onCommand:vizflow.sum",
+    "onCommand:vizflow.average",
+    "onCommand:vizflow.min",
+    "onCommand:vizflow.max",
+    "onCommand:vizflow.count",
+    "onCommand:vizflow.duplicates",
+    "onCommand:vizflow.statistics",
+    "onCommand:vizflow.distinctValues",
+    "onCommand:vizflow.transform",
+    "onCommand:vizflow.transformWebview",
+    "onCommand:vizflow.compareCSV",
+    "onCommand:vizflow.about",
+    "onCommand:vizflow.dashboard",
+    "onCommand:vizflow.charts",
+    "onCommand:vizflow.rbqlQuery"
+  ],
   "main": "./extension.js",
   "contributes": {
     "commands": [
