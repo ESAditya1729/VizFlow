@@ -33,6 +33,8 @@
   let currentActivityFilter = null;
   let logLevelFilter = 'all';
   let isLogCollapsed = false;
+  /** @type {Array<{name:string, label:string, type:string, required:boolean, defaultValue:string}>} */
+  let workflowParameters = [];
 
   // ─── DOM REFS ────────────────────────────────────────────────────────────────
 
@@ -116,6 +118,8 @@
         cfg[req.name] = req.defaultValue !== undefined ? req.defaultValue : true;
       } else if (req.type === 'number') {
         cfg[req.name] = req.defaultValue !== undefined ? req.defaultValue : 0;
+      } else if (req.type === 'keyValue') {
+        cfg[req.name] = {};
       } else {
         cfg[req.name] = req.defaultValue !== undefined ? req.defaultValue : '';
       }
@@ -148,6 +152,7 @@
       name: workflowName.value.trim() || DEFAULT_WORKFLOW_NAME,
       version: '1.0.0',
       createdAt: new Date().toISOString(),
+      parameters: workflowParameters.length ? workflowParameters.map(p => ({ ...p })) : undefined,
       activities: steps.map(serializeStep)
     };
   }
@@ -183,6 +188,9 @@
 
   function loadWorkflowDef(def) {
     workflowName.value = def.name || DEFAULT_WORKFLOW_NAME;
+    workflowParameters = Array.isArray(def.parameters)
+      ? def.parameters.map(p => ({ ...p }))
+      : [];
     steps = normalizeSteps(def.activities || []);
     // Find highest step counter across all steps (shallow + nested)
     let max = 0;
@@ -453,6 +461,7 @@
     for (const req of configReqs) {
       const field = document.createElement('div');
       field.className = 'config-field';
+      field.dataset.reqName = req.name || '';
 
       const label = document.createElement('label');
       label.className = 'config-label';
@@ -636,7 +645,7 @@
         browse.textContent = '📂';
         browse.title = 'Browse for file';
         browse.addEventListener('click', () => {
-          vscode.postMessage({ type: 'pickFile', stepId: step.id, field: req.name });
+          vscode.postMessage({ type: 'pickFile', stepId: step.id, field: req.name, activityType: step.type });
         });
         row.appendChild(inp);
         row.appendChild(browse);
@@ -705,6 +714,60 @@
         
         // Store reference to hint
         paramsHint = hint;
+
+      // ─── Key/Value (object) ─────────────────────────────────────────────
+      } else if (req.type === 'keyValue') {
+        const entries = [];
+        const raw = step.config[req.name];
+        if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+          for (const [k, v] of Object.entries(raw)) entries.push({ key: k, value: v });
+        }
+        const kvContainer = document.createElement('div');
+        kvContainer.className = 'keyvalue-container';
+
+        const syncKv = () => {
+          const obj = {};
+          for (const e of entries) {
+            if (e.key && e.key.trim()) obj[e.key.trim()] = e.value;
+          }
+          step.config[req.name] = obj;
+        };
+
+        const rebuildKv = () => {
+          kvContainer.innerHTML = '';
+          entries.forEach((entry, idx) => {
+            const row = document.createElement('div');
+            row.className = 'keyvalue-row';
+            const kInp = document.createElement('input');
+            kInp.className = 'config-input keyvalue-key';
+            kInp.type = 'text';
+            kInp.placeholder = 'Name';
+            kInp.value = entry.key || '';
+            kInp.addEventListener('input', () => { entry.key = kInp.value; syncKv(); });
+            const vInp = document.createElement('input');
+            vInp.className = 'config-input keyvalue-value';
+            vInp.type = 'text';
+            vInp.placeholder = 'Value ({{variable}} ok)';
+            vInp.value = entry.value !== undefined && entry.value !== null ? String(entry.value) : '';
+            vInp.addEventListener('input', () => { entry.value = vInp.value; syncKv(); });
+            const del = document.createElement('button');
+            del.className = 'btn-icon btn-remove-action';
+            del.textContent = '−';
+            del.title = 'Remove entry';
+            del.style.color = '#c75f8a';
+            del.addEventListener('click', () => { entries.splice(idx, 1); rebuildKv(); syncKv(); });
+            row.appendChild(kInp); row.appendChild(vInp); row.appendChild(del);
+            kvContainer.appendChild(row);
+          });
+          const addBtn = document.createElement('button');
+          addBtn.className = 'btn-add-action';
+          addBtn.textContent = '+ Add';
+          addBtn.addEventListener('click', () => { entries.push({ key: '', value: '' }); rebuildKv(); syncKv(); });
+          kvContainer.appendChild(addBtn);
+        };
+
+        rebuildKv();
+        field.appendChild(kvContainer);
 
       // ─── Other Fields ──────────────────────────────────────────────────────
       } else {
@@ -784,6 +847,7 @@
 
         const card = document.createElement('div');
         card.className = `activity-card sub-card status-${subStep.status}` + (subStep.collapsed ? ' collapsed' : '');
+        card.dataset.stepId = subStep.id;
 
         const subMeta = catMeta(subAct.category);
         const hdr = document.createElement('div');
@@ -1192,6 +1256,75 @@
     }
   });
 
+  // ─── INLINE VALIDATION ─────────────────────────────────────────────────────
+
+  function getActivityDef(type) {
+    return activities.find(a => a.type === type) || null;
+  }
+
+  /** Recursively find a step (top-level or nested) by id. */
+  function findStepById(list, id) {
+    for (const s of list) {
+      if (s.id === id) return s;
+      if (s.type === 'ifElse') {
+        const found = findStepById(s.config.thenSteps || [], id) || findStepById(s.config.elseSteps || [], id);
+        if (found) return found;
+      } else if (s.type === 'forEach') {
+        const found = findStepById(s.config.steps || [], id);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  function isEmptyValue(value) {
+    if (value === undefined || value === null) return true;
+    if (typeof value === 'string') return value.trim() === '';
+    if (Array.isArray(value)) return value.length === 0;
+    return false;
+  }
+
+  /** Walk a step list (including nested branches) and return the first step
+   *  with a missing required config field. */
+  function firstInvalidStep(list) {
+    for (const step of list) {
+      const act = getActivityDef(step.type);
+      if (act) {
+        for (const req of (act.configRequirements || [])) {
+          if (req.required && isEmptyValue(step.config && step.config[req.name])) {
+            return { step, field: req.name, label: req.label || req.name };
+          }
+        }
+      }
+      if (step.type === 'ifElse') {
+        const t = firstInvalidStep(step.config.thenSteps || []);
+        if (t) return t;
+        const e = firstInvalidStep(step.config.elseSteps || []);
+        if (e) return e;
+      } else if (step.type === 'forEach') {
+        const d = firstInvalidStep(step.config.steps || []);
+        if (d) return d;
+      }
+    }
+    return null;
+  }
+
+  function highlightInvalidField(step, fieldName) {
+    const card = document.querySelector(`.activity-card[data-step-id="${CSS.escape(step.id)}"]`);
+    if (!card) return;
+    card.classList.remove('collapsed');
+    step.collapsed = false;
+    const fieldEl = card.querySelector(`.config-field[data-req-name="${CSS.escape(fieldName)}"]`);
+    if (fieldEl) {
+      fieldEl.classList.add('config-field-invalid');
+      fieldEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const input = fieldEl.querySelector('input, select, textarea');
+      if (input) input.focus({ preventScroll: true });
+    } else {
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }
+
   // ─── RUN / STOP ────────────────────────────────────────────────────────────
 
   let runStartTime = 0;
@@ -1229,6 +1362,15 @@
     if (steps.length === 0) {
       logLine('No steps to run.', 'warn');
       showNotification('No steps to run', 'warning', 2000);
+      return;
+    }
+    const invalid = firstInvalidStep(steps);
+    if (invalid) {
+      const msg = `Missing required field "${invalid.label}" in step "${invalid.step.id}"`;
+      logLine(msg, 'error');
+      showNotification(msg, 'warning', 3000);
+      renderCanvas();
+      highlightInvalidField(invalid.step, invalid.field);
       return;
     }
     steps.forEach(s => { s.status = 'Pending'; s.stats = {}; s.error = null; });
@@ -1382,21 +1524,7 @@
         break;
 
       case 'activityState': {
-        // Search top-level steps AND nested block steps
-        function findStep(list, id) {
-          for (const s of list) {
-            if (s.id === id) return s;
-            if (s.type === 'ifElse') {
-              const found = findStep(s.config.thenSteps || [], id) || findStep(s.config.elseSteps || [], id);
-              if (found) return found;
-            } else if (s.type === 'forEach') {
-              const found = findStep(s.config.steps || [], id);
-              if (found) return found;
-            }
-          }
-          return null;
-        }
-        const step = findStep(steps, msg.activityId);
+        const step = findStepById(steps, msg.activityId);
         if (!step) break;
         step.status = msg.state;
         step.stats = msg.stats || step.stats;
@@ -1470,6 +1598,21 @@
           showNotification('Workflow completed successfully!', 'success', 2500);
         } else {
           showNotification(`Workflow failed: ${msg.error}`, 'error', 4000);
+
+          // Failure report from the run trace + jump to the first failed step
+          const failedEntries = (msg.trace || []).filter(t => t.state === 'Failed' && t.error);
+          if (failedEntries.length > 0) {
+            logLine(`─── ${failedEntries.length} failed step(s) ───`, 'error');
+            for (const t of failedEntries) {
+              logLine(`  ✗ ${t.activityId}: ${t.error}`, 'error');
+            }
+            const firstId = failedEntries[0].activityId;
+            const card = document.querySelector(`.activity-card[data-step-id="${CSS.escape(firstId)}"]`);
+            if (card) {
+              card.classList.remove('collapsed');
+              card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          }
         }
         break;
 
@@ -1503,7 +1646,7 @@
         break;
 
       case 'pickFileResult': {
-        const step = steps.find(s => s.id === msg.stepId);
+        const step = findStepById(steps, msg.stepId);
         if (step && msg.filePath) {
           step.config[msg.field] = msg.filePath;
           renderCanvas();
@@ -1517,9 +1660,159 @@
         showNotification(`Error: ${msg.message}`, 'error', 4000);
         break;
 
+      case 'runStopped':
+        setRunning(false);
+        logLine('Run stopped — no active run.', 'warn');
+        break;
+
       default:
         console.warn('Unknown message type:', msg.type);
     }
+  });
+
+  // ─── WORKFLOW PARAMETERS MODAL ─────────────────────────────────────────────
+
+  const paramsBtn = document.createElement('button');
+  paramsBtn.className = 'btn-icon header-btn';
+  paramsBtn.id = 'btnParameters';
+  paramsBtn.title = 'Workflow Parameters';
+  paramsBtn.textContent = '🧩';
+  document.querySelector('.header-actions').insertBefore(paramsBtn, btnSettings);
+
+  let paramsModal = null;
+
+  function openParamsModal() {
+    closeParamsModal();
+    const overlay = document.createElement('div');
+    overlay.className = 'params-modal-overlay';
+    overlay.id = 'paramsModal';
+
+    const modal = document.createElement('div');
+    modal.className = 'params-modal';
+    modal.appendChild(modalEl('header', '🧩 Workflow Parameters'));
+
+    const body = document.createElement('div');
+    body.className = 'params-modal-body';
+
+    const rebuild = () => {
+      body.innerHTML = '';
+      workflowParameters.forEach((p, idx) => {
+        const row = document.createElement('div');
+        row.className = 'params-row';
+
+        const nameInp = input('Name', p.name || '', v => { p.name = v; });
+        nameInp.placeholder = 'paramName';
+        const labelInp = input('Label', p.label || '', v => { p.label = v; });
+        labelInp.placeholder = 'Display label';
+
+        const typeSel = document.createElement('select');
+        typeSel.className = 'config-select';
+        for (const t of ['string', 'number', 'boolean', 'array', 'object']) {
+          const o = document.createElement('option');
+          o.value = t; o.textContent = t;
+          if (t === (p.type || 'string')) o.selected = true;
+          typeSel.appendChild(o);
+        }
+        typeSel.addEventListener('change', () => { p.type = typeSel.value; });
+
+        const reqChk = document.createElement('input');
+        reqChk.type = 'checkbox';
+        reqChk.title = 'Required';
+        reqChk.checked = !!p.required;
+        reqChk.addEventListener('change', () => { p.required = reqChk.checked; });
+
+        const defInp = input('Default', p.defaultValue !== undefined && p.defaultValue !== null ? String(p.defaultValue) : '', v => { p.defaultValue = v; });
+        defInp.placeholder = 'Default ({{var}} ok)';
+
+        const del = document.createElement('button');
+        del.className = 'btn-icon btn-remove-action';
+        del.textContent = '−';
+        del.title = 'Remove parameter';
+        del.style.color = '#c75f8a';
+        del.addEventListener('click', () => { workflowParameters.splice(idx, 1); rebuild(); });
+
+        row.appendChild(nameInp); row.appendChild(labelInp); row.appendChild(typeSel);
+        row.appendChild(reqChk); row.appendChild(defInp); row.appendChild(del);
+        body.appendChild(row);
+      });
+
+      const addBtn = document.createElement('button');
+      addBtn.className = 'btn-add-action';
+      addBtn.textContent = '+ Add Parameter';
+      addBtn.addEventListener('click', () => {
+        workflowParameters.push({ name: '', label: '', type: 'string', required: false, defaultValue: '' });
+        rebuild();
+      });
+      body.appendChild(addBtn);
+
+      const hint = document.createElement('div');
+      hint.className = 'params-modal-hint';
+      hint.textContent = 'Parameters let a workflow run with different inputs. ' +
+        'A Call Workflow step can pass values by name; defaults apply when a value is omitted. ' +
+        'Refer to parameters in steps as {{paramName}}.';
+      body.appendChild(hint);
+    };
+
+    const footer = document.createElement('div');
+    footer.className = 'params-modal-footer';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn-toolbar';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', () => {
+      workflowParameters = backup;
+      closeParamsModal();
+    });
+
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'btn-run';
+    saveBtn.textContent = 'Save';
+    saveBtn.addEventListener('click', () => {
+      workflowParameters = workflowParameters.filter(p => p && p.name && p.name.trim());
+      closeParamsModal();
+      showNotification('Workflow parameters updated', 'success', 1500);
+    });
+
+    footer.appendChild(cancelBtn);
+    footer.appendChild(saveBtn);
+
+    const backup = workflowParameters.map(p => ({ ...p }));
+    rebuild();
+    modal.appendChild(body);
+    modal.appendChild(footer);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    paramsModal = overlay;
+  }
+
+  function closeParamsModal() {
+    if (paramsModal) {
+      paramsModal.remove();
+      paramsModal = null;
+    }
+  }
+
+  paramsBtn.addEventListener('click', openParamsModal);
+
+  function modalEl(className, text) {
+    const el = document.createElement('div');
+    el.className = `params-modal-${className}`;
+    el.textContent = text;
+    return el;
+  }
+
+  function input(label, value, onChange) {
+    const inp = document.createElement('input');
+    inp.className = 'config-input';
+    inp.type = 'text';
+    inp.title = label;
+    inp.value = value;
+    inp.addEventListener('input', () => onChange(inp.value));
+    return inp;
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && paramsModal) closeParamsModal();
   });
 
   // ─── INIT ──────────────────────────────────────────────────────────────────

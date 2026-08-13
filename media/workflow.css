@@ -841,6 +841,17 @@ body {
   color: var(--error, #c75f8a); 
 }
 
+.config-field-invalid {
+  padding: 6px;
+  margin: 4px -6px;
+  border: 1px solid var(--error, #c75f8a);
+  border-radius: var(--radius-sm);
+  background: rgba(199, 95, 138, 0.08);
+  box-shadow: 0 0 0 1px rgba(199, 95, 138, 0.25);
+}
+
+.config-field-invalid .config-label { color: var(--error, #c75f8a); }
+
 .config-input {
   width: 100%;
   padding: 4px 8px;
@@ -1298,4 +1309,94 @@ body {
     page-break-inside: avoid;
     border: 1px solid #ccc !important;
   }
+}
+/* -- Key/Value Editor ---------------------------- */
+.keyvalue-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+  width: 100%;
+}
+
+.keyvalue-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.keyvalue-key {
+  flex: 0 0 38%;
+  min-width: 0;
+}
+
+.keyvalue-value {
+  flex: 1;
+  min-width: 0;
+}
+
+/* -- Workflow Parameters Modal ------------------- */
+.params-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.params-modal {
+  background: var(--vscode-editor-background, #1e1e1e);
+  border: 1px solid var(--vscode-panel-border, #454545);
+  border-radius: var(--radius-md, 8px);
+  width: min(640px, 92vw);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.params-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--vscode-panel-border, #454545);
+  font-weight: 600;
+}
+
+.params-modal-body {
+  padding: 12px 14px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.params-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--vscode-panel-border, #454545);
+}
+
+.params-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 100px 64px 1fr 28px;
+  gap: 6px;
+  align-items: center;
+}
+
+.params-row input,
+.params-row select {
+  min-width: 0;
+}
+
+.params-modal-hint {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground, #9a9a9a);
+  margin-top: 6px;
+  line-height: 1.5;
 }

@@ -397,11 +397,20 @@ registerOperation('percentOf',
 
 registerOperation('parseDate', 
     (val) => {
-        const date = new Date(val);
+        // Excel serial numbers (days since 1899-12-30) are common when reading
+        // spreadsheets; parse them as calendar dates rather than milliseconds.
+        let date;
+        if (typeof val === 'number' && isFinite(val)) {
+            const utc = new Date(Math.round((val - 25569) * 86400000));
+            const dateStr = `${utc.getUTCFullYear()}-${String(utc.getUTCMonth() + 1).padStart(2, '0')}-${String(utc.getUTCDate()).padStart(2, '0')}`;
+            date = new Date(dateStr);
+        } else {
+            date = new Date(val);
+        }
         if (isNaN(date.getTime())) throw new Error(`Cannot parse date: "${val}"`);
         return date.toISOString();
     },
-    'Date', 'Parse string to ISO date'
+    'Date', 'Parse value to ISO date (Excel serial numbers supported)'
 );
 
 registerOperation('formatDate', 
@@ -460,7 +469,10 @@ registerOperation('addDays',
         const daysNum = parseInt(days);
         if (isNaN(daysNum)) throw new Error(`Invalid days value: "${days}". Must be a number.`);
         date.setDate(date.getDate() + daysNum);
-        return date.toISOString().split('T')[0]; // Return as YYYY-MM-DD
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
     },
     'Date', 'Add/subtract days from date',
     [

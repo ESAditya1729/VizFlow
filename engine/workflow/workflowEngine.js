@@ -7,36 +7,95 @@
 'use strict';
 
 const { getActivity, getActivityExecutor } = require('./activityRegistryCore');
+const templateService = require('../../services/templateService');
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 const DEFAULT_MAX_RETRIES = 0;
 const DEFAULT_TIMEOUT_MS = 300000; // 5 minutes default timeout
 
+// ─── Cancellation helpers ───────────────────────────────────────────────────
+
+/**
+ * Return a human-readable reason from an aborted signal, or null if not aborted.
+ * @param {AbortSignal|null} [signal]
+ * @returns {string|null}
+ */
+function getAbortReason(signal) {
+    if (!signal || !signal.aborted) return null;
+    if (signal.reason && signal.reason.message) return signal.reason.message;
+    return 'Workflow cancelled';
+}
+
+/**
+ * Throw an AbortError when the signal has been aborted.
+ * @param {AbortSignal|null} [signal]
+ * @throws {Error}
+ */
+function throwIfAborted(signal) {
+    if (signal && signal.aborted) {
+        const err = new Error(getAbortReason(signal));
+        err.name = 'AbortError';
+        throw err;
+    }
+}
+
+/**
+ * Build a promise that rejects as soon as the signal is aborted.
+ * @param {AbortSignal|null} [signal]
+ * @returns {Promise<never>}
+ */
+function abortPromise(signal) {
+    return new Promise((_, reject) => {
+        const fail = () => {
+            const err = new Error(getAbortReason(signal));
+            err.name = 'AbortError';
+            reject(err);
+        };
+        if (signal && signal.aborted) {
+            fail();
+        } else if (signal) {
+            signal.addEventListener('abort', fail, { once: true });
+        }
+    });
+}
+
+function isAbortError(error) {
+    return error && (error.name === 'AbortError' || (error.message && error.message.includes('cancel')));
+}
+
 /**
  * Validate nested steps recursively
  * @param {Array} steps - Array of step definitions
  * @param {string} parentId - Parent activity ID for error context
- * @param {Set} visitedIds - Track visited IDs to detect circular references
+ * @param {Set} visitedRefs - Set of step objects seen in the current ancestry chain
  * @returns {{ valid: boolean, error: string | null }}
  */
-function validateNestedSteps(steps, parentId = 'workflow', visitedIds = new Set()) {
+function validateNestedSteps(steps, parentId = 'workflow', visitedRefs = new Set()) {
     if (!Array.isArray(steps)) {
         return { valid: false, error: `Activity "${parentId}" has an invalid nested step list` };
     }
+
+    const scopeIds = new Set();
 
     for (const step of steps) {
         if (!step || typeof step !== 'object') {
             return { valid: false, error: `Activity "${parentId}" contains an invalid nested step entry` };
         }
 
-        const stepId = step.id || 'unknown';
-        
-        // Check for circular references
-        const idKey = `${parentId}:${stepId}`;
-        if (visitedIds.has(idKey)) {
-            return { valid: false, error: `Circular reference detected in nested activity "${stepId}"` };
+        // Circular reference detection by object identity: the same step
+        // object must never appear twice within one ancestry chain
+        if (visitedRefs.has(step)) {
+            return { valid: false, error: `Circular reference detected in nested activity "${step.id || 'unknown'}"` };
         }
-        visitedIds.add(idKey);
+        visitedRefs.add(step);
+
+        const stepId = step.id || 'unknown';
+
+        // Duplicate IDs within the same scope break per-step state tracking
+        if (scopeIds.has(stepId)) {
+            return { valid: false, error: `Duplicate nested activity ID "${stepId}" in "${parentId}"` };
+        }
+        scopeIds.add(stepId);
 
         if (!step.type) {
             return { valid: false, error: `Nested activity "${stepId}" is missing "type"` };
@@ -65,19 +124,21 @@ function validateNestedSteps(steps, parentId = 'workflow', visitedIds = new Set(
             }
         }
 
-        // Recursively validate nested control structures
+        // Recursively validate nested control structures. Each branch gets a
+        // copy of the ancestry so sibling branches may reuse step objects
+        // without being mistaken for cycles.
         if (step.type === 'ifElse') {
             const thenResult = validateNestedSteps(
                 config.thenSteps || [], 
                 `${stepId}:then`, 
-                visitedIds
+                new Set(visitedRefs)
             );
             if (!thenResult.valid) return thenResult;
             
             const elseResult = validateNestedSteps(
                 config.elseSteps || [], 
                 `${stepId}:else`, 
-                visitedIds
+                new Set(visitedRefs)
             );
             if (!elseResult.valid) return elseResult;
         }
@@ -86,16 +147,100 @@ function validateNestedSteps(steps, parentId = 'workflow', visitedIds = new Set(
             const loopResult = validateNestedSteps(
                 config.steps || [], 
                 `${stepId}:loop`, 
-                visitedIds
+                new Set(visitedRefs)
             );
             if (!loopResult.valid) return loopResult;
         }
 
-        // Remove from visited set after validation (allow reuse in different branches)
-        visitedIds.delete(idKey);
+        if (step.type === 'forEachFile') {
+            const loopResult = validateNestedSteps(
+                config.steps || [], 
+                `${stepId}:loop`, 
+                new Set(visitedRefs)
+            );
+            if (!loopResult.valid) return loopResult;
+        }
     }
 
     return { valid: true, error: null };
+}
+
+/**
+ * Coerce a parameter value to its declared type.
+ * @param {*} value
+ * @param {string} [type]
+ * @returns {*}
+ */
+function coerceParameter(value, type) {
+    if (value === undefined || value === null) return value;
+    switch (String(type || '').toLowerCase()) {
+        case 'number': {
+            const n = Number(value);
+            return Number.isNaN(n) ? value : n;
+        }
+        case 'boolean':
+            return value === true || value === 'true' || value === 1 || value === '1';
+        case 'array':
+            return Array.isArray(value) ? value : String(value).split(',').map(s => s.trim());
+        case 'object':
+            if (typeof value === 'string') {
+                try { return JSON.parse(value); } catch (e) { return value; }
+            }
+            return value;
+        default:
+            return value;
+    }
+}
+
+/**
+ * Resolve workflow-level parameters against initial variables.
+ * - Applies declared defaults (with {{variable}} interpolation and type coercion)
+ * - Validates that required parameters were provided
+ * @param {Object} workflowDef
+ * @param {Object} context - Execution context with variables
+ * @returns {string|null} Error message or null when valid
+ */
+function resolveParameters(workflowDef, context) {
+    const declared = workflowDef.parameters;
+    if (!declared) return null;
+
+    if (!Array.isArray(declared)) {
+        return 'Workflow "parameters" must be an array';
+    }
+
+    for (const p of declared) {
+        if (!p || typeof p !== 'object' || !p.name || typeof p.name !== 'string') {
+            return 'Workflow "parameters" contains an invalid entry (missing "name")';
+        }
+        const name = p.name;
+        const missing = (value) =>
+            value === undefined || value === null ||
+            (typeof value === 'string' && value.trim() === '');
+
+        let resolved;
+        if (!missing(context.variables[name])) {
+            resolved = coerceParameter(context.variables[name], p.type);
+        } else if (!missing(p.defaultValue)) {
+            let val = p.defaultValue;
+            if (typeof val === 'string') {
+                val = templateService.interpolate(val, context.variables, {});
+            }
+            resolved = coerceParameter(val, p.type);
+        } else {
+            resolved = undefined;
+        }
+
+        if (missing(resolved)) {
+            if (p.required) {
+                return `Missing required parameter "${name}" for workflow "${workflowDef.name || 'unnamed'}"`;
+            }
+            continue;
+        }
+
+        context.variables[name] = resolved;
+    }
+
+    return null;
 }
 
 /**
@@ -116,9 +261,33 @@ function validateWorkflow(workflowDef) {
         return { valid: false, error: 'Workflow must have at least one activity' };
     }
 
+    // Validate workflow-level parameters
+    if (workflowDef.parameters !== undefined && workflowDef.parameters !== null) {
+        if (!Array.isArray(workflowDef.parameters)) {
+            return { valid: false, error: 'Workflow "parameters" must be an array' };
+        }
+        const paramNames = new Set();
+        for (const p of workflowDef.parameters) {
+            if (!p || typeof p !== 'object') {
+                return { valid: false, error: 'Workflow "parameters" contains an invalid entry' };
+            }
+            if (!p.name || typeof p.name !== 'string' || !p.name.trim()) {
+                return { valid: false, error: 'Workflow "parameters" entries must have a non-empty "name"' };
+            }
+            if (paramNames.has(p.name)) {
+                return { valid: false, error: `Duplicate workflow parameter name: "${p.name}"` };
+            }
+            paramNames.add(p.name);
+        }
+    }
+
     // Check for duplicate activity IDs
     const activityIds = new Set();
     const duplicateIds = [];
+
+    // Seed cycle detection with the top-level activities so nested structures
+    // cannot reference them and create a cycle
+    const visitedRefs = new Set(workflowDef.activities);
 
     // Check each activity
     for (let i = 0; i < workflowDef.activities.length; i++) {
@@ -166,13 +335,15 @@ function validateWorkflow(workflowDef) {
         if (activity.type === 'ifElse') {
             const thenResult = validateNestedSteps(
                 config.thenSteps || [], 
-                `${activityId}:then`
+                `${activityId}:then`,
+                new Set(visitedRefs)
             );
             if (!thenResult.valid) return thenResult;
             
             const elseResult = validateNestedSteps(
                 config.elseSteps || [], 
-                `${activityId}:else`
+                `${activityId}:else`,
+                new Set(visitedRefs)
             );
             if (!elseResult.valid) return elseResult;
         }
@@ -180,7 +351,17 @@ function validateWorkflow(workflowDef) {
         if (activity.type === 'forEach') {
             const loopResult = validateNestedSteps(
                 config.steps || [], 
-                `${activityId}:loop`
+                `${activityId}:loop`,
+                new Set(visitedRefs)
+            );
+            if (!loopResult.valid) return loopResult;
+        }
+
+        if (activity.type === 'forEachFile') {
+            const loopResult = validateNestedSteps(
+                config.steps || [], 
+                `${activityId}:loop`,
+                new Set(visitedRefs)
             );
             if (!loopResult.valid) return loopResult;
         }
@@ -223,25 +404,50 @@ async function executeActivity(activity, context, inputDataset, engineOptions = 
 
     const maxRetries = engineOptions.maxRetries || DEFAULT_MAX_RETRIES;
     const timeoutMs = engineOptions.timeoutMs || DEFAULT_TIMEOUT_MS;
+    const signal = engineOptions.signal || null;
 
     try {
-        // Create a promise with timeout
-        const executePromise = actDef.execute(activity.config, context, inputDataset, engineOptions);
-        
-        let result;
-        if (timeoutMs > 0) {
-            const timeoutPromise = new Promise((_, reject) => {
-                setTimeout(() => reject(new Error(`Activity "${activity.id || activity.type}" timed out after ${timeoutMs}ms`)), timeoutMs);
-            });
-            result = await Promise.race([executePromise, timeoutPromise]);
+        throwIfAborted(signal);
+
+        // Interpolate {{variable}} placeholders in top-level string config values so
+        // workflow parameters can flow into any activity config. Nested arrays (e.g.
+        // forEach steps, multiTransform actions) are left untouched — control activities
+        // perform their own per-row/per-file substitution on those. setVariable is
+        // excluded because it interpolates expressions itself with JS-eval quoting.
+        const config = {};
+        const rawConfig = activity.config || {};
+        const interpolateConfig = context && typeof context.interpolate === 'function';
+        if (activity.type === 'setVariable' || !interpolateConfig) {
+            Object.assign(config, rawConfig);
         } else {
-            result = await executePromise;
+            for (const [key, value] of Object.entries(rawConfig)) {
+                config[key] = typeof value === 'string' ? context.interpolate(value) : value;
+            }
         }
-        
+
+        // Create a promise with timeout
+        const executePromise = actDef.execute(config, context, inputDataset, engineOptions);
+
+        let result;
+        const races = [executePromise];
+        if (signal) races.push(abortPromise(signal));
+        if (timeoutMs > 0) {
+            races.push(new Promise((_, reject) => {
+                setTimeout(() => reject(new Error(`Activity "${activity.id || activity.type}" timed out after ${timeoutMs}ms`)), timeoutMs);
+            }));
+        }
+        result = await Promise.race(races);
+
+        throwIfAborted(signal);
         return { success: true, dataset: result };
     } catch (error) {
         const errorMessage = error.message || String(error);
-        
+
+        // Never retry cancelled / aborted activities
+        if (isAbortError(error) || (signal && signal.aborted)) {
+            return { success: false, error: getAbortReason(signal) || errorMessage };
+        }
+
         // Retry logic if applicable
         if (retryCount < maxRetries && engineOptions.shouldRetry !== false) {
             const delay = engineOptions.retryDelay || 1000 * Math.pow(2, retryCount); // Exponential backoff
@@ -266,12 +472,14 @@ async function executeActivity(activity, context, inputDataset, engineOptions = 
  */
 async function executeSteps(steps, context, inputDataset, results, engineOptions = {}) {
     let currentDataset = inputDataset;
+    const signal = engineOptions.signal || null;
 
     for (let i = 0; i < steps.length; i++) {
         const step = steps[i];
         const stepId = step.id || `step_${i + 1}`;
 
         try {
+            throwIfAborted(signal);
             const result = await executeActivity(step, context, currentDataset, engineOptions);
             
             if (!result.success) {
@@ -308,6 +516,9 @@ async function executeSteps(steps, context, inputDataset, results, engineOptions
  * @param {number} options.maxRetries - Maximum retry attempts per activity
  * @param {number} options.timeoutMs - Timeout per activity in milliseconds
  * @param {boolean} options.stopOnError - Stop execution on first error (default: true)
+ * @param {AbortSignal} [options.signal] - Abort signal to cancel the run
+ * @param {number} [options.workflowTimeoutMs] - Overall workflow timeout in ms (0 = none)
+ * @param {Array<string>} [options.workflowStack] - Stack of sub-workflow paths (cycle guard for callWorkflow)
  * @returns {Promise<{ success: boolean, results?: Object, error?: string, variables?: Object }>}
  */
 async function executeWorkflow(workflowDef, options = {}) {
@@ -317,11 +528,15 @@ async function executeWorkflow(workflowDef, options = {}) {
         initialVariables = {},
         maxRetries = DEFAULT_MAX_RETRIES,
         timeoutMs = DEFAULT_TIMEOUT_MS,
-        stopOnError = true
+        stopOnError = true,
+        signal = null,
+        workflowTimeoutMs = 0
     } = options;
     
     const results = {};
     let currentDataset = null;
+    const startTime = Date.now();
+    const isTimedOut = () => workflowTimeoutMs > 0 && (Date.now() - startTime) > workflowTimeoutMs;
 
     // ─── Build context ──────────────────────────────────────────────────────
     const context = {
@@ -346,12 +561,8 @@ async function executeWorkflow(workflowDef, options = {}) {
             return name in context.variables;
         },
         // ─── Variable interpolation helper ─────────────────────────────────
-        interpolate: (template) => {
-            if (typeof template !== 'string') return template;
-            return template.replace(/\{\{([^}]+)\}\}/g, (match, varName) => {
-                const value = context.getVariable(varName.trim());
-                return value !== undefined ? String(value) : match;
-            });
+        interpolate: (template, row = null) => {
+            return templateService.interpolate(template, context.variables, { row });
         }
     };
 
@@ -363,6 +574,17 @@ async function executeWorkflow(workflowDef, options = {}) {
             error: validation.error, 
             results: {},
             variables: context.variables 
+        };
+    }
+
+    // Resolve workflow-level parameters (defaults, required checks, coercion)
+    const paramError = resolveParameters(workflowDef, context);
+    if (paramError) {
+        return {
+            success: false,
+            error: paramError,
+            results: {},
+            variables: context.variables
         };
     }
 
@@ -379,8 +601,21 @@ async function executeWorkflow(workflowDef, options = {}) {
     const engineOptions = {
         maxRetries,
         timeoutMs,
-        shouldRetry: true
+        shouldRetry: true,
+        signal,
+        workflowStack: options.workflowStack || null,
+        onStateChange: onStateChange || null
     };
+
+    // Mark every activity from `fromIndex` onwards as Failed (used on cancel/timeout)
+    function markPendingFailed(fromIndex, reason) {
+        if (!onStateChange) return;
+        for (let j = fromIndex; j < total; j++) {
+            const a = workflowDef.activities[j];
+            const aId = a.id || `activity_${j + 1}`;
+            onStateChange(aId, 'Failed', {}, reason);
+        }
+    }
 
     // ─── Execute each activity ─────────────────────────────────────────────
     let failedActivities = [];
@@ -388,6 +623,18 @@ async function executeWorkflow(workflowDef, options = {}) {
     for (let i = 0; i < total; i++) {
         const activity = workflowDef.activities[i];
         const activityId = activity.id || `activity_${i + 1}`;
+
+        // Cancellation / overall timeout take priority between activities
+        if (getAbortReason(signal)) {
+            const reason = getAbortReason(signal);
+            markPendingFailed(i, reason);
+            return { success: false, error: reason, results, variables: context.variables };
+        }
+        if (isTimedOut()) {
+            const reason = `Workflow timed out after ${workflowTimeoutMs}ms`;
+            markPendingFailed(i, reason);
+            return { success: false, error: reason, results, variables: context.variables };
+        }
 
         try {
             // Reset per-activity stats so prior activity stats don't bleed through
@@ -407,6 +654,18 @@ async function executeWorkflow(workflowDef, options = {}) {
                 failedActivities.push(activityId);
                 if (onStateChange) {
                     onStateChange(activityId, 'Failed', { executionTime }, result.error);
+                }
+
+                // If execution was cancelled/timed out mid-activity, stop cleanly
+                if (getAbortReason(signal)) {
+                    const reason = getAbortReason(signal);
+                    markPendingFailed(i + 1, reason);
+                    return { success: false, error: reason, results, variables: context.variables };
+                }
+                if (isTimedOut()) {
+                    const reason = `Workflow timed out after ${workflowTimeoutMs}ms`;
+                    markPendingFailed(i + 1, reason);
+                    return { success: false, error: reason, results, variables: context.variables };
                 }
                 
                 if (stopOnError) {

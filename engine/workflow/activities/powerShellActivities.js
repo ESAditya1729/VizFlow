@@ -185,7 +185,7 @@ powerShellActivities.push({
             return new Dataset([], ['FullName', 'Name']);
         }
 
-        const header = lines[0].split(',').map(h => h.replace(/^"|"$/g, '').trim());
+        const header = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
         const rows = lines.slice(1).map(line => {
             const values = parseCSVLine(line);
             const row = {};
@@ -406,6 +406,13 @@ powerShellActivities.push({
             type: 'boolean',
             required: false,
             description: 'Continue processing other files if one fails (default: false)'
+        },
+        {
+            name: 'mergeResults',
+            label: 'Merge Results',
+            type: 'boolean',
+            required: false,
+            description: 'Merge each file\'s inner output into one dataset (default: false — only the last file\'s dataset is kept)'
         }
     ],
     async execute(config, context, inputDataset, engineOptions) {
@@ -414,7 +421,8 @@ powerShellActivities.push({
             fileFilter = '*',
             recursive = false,
             maxFiles = 0,
-            continueOnError = false
+            continueOnError = false,
+            mergeResults = false
         } = config;
 
         validateConfig({ folderPath }, ['folderPath'], 'For-Each File');
@@ -463,7 +471,7 @@ powerShellActivities.push({
             return inputDataset;
         }
 
-        const header = lines[0].split(',').map(h => h.replace(/^"|"$/g, '').trim());
+        const header = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
         const files = lines.slice(1).map(line => {
             const values = parseCSVLine(line);
             const file = {};
@@ -482,8 +490,18 @@ powerShellActivities.push({
         let currentDataset = inputDataset;
         let filesProcessed = 0;
 
+        // When mergeResults is on, accumulate every file's inner output rows
+        let mergedRows = [];
+        let mergedCols = inputDataset ? inputDataset.getColumns() : [];
+
         for (const file of files) {
             try {
+                if (opts.signal && opts.signal.aborted) {
+                    const err = new Error('Workflow cancelled');
+                    err.name = 'AbortError';
+                    throw err;
+                }
+
                 context.setVariable('currentFile', file);
                 context.setVariable('fileName', file.Name);
                 context.setVariable('filePath', file.FullName);
@@ -510,10 +528,11 @@ powerShellActivities.push({
                         };
                     });
 
+                    const innerInput = currentDataset;
                     const stepResult = await executeSteps(
                         processedSteps,
                         context,
-                        currentDataset,
+                        innerInput,
                         dummyResults,
                         opts
                     );
@@ -527,7 +546,21 @@ powerShellActivities.push({
                         continue;
                     }
 
-                    currentDataset = stepResult.dataset || currentDataset;
+                    const outputDataset = stepResult.dataset || innerInput;
+
+                    if (mergeResults) {
+                        // A passthrough output (e.g. Write CSV returning its input)
+                        // is the same instance we handed in — skip it to avoid duplicating
+                        // accumulated rows.
+                        if (outputDataset !== innerInput) {
+                            for (const c of outputDataset.getColumns()) {
+                                if (!mergedCols.includes(c)) mergedCols = [...mergedCols, c];
+                            }
+                            mergedRows.push(...outputDataset.rows);
+                        }
+                    }
+
+                    currentDataset = outputDataset;
                 }
 
                 filesProcessed++;
@@ -546,8 +579,14 @@ powerShellActivities.push({
                 filesProcessed: filesProcessed,
                 totalFiles: files.length,
                 errors: errors.length,
-                hasErrors: errors.length > 0
+                hasErrors: errors.length > 0,
+                mergeResults: mergeResults,
+                mergedRowCount: mergeResults ? mergedRows.length : undefined
             });
+        }
+
+        if (mergeResults) {
+            return new Dataset(mergedRows, mergedCols);
         }
 
         return currentDataset;

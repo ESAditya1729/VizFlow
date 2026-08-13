@@ -443,8 +443,8 @@ transformationActivities.push({
         const { column, opKey, params = [], asNewColumn = false } = config;
         validateConfig({ column, opKey }, ['column', 'opKey'], 'Transform');
         
-        // Find the actual column name
-        const actualColumn = validateColumn(inputDataset, column, 'Transform');
+        // For new columns, skip validation since the column is being created
+        const actualColumn = asNewColumn ? column : validateColumn(inputDataset, column, 'Transform');
 
         const paramArray = normalizeParams(params, opKey);
         const { transformDataset } = require('../../expressions/evaluator');

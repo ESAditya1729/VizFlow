@@ -7,6 +7,7 @@
 'use strict';
 
 const Dataset = require('../../dataset');
+const templateService = require('../../../services/templateService');
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 const VALID_OPERATORS = ['==', '!=', '>', '>=', '<', '<=', 'contains', 'startsWith', 'endsWith', 'isEmpty', 'isNotEmpty'];
@@ -116,32 +117,11 @@ function matchesCondition(row, column, operator, value, caseSensitive = true) {
 function evaluateExpression(expr, context, row = null) {
     if (!expr || typeof expr !== 'string') return expr;
 
-    let result = expr;
-
-    // Replace {{row.column}} references
-    if (row) {
-        const rowRegex = /\{\{row\.([^}]+)\}\}/g;
-        let match;
-        while ((match = rowRegex.exec(expr)) !== null) {
-            const colName = match[1].trim();
-            const value = row[colName] !== undefined ? row[colName] : '';
-            result = result.replace(match[0], String(value));
-        }
-    }
-
-    // Replace {{variable}} references
-    const varRegex = /\{\{([^}]+)\}\}/g;
-    let match;
-    while ((match = varRegex.exec(expr)) !== null) {
-        const varPath = match[1].trim();
-        const value = resolveVariablePath(varPath, context);
-        if (value !== undefined && value !== null) {
-            const replacement = typeof value === 'object' ? JSON.stringify(value) : String(value);
-            result = result.replace(match[0], replacement);
-        } else {
-            result = result.replace(match[0], '');
-        }
-    }
+    // Replace {{row.column}} and {{variable}} / {{variable.path}} references
+    let result = templateService.interpolate(expr, context.variables || {}, {
+        row,
+        replaceMissingWith: ''
+    });
 
     // Try to evaluate as JavaScript expression
     try {
@@ -164,23 +144,12 @@ function evaluateExpression(expr, context, row = null) {
 }
 
 /**
- * Resolve a variable path (e.g., "user.name.first")
- * @param {string} path - Dot-separated variable path
- * @param {Object} context - Execution context
- * @returns {*} Resolved value
+ * True when the current run has been cancelled via the engine's abort signal.
+ * @param {Object} [engineOptions]
+ * @returns {boolean}
  */
-function resolveVariablePath(path, context) {
-    const parts = path.split('.');
-    let current = context.getVariable(parts[0]);
-
-    if (current === undefined) return undefined;
-
-    for (let i = 1; i < parts.length; i++) {
-        if (current === null || current === undefined) return undefined;
-        current = current[parts[i]];
-    }
-
-    return current;
+function isCancelled(engineOptions) {
+    return !!(engineOptions && engineOptions.signal && engineOptions.signal.aborted);
 }
 
 /**
@@ -256,6 +225,13 @@ controlActivities.push({
                 { label: 'Power (^)', value: 'power' },
                 { label: 'Round', value: 'round' },
                 { label: 'Absolute Value', value: 'abs' },
+                // Date Operations
+                { label: 'Parse Date', value: 'parseDate' },
+                { label: 'Format Date', value: 'formatDate' },
+                { label: 'Add Days', value: 'addDays' },
+                { label: 'Extract Date Part', value: 'extractDatePart' },
+                { label: 'Date Difference', value: 'dateDiff' },
+                { label: 'Format Time', value: 'formatTime' },
                 { label: 'Coalesce (fallback)', value: 'coalesce' },
                 { label: 'Starts With (check)', value: 'startsWith' },
                 { label: 'Ends With (check)', value: 'endsWith' },
@@ -555,6 +531,12 @@ controlActivities.push({
         const errors = [];
 
         for (const key of keys) {
+            if (isCancelled(opts)) {
+                const err = new Error('Workflow cancelled');
+                err.name = 'AbortError';
+                throw err;
+            }
+
             const groupRows = groupMap.get(key);
             let groupDataset = new Dataset(groupRows, cols);
 
@@ -765,7 +747,7 @@ controlActivities.push({
                 let match;
                 while ((match = varRegex.exec(expression)) !== null) {
                     const varPath = match[1].trim();
-                    const varValue = resolveVariablePathSimple(varPath, context);
+                    const varValue = templateService.getPath(context.variables, varPath);
                     if (varValue !== undefined && varValue !== null) {
                         // If it's a string, wrap in quotes for JS evaluation
                         const replacement = typeof varValue === 'string'
@@ -806,7 +788,7 @@ controlActivities.push({
                 if (sourceObj === undefined || sourceObj === null) {
                     resultValue = defaultValue;
                 } else {
-                    resultValue = resolveVariablePathSimple(jsonPath, { getVariable: () => sourceObj });
+                    resultValue = templateService.getPath(sourceObj, jsonPath);
                     if (resultValue === undefined || resultValue === null) {
                         resultValue = defaultValue;
                     }
@@ -836,23 +818,6 @@ controlActivities.push({
         return inputDataset;
     }
 });
-
-// ─── Helper function for resolving variable paths ──────────────────────────
-function resolveVariablePathSimple(path, context) {
-    if (!path || !context) return undefined;
-
-    const parts = path.split('.');
-    let current = context.getVariable(parts[0]);
-
-    if (current === undefined) return undefined;
-
-    for (let i = 1; i < parts.length; i++) {
-        if (current === null || current === undefined) return undefined;
-        current = current[parts[i]];
-    }
-
-    return current;
-}
 
 // ─── 5. Wait Activity ────────────────────────────────────────────────────────
 controlActivities.push({
@@ -884,7 +849,7 @@ controlActivities.push({
             description: 'Expression to evaluate as wait condition (e.g., "{{progress}} < 100")'
         }
     ],
-    async execute(config, context, inputDataset) {
+    async execute(config, context, inputDataset, engineOptions) {
         const { duration = 5, maxDuration = 0, condition } = config;
 
         if (duration < 1) {
@@ -896,6 +861,13 @@ controlActivities.push({
         const startTime = Date.now();
 
         while (elapsed < duration) {
+            // Exit promptly if the run was cancelled
+            if (isCancelled(engineOptions)) {
+                const err = new Error('Workflow cancelled');
+                err.name = 'AbortError';
+                throw err;
+            }
+
             // Check if condition is satisfied (if provided)
             if (condition) {
                 const evaluated = evaluateExpression(condition, context);
@@ -925,6 +897,189 @@ controlActivities.push({
         }
 
         return inputDataset;
+    }
+});
+
+// ─── 6. Call Workflow Activity ──────────────────────────────────────────────
+
+const CALL_WORKFLOW_MAX_DEPTH = 10;
+const CALL_WORKFLOW_BUILTIN_VARIABLES = new Set([
+    'workflowName', 'timestamp', 'workspaceRoot', 'date', 'time',
+    'year', 'month', 'day', 'hour', 'minute', 'second'
+]);
+
+/**
+ * Return the last non-empty dataset from a set of step results.
+ * @param {Object} results - Results object from executeWorkflow
+ * @returns {Dataset|null}
+ */
+function lastDatasetOf(results) {
+    if (!results || typeof results !== 'object') return null;
+    const keys = Object.keys(results);
+    for (let i = keys.length - 1; i >= 0; i--) {
+        const r = results[keys[i]];
+        if (r && r.success && r.dataset) return r.dataset;
+    }
+    return null;
+}
+
+controlActivities.push({
+    type: 'callWorkflow',
+    displayName: '🔗 Call Workflow',
+    description: 'Runs another .vizflow workflow as a reusable sub-workflow, passing parameters and receiving its final dataset and variables.',
+    category: 'Control',
+    configRequirements: [
+        {
+            name: 'workflowPath',
+            label: 'Workflow File',
+            type: 'file',
+            required: true,
+            description: 'Path to the .vizflow workflow to run (absolute or relative to the workspace)'
+        },
+        {
+            name: 'parameters',
+            label: 'Parameters',
+            type: 'keyValue',
+            required: false,
+            description: 'Values to pass into the sub-workflow parameters ({{variable}} interpolation supported)'
+        },
+        {
+            name: 'exportVariables',
+            label: 'Export Variables',
+            type: 'boolean',
+            required: false,
+            defaultValue: true,
+            description: 'Copy sub-workflow variables (set via Set Variable) back into the caller (default: true)'
+        },
+        {
+            name: 'outputMode',
+            label: 'Output Mode',
+            type: 'select',
+            required: false,
+            options: [
+                { label: 'Pass Through (sub-workflow output)', value: 'passthrough' },
+                { label: 'Keep Caller Dataset', value: 'keepCaller' }
+            ],
+            description: 'What the activity produces as its output dataset'
+        }
+    ],
+    async execute(config, context, inputDataset, engineOptions) {
+        const {
+            workflowPath,
+            parameters = {},
+            exportVariables = true,
+            outputMode = 'passthrough'
+        } = config;
+
+        if (!workflowPath) {
+            throw new Error('Call Workflow activity: "workflowPath" is required');
+        }
+
+        const fs = require('fs');
+
+        const resolved = typeof context.resolvePath === 'function'
+            ? context.resolvePath(workflowPath)
+            : workflowPath;
+
+        if (!fs.existsSync(resolved)) {
+            throw new Error(`Call Workflow activity: workflow file not found: "${resolved}"`);
+        }
+
+        let subDef;
+        try {
+            subDef = JSON.parse(fs.readFileSync(resolved, 'utf8'));
+        } catch (error) {
+            throw new Error(`Call Workflow activity: invalid workflow file "${resolved}": ${error.message}`);
+        }
+
+        if (!subDef.activities || !Array.isArray(subDef.activities)) {
+            throw new Error(`Call Workflow activity: "${resolved}" is not a valid workflow definition`);
+        }
+
+        // ─── Cycle guard ────────────────────────────────────────────────────
+        const stack = Array.isArray(engineOptions && engineOptions.workflowStack)
+            ? engineOptions.workflowStack
+            : [];
+        if (stack.includes(resolved)) {
+            throw new Error(
+                `Call Workflow activity: circular workflow call detected (${[...stack, resolved].join(' → ')})`
+            );
+        }
+        if (stack.length >= CALL_WORKFLOW_MAX_DEPTH) {
+            throw new Error(`Call Workflow activity: max call depth (${CALL_WORKFLOW_MAX_DEPTH}) exceeded`);
+        }
+
+        // ─── Validate & interpolate parameters ──────────────────────────────
+        const declaredParams = Array.isArray(subDef.parameters) ? subDef.parameters : [];
+        const declaredNames = new Set(declaredParams.map(p => p && p.name).filter(Boolean));
+        const incoming = parameters && typeof parameters === 'object' ? parameters : {};
+
+        for (const key of Object.keys(incoming)) {
+            if (!declaredNames.has(key)) {
+                throw new Error(
+                    `Call Workflow activity: unknown parameter "${key}" for workflow "${subDef.name || resolved}". ` +
+                    `Declared parameters: ${[...declaredNames].join(', ') || 'none'}`
+                );
+            }
+        }
+
+        const subParams = {};
+        for (const key of Object.keys(incoming)) {
+            const val = incoming[key];
+            subParams[key] = typeof val === 'string' ? context.interpolate(val) : val;
+        }
+
+        // ─── Execute the sub-workflow ───────────────────────────────────────
+        const { executeWorkflow } = require('../../workflow/workflowEngine');
+        const subStart = Date.now();
+
+        const subResult = await executeWorkflow(subDef, {
+            resolvePath: typeof context.resolvePath === 'function' ? context.resolvePath : undefined,
+            initialVariables: subParams,
+            signal: engineOptions ? engineOptions.signal : undefined,
+            maxRetries: engineOptions ? engineOptions.maxRetries : undefined,
+            timeoutMs: engineOptions ? engineOptions.timeoutMs : undefined,
+            workflowStack: [...stack, resolved]
+        });
+
+        if (!subResult.success) {
+            throw new Error(
+                `Call Workflow activity: sub-workflow "${subDef.name || resolved}" failed: ${subResult.error}`
+            );
+        }
+
+        // ─── Export variables back to the caller ────────────────────────────
+        let exportedCount = 0;
+        if (exportVariables && subResult.variables) {
+            for (const [key, val] of Object.entries(subResult.variables)) {
+                if (CALL_WORKFLOW_BUILTIN_VARIABLES.has(key)) continue;
+                context.setVariable(key, val);
+                exportedCount++;
+            }
+        }
+
+        // ─── Output dataset ─────────────────────────────────────────────────
+        let outputDataset;
+        if (outputMode === 'keepCaller') {
+            outputDataset = inputDataset;
+        } else {
+            outputDataset = lastDatasetOf(subResult.results);
+            if (!outputDataset) outputDataset = inputDataset;
+        }
+
+        if (context && context.setActivityStats) {
+            context.setActivityStats({
+                subWorkflow: subDef.name || resolved,
+                workflowPath: resolved,
+                callDepth: stack.length + 1,
+                durationMs: Date.now() - subStart,
+                outputRows: outputDataset ? outputDataset.getRowCount() : 0,
+                parametersPassed: Object.keys(incoming).length,
+                exportedVariables: exportedCount
+            });
+        }
+
+        return outputDataset;
     }
 });
 

@@ -11,16 +11,20 @@ const fs = require('fs');
 const path = require('path');
 const { EventEmitter } = require('events');
 const { executeWorkflow } = require('../workflow/workflowEngine');
+const templateService = require('../../services/templateService');
 
 class SchedulerEngine extends EventEmitter {
     constructor() {
         super();
         this.jobs = new Map(); // jobId -> { task, schedule, workflowDef, config }
-        this.runningJobs = new Map(); // jobId -> { startTime, status, executionId, cancelled }
+        this.runningJobs = new Map(); // jobId -> { startTime, status, executionId, cancelled, controller }
         this.history = [];
         this.configPath = null;
+        this.configBaseDir = process.cwd();
         this.isRunning = false;
         this.executionIdCounter = 0;
+        this.queue = []; // jobIds waiting because of maxConcurrent
+        this.watchedFolders = new Set();
     }
 
     /**
@@ -28,6 +32,7 @@ class SchedulerEngine extends EventEmitter {
      */
     initialize(configPath) {
         this.configPath = configPath;
+        this.configBaseDir = configPath ? path.dirname(configPath) : process.cwd();
         this.loadJobs();
         this.startWatchdog();
         this.isRunning = true;
@@ -145,6 +150,7 @@ class SchedulerEngine extends EventEmitter {
                 runImmediately: config.runImmediately || false,
                 ...config.config
             },
+            configBaseDir: this.configBaseDir,
             enabled: config.enabled !== false,
             createdAt: config.createdAt || new Date().toISOString(),
             updatedAt: new Date().toISOString(),
@@ -182,6 +188,7 @@ class SchedulerEngine extends EventEmitter {
         
         this.jobs.set(jobId, job);
         this.saveJobs();
+        this.maybeWatchFolder(job);
         
         this.emit('jobAdded', job);
         return job;
@@ -263,6 +270,7 @@ class SchedulerEngine extends EventEmitter {
         }
         
         this.saveJobs();
+        this.maybeWatchFolder(job);
         this.emit('jobUpdated', job);
         return job;
     }
@@ -295,12 +303,29 @@ class SchedulerEngine extends EventEmitter {
                 jobId, 
                 message: 'Max concurrent jobs reached, queued' 
             });
-            setTimeout(() => this.executeJob(jobId), 5000);
+            if (!this.queue.includes(jobId)) {
+                this.queue.push(jobId);
+            }
             return;
         }
 
         // Generate execution ID
         const executionId = `exec_${++this.executionIdCounter}_${Date.now()}`;
+
+        // Abort controller enables real cancellation + job timeout enforcement
+        const controller = new AbortController();
+        const timeoutSeconds = job.config.timeout || 0;
+        let timeoutHandle = null;
+        if (timeoutSeconds > 0) {
+            timeoutHandle = setTimeout(() => {
+                const entry = this.runningJobs.get(jobId);
+                if (entry) {
+                    entry.timedOut = true;
+                    entry.timeoutReason = `Job timed out after ${timeoutSeconds}s`;
+                }
+                controller.abort(new Error(`Job timed out after ${timeoutSeconds}s`));
+            }, timeoutSeconds * 1000);
+        }
 
         // Mark as running
         const startTime = Date.now();
@@ -308,7 +333,9 @@ class SchedulerEngine extends EventEmitter {
             startTime, 
             status: 'running', 
             executionId,
-            cancelled: false
+            cancelled: false,
+            timedOut: false,
+            controller
         });
         job.status = 'running';
         job.lastRun = new Date().toISOString();
@@ -339,8 +366,15 @@ class SchedulerEngine extends EventEmitter {
             try {
                 // Load workflow definition
                 let workflowDef = job.workflowDef;
+
+                // Resolve paths relative to the job's base directory so that
+                // relative workflow/parameter paths behave predictably
+                const baseDir = job.configBaseDir || this.configBaseDir || process.cwd();
+
                 if (job.workflowFile && !workflowDef) {
-                    const filePath = path.resolve(job.workflowFile);
+                    const filePath = path.isAbsolute(job.workflowFile)
+                        ? job.workflowFile
+                        : path.resolve(baseDir, job.workflowFile);
                     if (fs.existsSync(filePath)) {
                         const content = fs.readFileSync(filePath, 'utf8');
                         workflowDef = JSON.parse(content);
@@ -358,17 +392,18 @@ class SchedulerEngine extends EventEmitter {
                     workflowDef = this.applyParameters(workflowDef, job.config.parameters);
                 }
 
-                // Resolve paths
-                const resolvePath = (p) => path.resolve(p);
+                // Resolve paths relative to the job's base directory
+                const resolvePath = (p) => path.isAbsolute(p) ? p : path.resolve(baseDir, p);
 
                 // Execute workflow
                 const result = await executeWorkflow(workflowDef, {
                     resolvePath,
+                    signal: controller.signal,
                     onStateChange: (activityId, state, stats, error) => {
                         // Check if cancelled during execution
                         const runningCheck = this.runningJobs.get(jobId);
-                        if (runningCheck && runningCheck.cancelled) {
-                            throw new Error('Job cancelled by user');
+                        if (runningCheck && (runningCheck.cancelled || runningCheck.timedOut)) {
+                            throw new Error(runningCheck.timedOut ? 'Job timed out' : 'Job cancelled by user');
                         }
                         this.emit('jobActivityState', {
                             jobId,
@@ -385,6 +420,9 @@ class SchedulerEngine extends EventEmitter {
                 const runningCheck = this.runningJobs.get(jobId);
                 if (runningCheck && runningCheck.cancelled) {
                     throw new Error('Job cancelled by user');
+                }
+                if (runningCheck && runningCheck.timedOut) {
+                    throw new Error('Job timed out');
                 }
 
                 if (result.success) {
@@ -419,6 +457,20 @@ class SchedulerEngine extends EventEmitter {
                     break;
                 }
 
+                // Check if timed out
+                if (error.message === 'Job timed out') {
+                    const timedOutEntry = this.runningJobs.get(jobId);
+                    const timeoutReason = (timedOutEntry && timedOutEntry.timeoutReason) || 'Job timed out';
+                    this.emit('jobTimedOut', {
+                        jobId,
+                        jobName: job.name,
+                        executionId,
+                        duration: Date.now() - startTime,
+                        error: timeoutReason
+                    });
+                    break;
+                }
+
                 lastError = error;
                 retryCount++;
                 
@@ -438,12 +490,17 @@ class SchedulerEngine extends EventEmitter {
         }
 
         // Clean up
+        if (timeoutHandle) {
+            clearTimeout(timeoutHandle);
+        }
+
         const running = this.runningJobs.get(jobId);
-        if (running && !running.cancelled) {
+        const cancelledOrTimedOut = running && (running.cancelled || running.timedOut);
+        if (running && !cancelledOrTimedOut) {
             const finalStatus = success ? 'completed' : 'failed';
             job.status = finalStatus;
             
-            if (!success && !running.cancelled) {
+            if (!success && !cancelledOrTimedOut) {
                 // Send failure notification
                 if (job.config.notifications.onFailure) {
                     this.sendNotification(job, null, lastError);
@@ -472,7 +529,8 @@ class SchedulerEngine extends EventEmitter {
             duration: Date.now() - startTime,
             status: job.status,
             error: lastError ? lastError.message : null,
-            cancelled: running ? running.cancelled : false
+            cancelled: cancelledOrTimedOut,
+            timedOut: running ? running.timedOut : false
         });
 
         // Keep only last 200 history entries
@@ -482,6 +540,12 @@ class SchedulerEngine extends EventEmitter {
 
         this.saveJobs();
         this.emit('jobUpdated', { jobId });
+
+        // Process the next queued job, if any
+        if (this.queue.length > 0) {
+            const nextJobId = this.queue.shift();
+            setTimeout(() => this.executeJob(nextJobId), 100);
+        }
     }
 
     /**
@@ -499,6 +563,9 @@ class SchedulerEngine extends EventEmitter {
         }
 
         running.cancelled = true;
+        if (running.controller) {
+            running.controller.abort(new Error('Job cancelled by user'));
+        }
         this.emit('jobStopping', { jobId, jobName: job.name });
         return true;
     }
@@ -560,105 +627,25 @@ class SchedulerEngine extends EventEmitter {
      */
     applyParameters(workflowDef, parameters) {
         const json = JSON.stringify(workflowDef);
-        const replaced = json.replace(/\{\{([^}]+)\}\}/g, (match, key) => {
-            const value = parameters[key.trim()];
-            return value !== undefined ? value : match;
-        });
+        const replaced = templateService.interpolate(json, parameters || {});
         return JSON.parse(replaced);
     }
 
     /**
      * Get next run time for a cron schedule
      */
-   getNextRun(schedule) {
-    try {
-        // Simple next run calculation based on current time
-        const now = new Date();
-        const parts = schedule.split(' ');
-        if (parts.length !== 5) return null;
-        
-        const minute = parts[0] === '*' ? null : parseInt(parts[0]);
-        const hour = parts[1] === '*' ? null : parseInt(parts[1]);
-        const day = parts[2] === '*' ? null : parseInt(parts[2]);
-        const month = parts[3] === '*' ? null : parseInt(parts[3]);
-        const dayOfWeek = parts[4] === '*' ? null : parseInt(parts[4]);
-        
-        // Calculate next run (simplified)
-        let next = new Date(now);
-        next.setSeconds(0);
-        next.setMilliseconds(0);
-        
-        // Set minute
-        if (minute !== null) {
-            if (next.getMinutes() >= minute) {
-                next.setHours(next.getHours() + 1);
-            }
-            next.setMinutes(minute);
+    getNextRun(schedule) {
+        try {
+            // Let node-cron compute the next run so the answer always
+            // matches what the actual scheduler will fire
+            const task = cron.schedule(schedule, () => {}, { scheduled: false });
+            const next = task.getNextRun();
+            task.stop();
+            return next ? next.toISOString() : null;
+        } catch (error) {
+            return null;
         }
-        
-        // Set hour
-        if (hour !== null) {
-            if (next.getHours() > hour || (next.getHours() === hour && next.getMinutes() > (minute || 0))) {
-                next.setDate(next.getDate() + 1);
-            }
-            next.setHours(hour);
-        }
-        
-        // Set day
-        if (day !== null && month !== null) {
-            // Specific date
-            let targetMonth = month - 1;
-            let targetDay = day;
-            let currentMonth = next.getMonth();
-            let currentYear = next.getFullYear();
-            
-            if (currentMonth > targetMonth || (currentMonth === targetMonth && next.getDate() > targetDay)) {
-                currentYear++;
-            }
-            next.setFullYear(currentYear);
-            next.setMonth(targetMonth);
-            next.setDate(targetDay);
-        } else if (day !== null) {
-            // Every month on specific day
-            if (next.getDate() > day) {
-                next.setMonth(next.getMonth() + 1);
-            }
-            next.setDate(day);
-        }
-        
-        // Set month
-        if (month !== null) {
-            let targetMonth = month - 1;
-            if (next.getMonth() > targetMonth || (next.getMonth() === targetMonth && next.getDate() > (day || 1))) {
-                next.setFullYear(next.getFullYear() + 1);
-            }
-            next.setMonth(targetMonth);
-        }
-        
-        // If the calculated time is in the past, add one more cycle
-        if (next <= now) {
-            if (day !== null && month !== null) {
-                // Yearly - add 1 year
-                next.setFullYear(next.getFullYear() + 1);
-            } else if (day !== null) {
-                // Monthly - add 1 month
-                next.setMonth(next.getMonth() + 1);
-            } else if (hour !== null) {
-                // Daily - add 1 day
-                next.setDate(next.getDate() + 1);
-            } else {
-                // Hourly - add 1 hour
-                next.setHours(next.getHours() + 1);
-            }
-        }
-        
-        return next.toISOString();
-    } catch (error) {
-        // Fallback: return a time 1 hour from now
-        const fallback = new Date(Date.now() + 3600000);
-        return fallback.toISOString();
     }
-}
 
     /**
      * Send notification
@@ -719,20 +706,28 @@ class SchedulerEngine extends EventEmitter {
     }
 
     /**
-     * Watch folder for new files
+     * Watch folders for all enabled jobs with a watchFolder config.
+     * Reuses the engine-level set so addJob/updateJob can add watches
+     * without re-watching folders that are already being watched.
      */
     startWatchdog() {
-        const watchedFolders = new Set();
-        
         for (const job of this.jobs.values()) {
-            if (job.config.watchFolder && job.enabled) {
-                const folder = path.resolve(job.config.watchFolder);
-                if (!watchedFolders.has(folder)) {
-                    watchedFolders.add(folder);
-                    this.watchFolder(folder);
-                }
-            }
+            this.maybeWatchFolder(job);
         }
+    }
+
+    /**
+     * Register a watcher for a job's watch folder, if it isn't already
+     * being watched and the folder is not already covered.
+     */
+    maybeWatchFolder(job) {
+        if (!job || !job.config || !job.config.watchFolder || !job.enabled) return;
+        const folder = path.isAbsolute(job.config.watchFolder)
+            ? job.config.watchFolder
+            : path.resolve(job.configBaseDir || this.configBaseDir || process.cwd(), job.config.watchFolder);
+        if (this.watchedFolders.has(folder)) return;
+        this.watchedFolders.add(folder);
+        this.watchFolder(folder);
     }
 
     /**
@@ -754,7 +749,9 @@ class SchedulerEngine extends EventEmitter {
                 // Find jobs watching this folder
                 for (const job of this.jobs.values()) {
                     if (job.enabled && job.config.watchFolder) {
-                        const watched = path.resolve(job.config.watchFolder);
+                        const watched = path.isAbsolute(job.config.watchFolder)
+                            ? job.config.watchFolder
+                            : path.resolve(job.configBaseDir || this.configBaseDir || process.cwd(), job.config.watchFolder);
                         if (watched === folder) {
                             this.emit('fileTriggeredJob', { jobId: job.id, filename });
                             this.executeJob(job.id);

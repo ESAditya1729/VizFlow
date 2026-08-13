@@ -9,6 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 const Papa = require('papaparse');
+const templateService = require('../../../services/templateService');
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 const DEFAULT_ENCODING = 'utf8';
@@ -820,26 +821,14 @@ outputActivities.push({
                 throw new Error(`Write Text: Unknown content source "${content}"`);
         }
 
-        // ─── NEW: Interpolate variables in the content ──────────────────────
-        // Replace {{variable}} placeholders with actual variable values
+        // ─── Interpolate variables in the content ──────────────────────────
+        // Replace {{variable}} placeholders with actual variable values and
+        // {{row.column}} with values from the first row of the input dataset
+        const row0 = (inputDataset && inputDataset.rows && inputDataset.rows[0]) || null;
         if (context && context.interpolate) {
-            textContent = context.interpolate(textContent);
+            textContent = context.interpolate(textContent, row0);
         } else {
-            // Manual interpolation if context.interpolate is not available
-            let interpolated = textContent;
-            const varRegex = /\{\{([^}]+)\}\}/g;
-            let match;
-            while ((match = varRegex.exec(textContent)) !== null) {
-                const varPath = match[1].trim();
-                const value = resolveVariablePath(varPath, context);
-                if (value !== undefined && value !== null) {
-                    const replacement = typeof value === 'object'
-                        ? JSON.stringify(value, null, 2)
-                        : String(value);
-                    interpolated = interpolated.replace(match[0], replacement);
-                }
-            }
-            textContent = interpolated;
+            textContent = templateService.interpolate(textContent, (context && context.variables) || {}, { row: row0 });
         }
 
         // Write with appropriate encoding
@@ -866,23 +855,6 @@ outputActivities.push({
         return inputDataset;
     }
 });
-
-// ─── Helper function to resolve variable paths ──────────────────────────────
-function resolveVariablePath(path, context) {
-    if (!path || !context) return undefined;
-    
-    const parts = path.split('.');
-    let current = context.getVariable(parts[0]);
-    
-    if (current === undefined) return undefined;
-    
-    for (let i = 1; i < parts.length; i++) {
-        if (current === null || current === undefined) return undefined;
-        current = current[parts[i]];
-    }
-    
-    return current;
-}
 
 // ─── 5. Append to Text File Activity ────────────────────────────────────────
 outputActivities.push({
@@ -1036,25 +1008,13 @@ outputActivities.push({
         }
 
         // ─── Interpolate variables in the content ──────────────────────────
-        // Replace {{variable}} placeholders with actual variable values
+        // Replace {{variable}} placeholders with actual variable values and
+        // {{row.column}} with values from the first row of the input dataset
+        const row0 = (inputDataset && inputDataset.rows && inputDataset.rows[0]) || null;
         if (context && context.interpolate) {
-            textContent = context.interpolate(textContent);
+            textContent = context.interpolate(textContent, row0);
         } else {
-            // Manual interpolation if context.interpolate is not available
-            let interpolated = textContent;
-            const varRegex = /\{\{([^}]+)\}\}/g;
-            let match;
-            while ((match = varRegex.exec(textContent)) !== null) {
-                const varPath = match[1].trim();
-                const value = resolveVariablePath(varPath, context);
-                if (value !== undefined && value !== null) {
-                    const replacement = typeof value === 'object'
-                        ? JSON.stringify(value, null, 2)
-                        : String(value);
-                    interpolated = interpolated.replace(match[0], replacement);
-                }
-            }
-            textContent = interpolated;
+            textContent = templateService.interpolate(textContent, (context && context.variables) || {}, { row: row0 });
         }
 
         // Check if file exists, if not create it

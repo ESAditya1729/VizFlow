@@ -29,6 +29,11 @@ const PANEL_TITLE = 'VizFlow — Workflow Builder';
 const MAX_RETRY_ATTEMPTS = 3;
 const MESSAGE_TIMEOUT_MS = 30000;
 
+// Abort controller for the currently running workflow (module scope because
+// handleRun / handleStop live outside the panel factory)
+/** @type {AbortController | null} */
+let currentRunController = null;
+
 // ── Operation param hints map ────────────────────────────────────────────────
 const OPERATION_HINT_MAP = {
     'replace': 'search, replace',
@@ -188,6 +193,10 @@ async function handleMessage(panel, message, context, initialOpenFilePath) {
             await handleRun(panel, message.workflow, context);
             break;
 
+        case 'stop':
+            handleStop(panel);
+            break;
+
         case 'save':
             await handleSave(panel, message.workflow, message.filePath);
             break;
@@ -201,7 +210,7 @@ async function handleMessage(panel, message, context, initialOpenFilePath) {
             break;
 
         case 'pickFile':
-            await handlePickFile(panel, message.stepId, message.field);
+            await handlePickFile(panel, message.stepId, message.field, message.activityType);
             break;
 
         case 'scheduleWorkflow':
@@ -325,12 +334,25 @@ async function handleRun(panel, workflowDef, context) {
 
     const total = workflowDef.activities.length;
     let completed = 0;
+    const trace = [];
+
+    // Abort controller lets the webview Stop button cancel the run
+    const controller = new AbortController();
+    currentRunController = controller;
 
     try {
         const result = await executeWorkflow(workflowDef, {
             resolvePath,
             initialVariables,
+            signal: controller.signal,
             onStateChange(activityId, state, stats, error) {
+                trace.push({
+                    activityId,
+                    state,
+                    stats: stats || {},
+                    error: error || null,
+                    timestamp: new Date().toISOString()
+                });
                 if (!panel) return;
                 panel.webview.postMessage({
                     type: 'activityState',
@@ -351,12 +373,13 @@ async function handleRun(panel, workflowDef, context) {
         });
 
         if (panel) {
-            // Send completion with variables
+            // Send completion with variables and the run trace
             panel.webview.postMessage({
                 type: 'runComplete',
                 success: result.success,
                 error: result.error || null,
-                variables: result.variables || {}
+                variables: result.variables || {},
+                trace
             });
 
             // If successful, send final progress to 100%
@@ -366,6 +389,12 @@ async function handleRun(panel, workflowDef, context) {
                     pct: 100
                 });
                 vscode.window.showInformationMessage(`VizFlow: Workflow "${workflowDef.name || 'Untitled'}" completed successfully!`);
+            } else if (controller.signal.aborted) {
+                // User-initiated stop / timeout — treat as cancellation, not an error
+                const reason = controller.signal.reason && controller.signal.reason.message
+                    ? controller.signal.reason.message
+                    : 'Workflow cancelled';
+                vscode.window.showInformationMessage(`VizFlow: ${reason}`);
             } else {
                 vscode.window.showErrorMessage(`VizFlow: Workflow execution failed — ${result.error || 'Unknown error'}`);
             }
@@ -377,11 +406,36 @@ async function handleRun(panel, workflowDef, context) {
                 type: 'runComplete',
                 success: false,
                 error: error.message || String(error),
-                variables: {}
+                variables: {},
+                trace
             });
         }
-        vscode.window.showErrorMessage(`VizFlow: Workflow execution error — ${error.message || String(error)}`);
+        if (controller.signal.aborted) {
+            const reason = controller.signal.reason && controller.signal.reason.message
+                ? controller.signal.reason.message
+                : 'Workflow cancelled';
+            vscode.window.showInformationMessage(`VizFlow: ${reason}`);
+        } else {
+            vscode.window.showErrorMessage(`VizFlow: Workflow execution error — ${error.message || String(error)}`);
+        }
+    } finally {
+        if (currentRunController === controller) {
+            currentRunController = null;
+        }
     }
+}
+
+/**
+ * Cancels the currently running workflow, if any.
+ */
+async function handleStop(panel) {
+    if (!currentRunController) {
+        panel.webview.postMessage({
+            type: 'runStopped'
+        });
+        return;
+    }
+    currentRunController.abort(new Error('Workflow cancelled by user'));
 }
 
 /**
@@ -491,13 +545,53 @@ async function handleOpen(panel, filePath) {
 }
 
 /**
- * Opens a file-picker dialog and returns the result for a config field.
+ * Find a config requirement for an activity + field name.
  */
-async function handlePickFile(panel, stepId, field) {
+function getConfigRequirement(activityType, field) {
+    if (!activityType || !field) return null;
+    const acts = getActivities();
+    const act = acts.find(a => a.type === activityType);
+    if (!act) return null;
+    return (act.configRequirements || []).find(r => r.name === field) || null;
+}
+
+/**
+ * Opens a file/folder-picker dialog appropriate for the requested config field.
+ */
+async function handlePickFile(panel, stepId, field, activityType) {
+    let filters = { 'All Files': ['*'] };
+    let canSelectFolders = false;
+    let title = 'Select File';
+
+    const req = getConfigRequirement(activityType, field);
+    if (req) {
+        const haystack = `${req.label || ''} ${req.description || ''} ${req.name || ''} ${req.placeholder || ''}`.toLowerCase();
+        if (/output.?dir|folder|directory/.test(haystack)) {
+            canSelectFolders = true;
+            title = `Select ${req.label || 'Folder'}`;
+        } else if (/excel|xlsx|xls/.test(haystack)) {
+            filters = { 'Excel Files': ['xlsx', 'xls', 'xlsm'], 'All Files': ['*'] };
+        } else if (/json/.test(haystack)) {
+            filters = { 'JSON Files': ['json'], 'All Files': ['*'] };
+        } else if (/text|\.txt|plain text/.test(haystack)) {
+            filters = { 'Text Files': ['txt'], 'All Files': ['*'] };
+        } else if (/csv/.test(haystack)) {
+            filters = {
+                'CSV Files': ['csv'],
+                'Excel Files': ['xlsx', 'xls', 'xlsm'],
+                'JSON Files': ['json'],
+                'Text Files': ['txt'],
+                'All Files': ['*']
+            };
+        }
+    }
+
     const uris = await vscode.window.showOpenDialog({
         canSelectMany: false,
-        filters: { 'CSV Files': ['csv'], 'All Files': ['*'] },
-        title: 'Select CSV File'
+        canSelectFiles: !canSelectFolders,
+        canSelectFolders,
+        filters,
+        title
     });
     if (!uris || uris.length === 0) return;
     panel.webview.postMessage({

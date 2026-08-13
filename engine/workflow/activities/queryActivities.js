@@ -203,9 +203,14 @@ queryActivities.push({
         let rowCount;
 
         // Handle different query types
-        if (queryType === 'UPDATE' || queryType === 'DELETE') {
-            // For UPDATE/DELETE, return the modified dataset
-            outputDataset = inputDataset;
+        if (queryType === 'DELETE') {
+            // RBQL does not support DELETE; fail with a clear message instead
+            throw new Error('DELETE queries are not supported by RBQL. Use a SELECT query with a filter to preview the rows that would be affected, or restructure the workflow.');
+        } else if (queryType === 'UPDATE') {
+            // UPDATE produces a new table whose columns match the input header.
+            // Build a fresh Dataset so downstream steps see the updated values.
+            const rowObjects = rowsToObjects(result.rows || [], result.columns);
+            outputDataset = new Dataset(rowObjects, result.columns);
             rowCount = result.rows ? result.rows.length : 0;
         } else {
             // For SELECT, CREATE, etc. return new dataset

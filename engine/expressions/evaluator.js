@@ -53,41 +53,44 @@ function evaluate(rows, column, opName, rawParams = []) {
  * @returns {Dataset} New dataset with transformed column
  */
 function transformDataset(dataset, column, opName, rawParams = []) {
+    const op = OPERATIONS[opName];
+    if (!op) {
+        throw new Error(`Unknown operation: "${opName}". Available: ${Object.keys(OPERATIONS).join(', ')}`);
+    }
+
     // Get rows - handle both Dataset objects and plain arrays
     const rows = dataset.getRows ? dataset.getRows() : dataset.rows;
+    const columns = dataset.getColumns ? dataset.getColumns() : Object.keys((rows && rows[0]) || {});
+
     if (!rows || rows.length === 0) {
-        // Return empty dataset if no rows
-        return new Dataset([], []);
+        // Preserve the declared columns so downstream operations keep working
+        return new Dataset([], columns);
     }
-    
-    const columns = dataset.getColumns ? dataset.getColumns() : Object.keys(rows[0] || {});
-    
+
     // Check if column exists
     const columnExists = columns.includes(column);
-    
+
     let results;
-    
+
     if (columnExists) {
         // Column exists - use it as source
         results = evaluate(rows, column, opName, rawParams);
     } else {
-        // Column doesn't exist - create it from other column or use empty
-        // For operations that need a source, try to use the first column or an empty value
-        const sourceColumn = columns.length > 0 ? columns[0] : null;
-        
-        if (sourceColumn) {
-            // Use the first available column as source
-            results = evaluate(rows, sourceColumn, opName, rawParams);
-        } else {
-            // No columns exist - create from empty
-            results = rows.map(row => ({
-                row,
-                original: '',
-                result: opName === 'multiply' ? 0 : (opName === 'concat' ? '' : '')
-            }));
-        }
+        // Column doesn't exist - create it from an empty source so the
+        // operation computes on a clean value instead of reusing some
+        // unrelated column as the input
+        results = rows.map((row, index) => {
+            const original = '';
+            let result;
+            try {
+                result = op.fn(original, ...rawParams);
+            } catch (err) {
+                throw new Error(`Row ${index + 1} (${column}="${original}"): ${err instanceof Error ? err.message : String(err)}`);
+            }
+            return { row, original, result, skipped: false };
+        });
     }
-    
+
     // Build new rows with transformed values
     const newRows = results.map(({ row, result }) => ({
         ...row,

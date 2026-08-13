@@ -42,7 +42,7 @@ function validateConfigRequirements(configRequirements) {
     // Allowed types including special UI types
     const ALLOWED_TYPES = [
         'string', 'number', 'boolean', 'array', 'object', 'select',
-        'file', 'multiAction', 'text', 'date', 'time', 'color'
+        'file', 'multiAction', 'text', 'date', 'time', 'color', 'keyValue'
     ];
 
     const seenNames = new Set();

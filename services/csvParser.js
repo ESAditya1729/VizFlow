@@ -1,6 +1,9 @@
 const Papa = require("papaparse");
 const Dataset = require("../engine/dataset");
 
+const MAX_INPUT_CHARS = 100 * 1024 * 1024; // 100 MB of text
+const MAX_ROWS = 5000000;                   // 5 million rows
+
 /**
  * Detect the delimiter used in a delimited text file.
  * Counts occurrences of tab, pipe, and comma in the first non-empty line
@@ -29,6 +32,15 @@ function detectDelimiter(text) {
  */
 function parse(csvText) {
 
+    if (typeof csvText !== 'string') {
+        throw new Error('CSV parser: input must be a string');
+    }
+
+    if (csvText.length > MAX_INPUT_CHARS) {
+        const sizeMb = (csvText.length / (1024 * 1024)).toFixed(1);
+        throw new Error(`CSV input is too large (${sizeMb} MB). Maximum supported size is 100 MB.`);
+    }
+
     const delimiter = detectDelimiter(csvText);
 
     const result = Papa.parse(csvText, {
@@ -40,6 +52,10 @@ function parse(csvText) {
 
     if (result.errors.length > 0) {
         throw new Error(result.errors[0].message);
+    }
+
+    if (result.data.length > MAX_ROWS) {
+        throw new Error(`CSV has too many rows (${result.data.length}). Maximum supported is ${MAX_ROWS.toLocaleString()} rows.`);
     }
 
     return new Dataset(

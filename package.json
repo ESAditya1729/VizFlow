@@ -172,6 +172,7 @@
   },
   "scripts": {
     "lint": "eslint .",
+    "gen:context": "node scripts/generate-ai-context.js",
     "pretest": "npm run lint",
     "test": "vscode-test"
   },

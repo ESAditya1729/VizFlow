@@ -459,7 +459,7 @@ inputActivities.push({
             }
         }
 
-        let rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', blankrows: false });
+        let rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', blankrows: true });
 
         if (!rows || rows.length === 0) {
             throw new Error('Read Excel: No data found in the Excel file');
@@ -510,6 +510,23 @@ inputActivities.push({
             }
         }
 
+        // Deduplicate column names so later columns don't overwrite earlier
+        // ones in the row objects (e.g. two headers named "Total")
+        const seenCols = new Map();
+        columns = columns.map(col => {
+            if (!seenCols.has(col)) {
+                seenCols.set(col, 1);
+                return col;
+            }
+            const count = seenCols.get(col) + 1;
+            seenCols.set(col, count);
+            const uniqueCol = `${col}_${count}`;
+            while (seenCols.has(uniqueCol)) {
+                seenCols.set(uniqueCol, seenCols.get(uniqueCol) + 1);
+            }
+            return uniqueCol;
+        });
+
         // Log columns for debugging
         console.log('[VizFlow] Read Excel columns:', columns);
 
@@ -527,7 +544,9 @@ inputActivities.push({
                 if (dateDetection) {
                     const isDateColumn = /date|day|month|year|timestamp|time|check|reconciled|period/i.test(col);
                     
-                    if (isExcelDateSerial(val) && (isDateColumn || val >= 30000)) {
+                    // Only convert when the column name indicates it holds dates;
+                    // numeric serials in non-date columns are kept as numbers
+                    if (isDateColumn && isExcelDateSerial(val)) {
                         try {
                             const dateStr = excelSerialToDate(val, dateFormat);
                             obj[col] = dateStr;
