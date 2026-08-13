@@ -1,8 +1,28 @@
+# Development / tooling (not shipped)
 .vscode/**
 .vscode-test/**
 test/**
+utils/**
+scripts/**
+docs/**
+
+# AI agent docs (dev-facing; kept in the git repo only)
+AI_CONTEXT.md
+AGENTS.md
+
+# Contributor docs
+CONTRIBUTING.md
+
+# Source control & lockfiles
+.git/**
 .gitignore
 .yarnrc
+package-lock.json
+
+# Packaging artifacts
+*.vsix
+
+# Misc
 vsc-extension-quickstart.md
 **/jsconfig.json
 **/*.map
