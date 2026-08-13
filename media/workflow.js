@@ -129,7 +129,7 @@
       cfg.thenSteps = Array.isArray(cfg.thenSteps) ? cfg.thenSteps : [];
       cfg.elseSteps = Array.isArray(cfg.elseSteps) ? cfg.elseSteps : [];
     }
-    if (act.type === 'forEach') {
+    if (act.type === 'forEach' || act.type === 'forEachFile') {
       cfg.steps = Array.isArray(cfg.steps) ? cfg.steps : [];
     }
     return cfg;
@@ -141,7 +141,7 @@
     if (s && s.type === 'ifElse') {
       cfg.thenSteps = Array.isArray(s.config?.thenSteps) ? s.config.thenSteps.map(serializeStep) : [];
       cfg.elseSteps = Array.isArray(s.config?.elseSteps) ? s.config.elseSteps.map(serializeStep) : [];
-    } else if (s && s.type === 'forEach') {
+    } else if (s && (s.type === 'forEach' || s.type === 'forEachFile')) {
       cfg.steps = Array.isArray(s.config?.steps) ? s.config.steps.map(serializeStep) : [];
     }
     return { id: s.id, type: s.type, config: cfg };
@@ -171,7 +171,7 @@
       if (a.type === 'ifElse') {
         cfg.thenSteps = normalizeSteps(Array.isArray(a.config?.thenSteps) ? a.config.thenSteps : []);
         cfg.elseSteps = normalizeSteps(Array.isArray(a.config?.elseSteps) ? a.config.elseSteps : []);
-      } else if (a.type === 'forEach') {
+      } else if (a.type === 'forEach' || a.type === 'forEachFile') {
         cfg.steps = normalizeSteps(Array.isArray(a.config?.steps) ? a.config.steps : []);
       }
       return { 
@@ -202,7 +202,7 @@
           scanIds(s.config.thenSteps || []); 
           scanIds(s.config.elseSteps || []); 
         }
-        if (s.type === 'forEach') scanIds(s.config.steps || []);
+        if (s.type === 'forEach' || s.type === 'forEachFile') scanIds(s.config.steps || []);
       }
     }
     scanIds(steps);
@@ -994,7 +994,7 @@
       if (i > 0) activityList.appendChild(createConnector());
 
       const card = document.createElement('div');
-      const isBlock = step.type === 'ifElse' || step.type === 'forEach';
+      const isBlock = step.type === 'ifElse' || step.type === 'forEach' || step.type === 'forEachFile';
       card.className = `activity-card${isBlock ? ' block-card' : ''} status-${step.status}` + (step.collapsed ? ' collapsed' : '');
       card.dataset.stepId = step.id;
 
@@ -1092,6 +1092,18 @@
         const doContainer = document.createElement('div');
         doContainer.className = 'block-branch';
         renderSubCanvas(step.config.steps, doContainer, '🔁 DO (per group)', '#e07b39', null);
+
+        const branchWrap = document.createElement('div');
+        branchWrap.className = 'block-branches';
+        branchWrap.appendChild(doContainer);
+        body.appendChild(branchWrap);
+
+      } else if (step.type === 'forEachFile') {
+        if (!Array.isArray(step.config.steps)) step.config.steps = [];
+
+        const doContainer = document.createElement('div');
+        doContainer.className = 'block-branch';
+        renderSubCanvas(step.config.steps, doContainer, '📁 DO (per file)', '#5b8def', null);
 
         const branchWrap = document.createElement('div');
         branchWrap.className = 'block-branches';
@@ -1269,7 +1281,7 @@
       if (s.type === 'ifElse') {
         const found = findStepById(s.config.thenSteps || [], id) || findStepById(s.config.elseSteps || [], id);
         if (found) return found;
-      } else if (s.type === 'forEach') {
+      } else if (s.type === 'forEach' || s.type === 'forEachFile') {
         const found = findStepById(s.config.steps || [], id);
         if (found) return found;
       }
@@ -1301,7 +1313,7 @@
         if (t) return t;
         const e = firstInvalidStep(step.config.elseSteps || []);
         if (e) return e;
-      } else if (step.type === 'forEach') {
+      } else if (step.type === 'forEach' || step.type === 'forEachFile') {
         const d = firstInvalidStep(step.config.steps || []);
         if (d) return d;
       }
