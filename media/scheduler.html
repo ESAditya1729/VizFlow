@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'nonce-{{NONCE}}'; style-src 'nonce-{{NONCE}}' vscode-resource:; img-src vscode-resource: https: data:;">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VizFlow — Scheduler</title>
+
+  <link nonce="{{NONCE}}" rel="stylesheet" href="{{WEBVIEW_CSS_URI}}">
+</head>
+<body>
+
+  <div id="app">
+
+    <!-- ═══ HEADER ═══ -->
+    <header class="app-header">
+      <div class="brand">
+        <img class="brand-icon" src="{{ICON_URI}}" alt="VizFlow">
+        <span class="brand-name">VizFlow</span>
+        <span class="brand-badge">Scheduler</span>
+      </div>
+      <div class="header-actions">
+        <span class="version-badge">v{{VERSION}}</span>
+      </div>
+    </header>
+
+    <!-- ═══ STATS BAR ═══ -->
+    <div class="stats-bar" id="statsBar">
+      <span class="stat-item">📋 Total Jobs: <span class="stat-value" id="totalJobs">0</span></span>
+      <span class="stat-item">▶ Running: <span class="stat-value running" id="runningJobs">0</span></span>
+      <span class="stat-item">✅ Completed: <span class="stat-value completed" id="completedJobs">0</span></span>
+      <span class="stat-item">❌ Failed: <span class="stat-value failed" id="failedJobs">0</span></span>
+    </div>
+
+    <!-- ═══ TABS ═══ -->
+    <div class="tabs">
+      <div class="tab active" data-tab="jobs">
+        📋 Jobs <span class="badge-count" id="jobsCount">0</span>
+      </div>
+      <div class="tab" data-tab="add">➕ Add Job</div>
+      <div class="tab" data-tab="history">
+        📜 History <span class="badge-count" id="historyCount">0</span>
+      </div>
+    </div>
+
+    <!-- ═══ TAB: JOBS ═══ -->
+    <div class="tab-content active" id="tab-jobs">
+      <div id="jobList"></div>
+    </div>
+
+    <!-- ═══ TAB: ADD JOB ═══ -->
+    <div class="tab-content" id="tab-add">
+
+      <div class="form-section">
+
+        <div class="config-field">
+          <label class="config-label">Job Name <span class="required-mark">*</span></label>
+          <input class="config-input" id="jobName" type="text" placeholder="Daily Sales Report">
+        </div>
+
+        <div class="form-row">
+          <div class="config-field">
+            <label class="config-label">Schedule (Cron) <span class="required-mark">*</span></label>
+            <input class="config-input" id="jobSchedule" type="text" placeholder="0 9 * * *" value="0 9 * * *">
+            <div class="config-hint">⏰ <code>min hr dom mon dow</code> — e.g. <code>0 9 * * *</code> = daily 9 am</div>
+          </div>
+          <div class="config-field">
+            <label class="config-label">Workflow File <span class="required-mark">*</span></label>
+            <div class="config-file-row">
+              <input class="config-input" id="workflowFile" type="text" placeholder="Select .vizflow file…">
+              <button class="btn-browse" id="browseWorkflow" title="Browse for workflow file">📂</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="config-field">
+            <label class="config-label">Watch Folder <span class="config-optional">(optional)</span></label>
+            <input class="config-input" id="watchFolder" type="text" placeholder="Input/ — triggers on new files">
+            <div class="config-hint">📁 Monitor this folder for new files</div>
+          </div>
+          <div class="config-field">
+            <label class="config-label">Email Notifications <span class="config-optional">(optional)</span></label>
+            <input class="config-input" id="emailNotifications" type="text" placeholder="team@company.com">
+            <div class="config-hint">📧 Send alerts on job completion/failure</div>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="config-field">
+            <label class="config-label">One-Time Execution <span class="config-optional">(optional)</span></label>
+            <div style="display:flex;gap:6px;">
+              <input class="config-input" id="oneTimeDate" type="text" placeholder="YYYY-MM-DD">
+              <input class="config-input" id="oneTimeTime" type="text" placeholder="HH:MM" style="flex:0.7;">
+            </div>
+            <div class="config-hint">📅 Leave empty to use the recurring cron schedule above</div>
+          </div>
+          <div class="config-field">
+            <label class="config-label">Run Immediately</label>
+            <label class="toggle" style="margin-top:6px;">
+              <input type="checkbox" id="runImmediately">
+              <span class="toggle-slider"></span>
+            </label>
+            <div class="config-hint">▶ Run this job right after scheduling</div>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="config-field">
+            <label class="config-label">Max Retries</label>
+            <input class="config-input" id="retryCount" type="number" value="3" placeholder="3" min="0" max="10">
+            <div class="config-hint">🔄 Number of retry attempts on failure</div>
+          </div>
+          <div class="config-field">
+            <label class="config-label">Retry Delay (seconds)</label>
+            <input class="config-input" id="retryDelay" type="number" value="60" placeholder="60" min="0">
+            <div class="config-hint">⏱️ Wait time between retries</div>
+          </div>
+        </div>
+
+        <div class="config-field">
+          <label class="config-label">Parameters (JSON) <span class="config-optional">(optional)</span></label>
+          <textarea class="config-input config-textarea" id="jobParams" rows="3"
+            placeholder='{"threshold": 1000, "region": "North"}'></textarea>
+          <div class="config-hint">📊 Pass variables to your workflow (e.g. <code>{{threshold}}</code>)</div>
+        </div>
+
+        <div class="form-actions">
+          <button class="btn-run" id="addJobBtn">➕ Schedule Job</button>
+          <div id="addStatus"></div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ═══ TAB: HISTORY ═══ -->
+    <div class="tab-content" id="tab-history">
+      <div class="history-toolbar">
+        <span class="section-title">📜 Execution History</span>
+        <div style="display:flex;gap:6px;">
+          <button class="btn-toolbar" id="refreshHistory">🔄 Refresh</button>
+          <button class="btn-toolbar" id="clearHistory">✕ Clear History</button>
+        </div>
+      </div>
+      <div id="historyList"></div>
+    </div>
+
+  </div><!-- #app -->
+
+  <script nonce="{{NONCE}}" src="{{WEBVIEW_JS_URI}}"></script>
+</body>
+</html>

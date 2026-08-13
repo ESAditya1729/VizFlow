@@ -1,16 +1,12 @@
 /**
- * Expression evaluator.
+ * engine/expressions/evaluator.js
  *
- * Applies a named operation (from operations.js) to every row in a dataset,
- * producing a new column or a result array that callers can display.
- *
- * Usage:
- *   const { evaluate, evaluateRows, previewFirst } = require('./evaluator');
- *   const results = evaluate(dataset.rows, 'salary', 'multiply', ['1.1']);
- *   // results → Array<{ row: object, original: any, result: any, skipped: boolean }>
+ * Expression evaluator for transform operations.
+ * Maintains the pipeline by ensuring each operation returns a new dataset.
  */
 
 const { OPERATIONS } = require('./operations');
+const Dataset = require('../dataset');
 
 /**
  * Apply a single operation to every row of `rows` on `column`.
@@ -25,6 +21,11 @@ function evaluate(rows, column, opName, rawParams = []) {
     const op = OPERATIONS[opName];
     if (!op) {
         throw new Error(`Unknown operation: "${opName}". Available: ${Object.keys(OPERATIONS).join(', ')}`);
+    }
+
+    // Check if column exists in the first row
+    if (rows.length > 0 && !(column in rows[0])) {
+        throw new Error(`Column "${column}" not found in dataset. Available columns: ${Object.keys(rows[0]).join(', ')}`);
     }
 
     return rows.map((row, index) => {
@@ -42,8 +43,70 @@ function evaluate(rows, column, opName, rawParams = []) {
 }
 
 /**
+ * Apply operation and return a new dataset with the transformed column.
+ * This is the pipeline-safe version that creates a new dataset.
+ *
+ * @param {Dataset} dataset - Input dataset
+ * @param {string} column - Column to transform (can be a new column name)
+ * @param {string} opName - Operation key
+ * @param {string[]} rawParams - Parameters
+ * @returns {Dataset} New dataset with transformed column
+ */
+function transformDataset(dataset, column, opName, rawParams = []) {
+    // Get rows - handle both Dataset objects and plain arrays
+    const rows = dataset.getRows ? dataset.getRows() : dataset.rows;
+    if (!rows || rows.length === 0) {
+        // Return empty dataset if no rows
+        return new Dataset([], []);
+    }
+    
+    const columns = dataset.getColumns ? dataset.getColumns() : Object.keys(rows[0] || {});
+    
+    // Check if column exists
+    const columnExists = columns.includes(column);
+    
+    let results;
+    
+    if (columnExists) {
+        // Column exists - use it as source
+        results = evaluate(rows, column, opName, rawParams);
+    } else {
+        // Column doesn't exist - create it from other column or use empty
+        // For operations that need a source, try to use the first column or an empty value
+        const sourceColumn = columns.length > 0 ? columns[0] : null;
+        
+        if (sourceColumn) {
+            // Use the first available column as source
+            results = evaluate(rows, sourceColumn, opName, rawParams);
+        } else {
+            // No columns exist - create from empty
+            results = rows.map(row => ({
+                row,
+                original: '',
+                result: opName === 'multiply' ? 0 : (opName === 'concat' ? '' : '')
+            }));
+        }
+    }
+    
+    // Build new rows with transformed values
+    const newRows = results.map(({ row, result }) => ({
+        ...row,
+        [column]: result
+    }));
+
+    // Ensure column exists in columns list
+    let newColumns = [...columns];
+    if (!newColumns.includes(column)) {
+        newColumns.push(column);
+    }
+
+    // Return a new Dataset instance
+    return new Dataset(newRows, newColumns);
+}
+
+/**
  * Apply a single operation to only the rows whose 0-based index appears in
- * `targetIndices`.  Rows not in the set are returned unchanged with
+ * `targetIndices`. Rows not in the set are returned unchanged with
  * `skipped: true` so callers can distinguish them in preview tables.
  *
  * @param {Record<string, any>[]}  rows          - Full dataset rows
@@ -57,6 +120,11 @@ function evaluateRows(rows, targetIndices, column, opName, rawParams = []) {
     const op = OPERATIONS[opName];
     if (!op) {
         throw new Error(`Unknown operation: "${opName}". Available: ${Object.keys(OPERATIONS).join(', ')}`);
+    }
+
+    // Validate column exists
+    if (rows.length > 0 && !(column in rows[0])) {
+        throw new Error(`Column "${column}" not found in dataset. Available columns: ${Object.keys(rows[0]).join(', ')}`);
     }
 
     const indexSet = new Set(targetIndices);
@@ -104,9 +172,30 @@ function formatPreviewLine(entry, column, opName) {
     return `  ${column}: ${JSON.stringify(entry.original)}  →  ${JSON.stringify(entry.result)}  [${opName}]`;
 }
 
+/**
+ * Get all available operations grouped by category
+ * @returns {Object} Operations grouped by category
+ */
+function getOperationsByCategory() {
+    const grouped = {};
+    for (const [name, op] of Object.entries(OPERATIONS)) {
+        const category = op.category || 'Other';
+        if (!grouped[category]) grouped[category] = [];
+        grouped[category].push({
+            name,
+            description: op.description || '',
+            paramDefs: op.paramDefs || []
+        });
+    }
+    return grouped;
+}
+
 module.exports = {
     evaluate,
     evaluateRows,
+    transformDataset,
     previewFirst,
     formatPreviewLine,
+    getOperationsByCategory,
+    OPERATIONS
 };

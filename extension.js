@@ -7,11 +7,13 @@ const statsCommand = require('./commands/statistics');
 const distinctValuesCommand = require('./commands/distinctValues');
 const transformCommand = require('./commands/transform');
 const transformWebviewCommand = require('./commands/transformWebview');
-const compareCSVCommand       = require('./commands/compareCSV');
-const aboutCommand            = require('./commands/about');
-const dashboardCommand        = require('./commands/dashboard');
-const chartsCommand  = require('./commands/charts');
-const rbqlCommand    = require('./commands/rbql');
+const compareCSVCommand = require('./commands/compareCSV');
+const aboutCommand = require('./commands/about');
+const dashboardCommand = require('./commands/dashboard');
+const chartsCommand = require('./commands/charts');
+const rbqlCommand = require('./commands/rbql');
+const workflowBuilderCommand  = require('./commands/workflowBuilder');
+const schedulerCommand        = require('./commands/scheduler');
 
 /**
  * @param {vscode.ExtensionContext} context
@@ -19,8 +21,17 @@ const rbqlCommand    = require('./commands/rbql');
 
 function activate(context) {
 
+    // ─── Create scheduler command instance ────────────────────────────
+    const scheduler = schedulerCommand(context);
+
+    // ─── Create wrapper functions for scheduler sub-commands ──────────
+    const quickSchedule = (uri) => scheduler('quickSchedule', uri);
+    const showRunning = () => scheduler('showRunning');
+    const stopJob = () => scheduler('stopJob');
+
     context.subscriptions.push(
 
+        // ─── Analytics Commands ────────────────────────────────────────
         vscode.commands.registerCommand(
             'vizflow.sum',
             sumCommand
@@ -33,17 +44,16 @@ function activate(context) {
             'vizflow.min',
             () => aggregate("min")
         ),
-
         vscode.commands.registerCommand(
             'vizflow.max',
             () => aggregate("max")
         ),
-
         vscode.commands.registerCommand(
             'vizflow.count',
             () => aggregate("count")
         ),
 
+        // ─── Data Quality Commands ─────────────────────────────────────
         vscode.commands.registerCommand(
             'vizflow.duplicates',
             duplicateCommand
@@ -57,42 +67,72 @@ function activate(context) {
             distinctValuesCommand
         ),
 
+        // ─── Transformation Commands ──────────────────────────────────
         vscode.commands.registerCommand(
             'vizflow.transform',
             transformCommand
         ),
-
         vscode.commands.registerCommand(
             'vizflow.transformWebview',
             transformWebviewCommand(context)
         ),
 
+        // ─── Utility Commands ──────────────────────────────────────────
         vscode.commands.registerCommand(
             'vizflow.compareCSV',
             compareCSVCommand(context)
         ),
-
         vscode.commands.registerCommand(
             'vizflow.about',
             aboutCommand(context)
         ),
-
         vscode.commands.registerCommand(
             'vizflow.dashboard',
             dashboardCommand(context)
         ),
-        
         vscode.commands.registerCommand(
             'vizflow.charts',
             chartsCommand(context)
         ),
-
         vscode.commands.registerCommand(
             'vizflow.rbqlQuery',
             rbqlCommand(context)
+        ),
+
+        // ─── Scheduler Commands ────────────────────────────────────────
+        vscode.commands.registerCommand(
+            'vizflow.scheduler',
+            scheduler
+        ),
+        vscode.commands.registerCommand(
+            'vizflow.scheduler.quickSchedule',
+            quickSchedule
+        ),
+        vscode.commands.registerCommand(
+            'vizflow.scheduler.stopJob',
+            stopJob
+        ),
+        vscode.commands.registerCommand(
+            'vizflow.scheduler.showRunning',
+            showRunning
         )
 
     );
+
+    // ─── Workflow Builder Commands ─────────────────────────────────────
+    // Call the factory ONCE so both commands share the same panel closure.
+    // vizflow.workflowBuilder — open the builder with no file
+    // vizflow.openWorkflow    — open/reveal with a specific .vizflow URI (from Explorer)
+    const openWorkflow = workflowBuilderCommand(context);
+    context.subscriptions.push(
+        vscode.commands.registerCommand('vizflow.workflowBuilder', openWorkflow),
+        vscode.commands.registerCommand('vizflow.openWorkflow', openWorkflow)
+    );
+
+    // ─── Wire the "Schedule" button in the Workflow Builder ────────────
+    // Give workflowBuilder a reference to the scheduler so the ⏰ Schedule
+    // toolbar button can open the Scheduler panel with the current file.
+    workflowBuilderCommand.setSchedulerOpener(scheduler);
 }
 
 function deactivate() { }
