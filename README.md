@@ -57,6 +57,12 @@ VizFlow brings **data exploration** and **lightweight analytics** directly into 
 - CSV / JSON export
 - DuckDB-compatible SQL with `{{INPUT_PATH}}` / `{{OUTPUT_PATH}}` placeholders
 
+### 🔗 Reusable Workflows
+- **Workflow parameters**: declare inputs (name, label, type, required, default) that flow into any step config as `{{paramName}}`
+- **Call Workflow**: run another `.vizflow` file as a sub-workflow, pass parameters, and receive its output dataset and variables back
+- Circular-call detection and a max call-depth guard keep nested workflows safe
+- Edit parameters and Call Workflow mappings with the built-in key/value editors (🧩)
+
 ---
 
 ## 🏃 Quick Start
@@ -99,6 +105,7 @@ VizFlow runs **locally by default** — parsing, transforms, and queries are per
 ## 📚 Documentation
 
 - **Architecture & Implementation**: See [ARCHITECTURE.md](./ARCHITECTURE.md)
+- **AI-assisted workflow authoring**: See [AI_CONTEXT.md](./AI_CONTEXT.md) (spec, pitfalls, prompt templates) and the auto-generated [activity catalog](./docs/workflow-catalog.md) / [workflow schema](./docs/workflow-schema.json)
 - **Full Documentation**: Coming soon!
 
 ---
