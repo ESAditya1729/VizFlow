@@ -11,7 +11,13 @@ const fs = require('fs');
 const path = require('path');
 const { EventEmitter } = require('events');
 const { executeWorkflow } = require('../workflow/workflowEngine');
-const templateService = require('../../services/templateService');
+
+// Files written by a job into one of its watched folders are ignored for a
+// short window after the run. This breaks the create→run→write→create loop
+// that would otherwise make a job watching its own output folder run forever.
+const RECENTLY_WRITTEN_TTL_MS = 30000;
+// New files are only acted on after they have been stable for this long.
+const WATCH_DEBOUNCE_MS = 500;
 
 class SchedulerEngine extends EventEmitter {
     constructor() {
@@ -21,18 +27,35 @@ class SchedulerEngine extends EventEmitter {
         this.history = [];
         this.configPath = null;
         this.configBaseDir = process.cwd();
+        this.store = null; // SchedulerStore instance (optional)
         this.isRunning = false;
         this.executionIdCounter = 0;
         this.queue = []; // jobIds waiting because of maxConcurrent
-        this.watchedFolders = new Set();
+        this.watchedFolders = new Map(); // folder -> { count, watcher, timers }
+        this.watchingJobIds = new Set(); // jobIds that registered a folder watch
+        this.lockedWatchFolders = new Set(); // folders with a job currently running
+        this.recentlyWritten = new Map(); // fullPath -> expiry timestamp
     }
 
     /**
      * Initialize the scheduler with a config file path
+     * @param {string|null} configPath - Absolute path of the config file
+     * @param {Object} [options]
+     * @param {string} [options.baseDir] - Base directory used to resolve
+     *        relative paths when a job does not record its own baseDir
+     * @param {SchedulerStore} [options.store] - Optional persistence layer
+     * @param {string} [options.migrateFrom] - Legacy config path to migrate
      */
-    initialize(configPath) {
+    initialize(configPath, options = {}) {
         this.configPath = configPath;
-        this.configBaseDir = configPath ? path.dirname(configPath) : process.cwd();
+        this.configBaseDir = options.baseDir || (configPath ? path.dirname(configPath) : process.cwd());
+        this.store = options.store || null;
+
+        if (this.store && options.migrateFrom) {
+            this.store.load();
+            this.store.migrateFrom(options.migrateFrom);
+        }
+
         this.loadJobs();
         this.startWatchdog();
         this.isRunning = true;
@@ -40,62 +63,99 @@ class SchedulerEngine extends EventEmitter {
     }
 
     /**
-     * Load jobs from config file
+     * Load jobs from the store (or legacy config file)
      */
     loadJobs() {
-        try {
-            if (this.configPath && fs.existsSync(this.configPath)) {
-                const data = fs.readFileSync(this.configPath, 'utf8');
-                const config = JSON.parse(data);
-                
-                if (config.jobs) {
-                    for (const jobConfig of config.jobs) {
-                        this.addJob(jobConfig);
+        let jobs = [];
+
+        if (this.store) {
+            const data = this.store.load();
+            jobs = data.jobs || [];
+            this.history = Array.isArray(data.history) ? data.history.slice() : [];
+        } else {
+            try {
+                if (this.configPath && fs.existsSync(this.configPath)) {
+                    const config = JSON.parse(fs.readFileSync(this.configPath, 'utf8'));
+                    jobs = config.jobs || [];
+                    if (Array.isArray(config.history)) {
+                        this.history = config.history.slice();
                     }
                 }
+            } catch (error) {
+                this.emit('error', { message: `Failed to load jobs: ${error.message}` });
             }
-        } catch (error) {
-            this.emit('error', { message: `Failed to load jobs: ${error.message}` });
+        }
+
+        for (const jobConfig of jobs) {
+            try {
+                // Skip one-time jobs whose run date has already passed — the
+                // generated cron would otherwise fire a year later (or never).
+                if (jobConfig.runOnce && jobConfig.runAt) {
+                    const runAt = new Date(jobConfig.runAt);
+                    if (isNaN(runAt.getTime()) || runAt.getTime() <= Date.now()) {
+                        continue;
+                    }
+                }
+                this.addJob(jobConfig);
+            } catch (error) {
+                this.emit('error', {
+                    message: `Failed to load job "${jobConfig.name || jobConfig.id || 'unnamed'}": ${error.message}`
+                });
+            }
         }
     }
 
     /**
-     * Save jobs to config file
+     * Persist all jobs + history to the store (or legacy config file)
      */
     saveJobs() {
         try {
-            if (!this.configPath) return;
-            
-            const config = {
-                version: '1.0.0',
-                updatedAt: new Date().toISOString(),
-                jobs: Array.from(this.jobs.values()).map(job => ({
-                    id: job.id,
-                    name: job.name,
-                    schedule: job.schedule,
-                    workflowFile: job.workflowFile,
-                    config: job.config,
-                    enabled: job.enabled,
-                    oneTime: job.oneTime || false,
-                    runOnce: job.runOnce || false,
-                    runAt: job.runAt || null,
-                    createdAt: job.createdAt,
-                    updatedAt: job.updatedAt,
-                    lastRun: job.lastRun,
-                    status: job.status
-                }))
-            };
-            
-            const dir = path.dirname(this.configPath);
-            if (!fs.existsSync(dir)) {
-                fs.mkdirSync(dir, { recursive: true });
+            const jobs = Array.from(this.jobs.values()).map(job => this.serializeJob(job));
+
+            if (this.store) {
+                this.store.save(jobs, this.history);
+            } else if (this.configPath) {
+                const config = {
+                    version: '2.0.0',
+                    updatedAt: new Date().toISOString(),
+                    jobs,
+                    history: this.history
+                };
+                const dir = path.dirname(this.configPath);
+                if (!fs.existsSync(dir)) {
+                    fs.mkdirSync(dir, { recursive: true });
+                }
+                fs.writeFileSync(this.configPath, JSON.stringify(config, null, 2), 'utf8');
             }
-            
-            fs.writeFileSync(this.configPath, JSON.stringify(config, null, 2), 'utf8');
             this.emit('saved', { path: this.configPath });
         } catch (error) {
             this.emit('error', { message: `Failed to save jobs: ${error.message}` });
         }
+    }
+
+    /**
+     * Produce the persistable representation of a job
+     */
+    serializeJob(job) {
+        return {
+            id: job.id,
+            name: job.name,
+            schedule: job.schedule,
+            timezone: job.timezone || null,
+            workflowFile: job.workflowFile,
+            workflowDef: job.workflowDef || null,
+            baseDir: job.baseDir || null,
+            enabled: job.enabled,
+            oneTime: job.oneTime || false,
+            runOnce: job.runOnce || false,
+            runAt: job.runAt || null,
+            createdAt: job.createdAt,
+            updatedAt: job.updatedAt,
+            lastRun: job.lastRun,
+            nextRun: job.nextRun || null,
+            status: job.status,
+            config: job.config || {}
+        };
     }
 
     /**
@@ -109,6 +169,9 @@ class SchedulerEngine extends EventEmitter {
             const runAt = new Date(config.runAt);
             if (isNaN(runAt.getTime())) {
                 throw new Error(`Invalid runAt date: ${config.runAt}`);
+            }
+            if (runAt.getTime() <= Date.now()) {
+                throw new Error(`runAt date must be in the future: ${config.runAt}`);
             }
             
             // Calculate cron for one-time execution
@@ -134,18 +197,21 @@ class SchedulerEngine extends EventEmitter {
             id: jobId,
             name: config.name || 'Unnamed Job',
             schedule: config.schedule || 'immediate',
+            timezone: config.timezone || null,
             workflowFile: config.workflowFile,
             workflowDef: config.workflowDef || null,
+            baseDir: config.baseDir || this.configBaseDir,
             oneTime: config.oneTime || false,
             runOnce: config.runOnce || false,
             runAt: config.runAt || null,
             config: {
                 watchFolder: config.watchFolder || null,
+                fileFilter: config.fileFilter || null,
                 notifications: config.notifications || {},
                 parameters: config.parameters || {},
                 timeout: config.timeout || 3600,
-                retryCount: config.retryCount || 3,
-                retryDelay: config.retryDelay || 60,
+                retryCount: config.retryCount ?? 3,
+                retryDelay: config.retryDelay ?? 60,
                 maxConcurrent: config.maxConcurrent || 1,
                 runImmediately: config.runImmediately || false,
                 ...config.config
@@ -168,6 +234,7 @@ class SchedulerEngine extends EventEmitter {
 
         // Schedule the job (skip if immediate or one-time already passed)
         if (config.schedule && config.schedule !== 'immediate') {
+            const cronOptions = job.timezone ? { timezone: job.timezone } : {};
             const task = cron.schedule(job.schedule, () => {
                 if (job.enabled && !job.oneTime) {
                     this.executeJob(jobId);
@@ -178,9 +245,9 @@ class SchedulerEngine extends EventEmitter {
                         this.emit('jobCompletedOneTime', { jobId, jobName: job.name });
                     });
                 }
-            });
+            }, cronOptions);
             job.task = task;
-            job.nextRun = this.getNextRun(job.schedule);
+            job.nextRun = this.getNextRun(job.schedule, job.timezone);
         } else {
             job.task = null;
             job.nextRun = null;
@@ -208,6 +275,14 @@ class SchedulerEngine extends EventEmitter {
         }
 
         this.jobs.delete(jobId);
+
+        // Remove from the pending queue if it was queued
+        const queueIndex = this.queue.indexOf(jobId);
+        if (queueIndex >= 0) {
+            this.queue.splice(queueIndex, 1);
+        }
+
+        this.unwatchFolderForJob(job);
         this.saveJobs();
         
         this.emit('jobRemoved', { jobId });
@@ -222,6 +297,8 @@ class SchedulerEngine extends EventEmitter {
         if (!job) {
             throw new Error(`Job ${jobId} not found`);
         }
+
+        const oldWatchFolder = job.config && job.config.watchFolder;
 
         // Stop existing task
         if (job.task) {
@@ -239,7 +316,9 @@ class SchedulerEngine extends EventEmitter {
         if (updates.name) job.name = updates.name;
         if (updates.workflowFile) job.workflowFile = updates.workflowFile;
         if (updates.workflowDef) job.workflowDef = updates.workflowDef;
+        if (updates.timezone !== undefined) job.timezone = updates.timezone || null;
         if (updates.config) job.config = { ...job.config, ...updates.config };
+        if (updates.parameters !== undefined) job.config.parameters = updates.parameters || {};
         if (updates.enabled !== undefined) job.enabled = updates.enabled;
         if (updates.oneTime !== undefined) job.oneTime = updates.oneTime;
         if (updates.runOnce !== undefined) job.runOnce = updates.runOnce;
@@ -249,6 +328,7 @@ class SchedulerEngine extends EventEmitter {
 
         // Reschedule if not immediate
         if (job.schedule && job.schedule !== 'immediate') {
+            const cronOptions = job.timezone ? { timezone: job.timezone } : {};
             const task = cron.schedule(job.schedule, () => {
                 if (job.enabled && !job.oneTime) {
                     this.executeJob(jobId);
@@ -258,9 +338,9 @@ class SchedulerEngine extends EventEmitter {
                         this.emit('jobCompletedOneTime', { jobId, jobName: job.name });
                     });
                 }
-            });
+            }, cronOptions);
             job.task = task;
-            job.nextRun = this.getNextRun(job.schedule);
+            job.nextRun = this.getNextRun(job.schedule, job.timezone);
         } else {
             job.task = null;
             job.nextRun = null;
@@ -268,9 +348,16 @@ class SchedulerEngine extends EventEmitter {
                 setTimeout(() => this.executeJob(jobId), 500);
             }
         }
-        
+
+        // Re-register the folder watcher when the folder, filter or enabled
+        // state changed
+        const newWatchFolder = job.config && job.config.watchFolder;
+        if (oldWatchFolder !== newWatchFolder || updates.enabled !== undefined) {
+            this.unwatchFolderForJob(job, oldWatchFolder);
+            this.maybeWatchFolder(job);
+        }
+
         this.saveJobs();
-        this.maybeWatchFolder(job);
         this.emit('jobUpdated', job);
         return job;
     }
@@ -347,6 +434,15 @@ class SchedulerEngine extends EventEmitter {
             startTime: job.lastRun
         });
 
+        // Lock the job's watch folder while it runs so files the job writes
+        // into it cannot re-trigger it (infinite loop protection). The lock is
+        // released and the folder re-checked after the run.
+        const watchFolder = job.config.watchFolder ? this.resolveFolderPath(job) : null;
+        if (watchFolder) {
+            this.lockedWatchFolders.add(watchFolder);
+        }
+        const jobStartMs = Date.now();
+
         let retryCount = 0;
         let success = false;
         let lastError = null;
@@ -367,9 +463,10 @@ class SchedulerEngine extends EventEmitter {
                 // Load workflow definition
                 let workflowDef = job.workflowDef;
 
-                // Resolve paths relative to the job's base directory so that
-                // relative workflow/parameter paths behave predictably
-                const baseDir = job.configBaseDir || this.configBaseDir || process.cwd();
+                // Resolve paths relative to the job's recorded base
+                // directory (the workspace where it was created)
+                const baseDir = job.baseDir || job.configBaseDir || this.configBaseDir || process.cwd();
+                const resolvePath = (p) => path.isAbsolute(p) ? p : path.resolve(baseDir, p);
 
                 if (job.workflowFile && !workflowDef) {
                     const filePath = path.isAbsolute(job.workflowFile)
@@ -387,24 +484,35 @@ class SchedulerEngine extends EventEmitter {
                     throw new Error('No workflow definition available');
                 }
 
-                // Apply parameters
-                if (job.config.parameters) {
-                    workflowDef = this.applyParameters(workflowDef, job.config.parameters);
-                }
-
-                // Resolve paths relative to the job's base directory
-                const resolvePath = (p) => path.isAbsolute(p) ? p : path.resolve(baseDir, p);
+                // Build initial variables: built-ins (mirroring the Workflow
+                // Builder) plus the job's declared parameters. The engine
+                // interpolates {{var}} in activity configs from these.
+                const now = new Date();
+                const initialVariables = {
+                    workflowName: (workflowDef && workflowDef.name) || job.name || 'workflow',
+                    timestamp: now.toISOString(),
+                    workspaceRoot: baseDir,
+                    date: now.toISOString().split('T')[0],
+                    time: now.toISOString().split('T')[1].split('.')[0],
+                    year: now.getFullYear().toString(),
+                    month: String(now.getMonth() + 1).padStart(2, '0'),
+                    day: String(now.getDate()).padStart(2, '0'),
+                    hour: String(now.getHours()).padStart(2, '0'),
+                    minute: String(now.getMinutes()).padStart(2, '0'),
+                    second: String(now.getSeconds()).padStart(2, '0')
+                };
+                Object.assign(initialVariables, job.config.parameters || {});
 
                 // Execute workflow
                 const result = await executeWorkflow(workflowDef, {
                     resolvePath,
+                    initialVariables,
                     signal: controller.signal,
                     onStateChange: (activityId, state, stats, error) => {
-                        // Check if cancelled during execution
-                        const runningCheck = this.runningJobs.get(jobId);
-                        if (runningCheck && (runningCheck.cancelled || runningCheck.timedOut)) {
-                            throw new Error(runningCheck.timedOut ? 'Job timed out' : 'Job cancelled by user');
-                        }
+                        // The engine already aborts via controller.signal, so
+                        // this callback must never throw — a throw here would
+                        // surface as a confusing activity error instead of a
+                        // clean cancellation.
                         this.emit('jobActivityState', {
                             jobId,
                             executionId,
@@ -519,6 +627,15 @@ class SchedulerEngine extends EventEmitter {
 
         this.runningJobs.delete(jobId);
 
+        // Release the watch-folder lock, mark files the job wrote while it ran
+        // (so they cannot immediately re-trigger it), then re-check the folder
+        // for inputs that arrived during the run.
+        if (watchFolder) {
+            this.lockedWatchFolders.delete(watchFolder);
+            this.markFilesWrittenDuringRun(watchFolder, jobStartMs - 2000);
+            this.recheckFolder(watchFolder);
+        }
+
         // Store history
         this.history.push({
             jobId,
@@ -536,6 +653,11 @@ class SchedulerEngine extends EventEmitter {
         // Keep only last 200 history entries
         if (this.history.length > 200) {
             this.history = this.history.slice(-200);
+        }
+
+        // Refresh the displayed next-run time now that this execution is over
+        if (job.enabled && !job.oneTime) {
+            job.nextRun = this.getNextRun(job.schedule, job.timezone);
         }
 
         this.saveJobs();
@@ -583,6 +705,9 @@ class SchedulerEngine extends EventEmitter {
         if (isNaN(date.getTime())) {
             throw new Error(`Invalid date: ${runAt}`);
         }
+        if (date.getTime() <= Date.now()) {
+            throw new Error(`runAt must be in the future: ${runAt}`);
+        }
 
         // Create a one-time job
         const oneTimeConfig = {
@@ -590,6 +715,8 @@ class SchedulerEngine extends EventEmitter {
             schedule: `${date.getMinutes()} ${date.getHours()} ${date.getDate()} ${date.getMonth() + 1} *`,
             workflowFile: job.workflowFile,
             workflowDef: job.workflowDef,
+            baseDir: job.baseDir || job.configBaseDir || this.configBaseDir,
+            timezone: job.timezone || null,
             oneTime: true,
             runOnce: true,
             runAt: runAt,
@@ -623,22 +750,14 @@ class SchedulerEngine extends EventEmitter {
     }
 
     /**
-     * Apply parameters to workflow
-     */
-    applyParameters(workflowDef, parameters) {
-        const json = JSON.stringify(workflowDef);
-        const replaced = templateService.interpolate(json, parameters || {});
-        return JSON.parse(replaced);
-    }
-
-    /**
      * Get next run time for a cron schedule
      */
-    getNextRun(schedule) {
+    getNextRun(schedule, timezone = null) {
         try {
             // Let node-cron compute the next run so the answer always
             // matches what the actual scheduler will fire
-            const task = cron.schedule(schedule, () => {}, { scheduled: false });
+            const options = timezone ? { scheduled: false, timezone } : { scheduled: false };
+            const task = cron.schedule(schedule, () => {}, options);
             const next = task.getNextRun();
             task.stop();
             return next ? next.toISOString() : null;
@@ -707,8 +826,6 @@ class SchedulerEngine extends EventEmitter {
 
     /**
      * Watch folders for all enabled jobs with a watchFolder config.
-     * Reuses the engine-level set so addJob/updateJob can add watches
-     * without re-watching folders that are already being watched.
      */
     startWatchdog() {
         for (const job of this.jobs.values()) {
@@ -717,51 +834,228 @@ class SchedulerEngine extends EventEmitter {
     }
 
     /**
-     * Register a watcher for a job's watch folder, if it isn't already
-     * being watched and the folder is not already covered.
+     * Resolve a job's watch folder to an absolute path.
      */
-    maybeWatchFolder(job) {
-        if (!job || !job.config || !job.config.watchFolder || !job.enabled) return;
-        const folder = path.isAbsolute(job.config.watchFolder)
-            ? job.config.watchFolder
-            : path.resolve(job.configBaseDir || this.configBaseDir || process.cwd(), job.config.watchFolder);
-        if (this.watchedFolders.has(folder)) return;
-        this.watchedFolders.add(folder);
-        this.watchFolder(folder);
+    resolveFolderPath(job) {
+        const raw = job.config.watchFolder;
+        if (!raw) return null;
+        const base = job.baseDir || job.configBaseDir || this.configBaseDir || process.cwd();
+        return path.isAbsolute(raw) ? raw : path.resolve(base, raw);
     }
 
     /**
-     * Watch a folder for changes
+     * Register a watcher for a job's watch folder. Watchers are reference
+     * counted so multiple jobs can share one `fs.watch` handle, and the
+     * handle is closed when the last job using the folder is removed.
      */
-    watchFolder(folder) {
+    maybeWatchFolder(job) {
+        if (!job || !job.config || !job.config.watchFolder || !job.enabled) return;
+        if (this.watchingJobIds.has(job.id)) return;
+
+        const folder = this.resolveFolderPath(job);
+        if (!folder) return;
+        this.watchingJobIds.add(job.id);
+
+        const entry = this.watchedFolders.get(folder);
+        if (entry) {
+            entry.count++;
+            return;
+        }
+
         if (!fs.existsSync(folder)) {
             fs.mkdirSync(folder, { recursive: true });
         }
 
-        fs.watch(folder, (eventType, filename) => {
-            if (eventType === 'rename' && filename) {
-                this.emit('fileChanged', {
-                    folder,
-                    filename,
-                    eventType
-                });
-                
-                // Find jobs watching this folder
-                for (const job of this.jobs.values()) {
-                    if (job.enabled && job.config.watchFolder) {
-                        const watched = path.isAbsolute(job.config.watchFolder)
-                            ? job.config.watchFolder
-                            : path.resolve(job.configBaseDir || this.configBaseDir || process.cwd(), job.config.watchFolder);
-                        if (watched === folder) {
-                            this.emit('fileTriggeredJob', { jobId: job.id, filename });
-                            this.executeJob(job.id);
-                        }
-                    }
-                }
-            }
+        const watcher = fs.watch(folder, (eventType, filename) => {
+            this.handleFileChange(folder, eventType, filename);
         });
 
+        this.watchedFolders.set(folder, { count: 1, watcher, timers: new Map() });
         this.emit('folderWatched', { folder });
+    }
+
+    /**
+     * Release a job's reference on a watch folder, closing the watcher when
+     * no jobs use it anymore.
+     * @param {Object} job
+     * @param {string|null} [folderOverride] - Folder to release when the job's
+     *        current config already points somewhere else.
+     */
+    unwatchFolderForJob(job, folderOverride = null) {
+        if (!job || !job.config) return;
+        const raw = folderOverride !== null ? folderOverride : job.config.watchFolder;
+        if (!raw) return;
+        if (!this.watchingJobIds.has(job.id)) return;
+        this.watchingJobIds.delete(job.id);
+
+        const base = job.baseDir || job.configBaseDir || this.configBaseDir || process.cwd();
+        const folder = path.isAbsolute(raw) ? raw : path.resolve(base, raw);
+        const entry = this.watchedFolders.get(folder);
+        if (!entry) return;
+
+        entry.count--;
+        if (entry.count <= 0) {
+            for (const t of entry.timers.values()) {
+                clearTimeout(t);
+            }
+            entry.timers.clear();
+            entry.watcher.close();
+            this.watchedFolders.delete(folder);
+        }
+    }
+
+    /**
+     * Debounced handler for a single fs.watch event.
+     */
+    handleFileChange(folder, eventType, filename) {
+        if (eventType !== 'rename' || !filename) return;
+
+        const entry = this.watchedFolders.get(folder);
+        const key = String(filename);
+
+        if (entry) {
+            if (entry.timers.has(key)) {
+                clearTimeout(entry.timers.get(key));
+            }
+            entry.timers.set(key, setTimeout(() => {
+                entry.timers.delete(key);
+                this.triggerFolderJobs(folder, filename);
+            }, WATCH_DEBOUNCE_MS));
+        } else {
+            this.triggerFolderJobs(folder, filename);
+        }
+    }
+
+    /**
+     * Fire all matching jobs for a new file in a watched folder.
+     */
+    triggerFolderJobs(folder, filename) {
+        this.pruneRecentlyWritten();
+        const fullPath = path.join(folder, filename);
+
+        // Only creations count — a rename/delete has no file left to process
+        if (!fs.existsSync(fullPath)) return;
+
+        // Skip files the job itself wrote (loop prevention)
+        if (this.isRecentlyWritten(fullPath)) return;
+
+        // Skip while a job is running on this folder; the post-run recheck
+        // picks up files that arrived during the run.
+        if (this.lockedWatchFolders.has(folder)) return;
+
+        let matched = false;
+        for (const job of this.jobs.values()) {
+            if (!job.enabled || !job.config.watchFolder) continue;
+            if (this.resolveFolderPath(job) !== folder) continue;
+
+            // Optional filter (e.g. "*.csv", "*Payment*.xlsx") must match
+            if (job.config.fileFilter && !this.matchesFilter(filename, job.config.fileFilter)) {
+                continue;
+            }
+
+            matched = true;
+            this.emit('fileTriggeredJob', { jobId: job.id, filename });
+            this.executeJob(job.id);
+        }
+
+        if (matched) {
+            this.emit('fileChanged', { folder, filename, eventType: 'rename' });
+        }
+    }
+
+    /**
+     * After a job on a folder finishes, look for files that are not outputs of
+     * the run and trigger matching jobs for them (files that arrived while the
+     * folder was locked).
+     */
+    recheckFolder(folder) {
+        if (!fs.existsSync(folder)) return;
+        let files;
+        try {
+            files = fs.readdirSync(folder);
+        } catch (e) {
+            void e;
+            return;
+        }
+
+        for (const filename of files) {
+            const fullPath = path.join(folder, filename);
+            try {
+                if (!fs.statSync(fullPath).isFile()) continue;
+            } catch (e) {
+                void e;
+                continue;
+            }
+            if (this.isRecentlyWritten(fullPath)) continue;
+            this.triggerFolderJobs(folder, filename);
+        }
+    }
+
+    /**
+     * Mark every file in a folder that was modified during a job run as
+     * recently written, so it cannot immediately re-trigger the job.
+     */
+    markFilesWrittenDuringRun(folder, sinceMs) {
+        if (!fs.existsSync(folder)) return;
+        let files;
+        try {
+            files = fs.readdirSync(folder);
+        } catch (e) {
+            void e;
+            return;
+        }
+
+        for (const filename of files) {
+            const fullPath = path.join(folder, filename);
+            try {
+                const st = fs.statSync(fullPath);
+                if (st.isFile() && st.mtimeMs >= sinceMs) {
+                    this.recentlyWritten.set(fullPath, Date.now() + RECENTLY_WRITTEN_TTL_MS);
+                }
+            } catch (e) {
+                void e;
+                // ignore files that vanished mid-scan
+            }
+        }
+        this.pruneRecentlyWritten();
+    }
+
+    isRecentlyWritten(fullPath) {
+        this.pruneRecentlyWritten();
+        return this.recentlyWritten.has(fullPath);
+    }
+
+    pruneRecentlyWritten() {
+        const now = Date.now();
+        for (const [p, expiry] of this.recentlyWritten) {
+            if (expiry <= now) {
+                this.recentlyWritten.delete(p);
+            }
+        }
+    }
+
+    /**
+     * Match a filename against a glob-ish filter (supports `*`, `?` and
+     * comma-separated alternatives).
+     */
+    matchesFilter(filename, filter) {
+        if (!filter) return true;
+        const parts = String(filter).split(',').map(p => p.trim()).filter(Boolean);
+        if (parts.length === 0) return true;
+        return parts.some(pattern => this.globMatch(filename, pattern));
+    }
+
+    globMatch(name, pattern) {
+        const escaped = pattern
+            .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+            .replace(/\*/g, '.*')
+            .replace(/\?/g, '.');
+        try {
+            return new RegExp(`^${escaped}$`, 'i').test(name);
+        } catch (e) {
+            void e;
+            return false;
+        }
     }
 
     /**
@@ -772,6 +1066,7 @@ class SchedulerEngine extends EventEmitter {
             id: job.id,
             name: job.name,
             schedule: job.schedule,
+            timezone: job.timezone || null,
             workflowFile: job.workflowFile,
             enabled: job.enabled,
             status: job.status,
@@ -819,6 +1114,15 @@ class SchedulerEngine extends EventEmitter {
                 job.task.stop();
             }
         }
+        for (const [, entry] of this.watchedFolders) {
+            for (const t of entry.timers.values()) {
+                clearTimeout(t);
+            }
+            entry.timers.clear();
+            entry.watcher.close();
+        }
+        this.watchedFolders.clear();
+        this.watchingJobIds.clear();
         this.emit('stopped');
     }
 
@@ -833,6 +1137,7 @@ class SchedulerEngine extends EventEmitter {
                     job.task.start();
                 }
             }
+            this.startWatchdog();
             this.emit('started');
         }
     }
@@ -846,6 +1151,8 @@ class SchedulerEngine extends EventEmitter {
             throw new Error(`Job ${jobId} not found`);
         }
         job.enabled = false;
+        job.nextRun = null;
+        this.unwatchFolderForJob(job);
         this.saveJobs();
         this.emit('jobPaused', { jobId });
         return job;
@@ -861,8 +1168,9 @@ class SchedulerEngine extends EventEmitter {
         }
         job.enabled = true;
         if (job.schedule && job.schedule !== 'immediate') {
-            job.nextRun = this.getNextRun(job.schedule);
+            job.nextRun = this.getNextRun(job.schedule, job.timezone);
         }
+        this.maybeWatchFolder(job);
         this.saveJobs();
         this.emit('jobResumed', { jobId });
         return job;

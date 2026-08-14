@@ -14,6 +14,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { getScheduler } = require('../engine/scheduler/schedulerEngine');
+const { SchedulerStore } = require('../engine/scheduler/schedulerStore');
 
 /**
  * @param {vscode.ExtensionContext} context
@@ -25,12 +26,26 @@ module.exports = function schedulerCommand(context) {
     let panel;
     let scheduler = null;
 
-    /** Ensure the scheduler singleton is initialised and events wired. */
+    /**
+     * Ensure the scheduler singleton is initialised and events wired.
+     *
+     * The scheduler is auto-started during extension activation (see
+     * extension.js), so this is a no-op for the singleton once it is running.
+     * The idempotency guard keeps jobs from being registered twice when the
+     * panel is opened after activation.
+     */
     function ensureScheduler() {
         if (scheduler) return;
-        const configPath = path.join(context.extensionPath, 'scheduler-config.json');
+        const configPath = path.join(context.globalStorageUri.fsPath, 'scheduler-config.json');
         scheduler = getScheduler();
-        scheduler.initialize(configPath);
+
+        if (!scheduler.isRunning) {
+            scheduler.initialize(configPath, {
+                baseDir: getWorkspaceRoot() || context.extensionPath,
+                store: new SchedulerStore(configPath),
+                migrateFrom: path.join(context.extensionPath, 'scheduler-config.json')
+            });
+        }
 
         const forward = (type) => (data) => {
             if (panel) panel.webview.postMessage({ type, data });
@@ -49,11 +64,22 @@ module.exports = function schedulerCommand(context) {
             }
         });
         scheduler.on('notification', (data) => {
-            vscode.window.showInformationMessage(`📧 Notification sent for job: ${data.jobName}`);
+            if (!data) return;
+            if (data.type === 'email') {
+                vscode.window.showInformationMessage(`📧 Notification sent for job: ${data.jobName}`);
+            } else if (data.type === 'webhook') {
+                vscode.window.showInformationMessage(`🔗 Webhook triggered for job: ${data.jobName}`);
+            }
         });
         scheduler.on('fileChanged', (data) => {
             vscode.window.showInformationMessage(`📁 File changed in ${data.folder}: ${data.filename}`);
         });
+    }
+
+    /** First workspace folder path (or null when no folder is open). */
+    function getWorkspaceRoot() {
+        const folders = vscode.workspace.workspaceFolders;
+        return folders && folders.length > 0 ? folders[0].uri.fsPath : null;
     }
 
     /** Push the current job list, history, and running jobs to the WebView. */
@@ -197,6 +223,10 @@ module.exports = function schedulerCommand(context) {
                             break;
                         case 'updateJob':
                             scheduler.updateJob(message.jobId, message.updates);
+                            refreshJobs();
+                            break;
+                        case 'getHistory':
+                            // Refresh button in the History tab
                             refreshJobs();
                             break;
                         case 'runNow':

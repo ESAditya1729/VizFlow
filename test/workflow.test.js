@@ -6,6 +6,7 @@ const { executeWorkflow, validateWorkflow } = require('../engine/workflow/workfl
 const { getActivities, getActivity } = require('../engine/workflow/activityRegistry');
 const templateService = require('../services/templateService');
 const { SchedulerEngine } = require('../engine/scheduler/schedulerEngine');
+const { SchedulerStore } = require('../engine/scheduler/schedulerStore');
 
 suite('Workflow Engine Test Suite', () => {
     const testDir = path.join(__dirname, 'temp_test_workflow');
@@ -1170,6 +1171,306 @@ suite('Workflow Engine Test Suite', () => {
 
         if (fs.existsSync(engine.configPath)) {
             await fs.promises.unlink(engine.configPath);
+        }
+    });
+
+    test('Scheduler store persists jobs/history and migrates a legacy config', () => {
+        const legacyPath = path.join(testDir, 'legacy_scheduler_config.json');
+        const newPath = path.join(testDir, 'new_scheduler_config.json');
+
+        // Legacy v1 config in the "old" location
+        fs.writeFileSync(legacyPath, JSON.stringify({
+            version: '1.0.0',
+            jobs: [{ id: 'legacy_job', name: 'Legacy', schedule: '0 9 * * *' }]
+        }, null, 2), 'utf8');
+
+        const store = new SchedulerStore(newPath);
+        const data = store.load();
+        assert.strictEqual(data.jobs.length, 0, 'Fresh store starts empty');
+
+        const migrated = store.migrateFrom(legacyPath);
+        assert.strictEqual(migrated, true, 'Legacy config should be migrated');
+        assert.strictEqual(store.data.jobs.length, 1);
+
+        // A fresh store instance sees the migrated data
+        const store2 = new SchedulerStore(newPath);
+        const data2 = store2.load();
+        assert.strictEqual(data2.jobs.length, 1);
+        assert.strictEqual(data2.jobs[0].id, 'legacy_job');
+
+        // Jobs + history round-trip through a save/load cycle
+        store2.save(
+            [{ id: 'j1', name: 'J1', schedule: '0 9 * * *' }],
+            [{ jobId: 'j1', jobName: 'J1', status: 'completed' }]
+        );
+        const store3 = new SchedulerStore(newPath);
+        const data3 = store3.load();
+        assert.strictEqual(data3.jobs[0].id, 'j1');
+        assert.strictEqual(data3.history.length, 1);
+        assert.strictEqual(data3.history[0].status, 'completed');
+
+        fs.unlinkSync(legacyPath);
+        fs.unlinkSync(newPath);
+    });
+
+    test('Scheduler rejects one-time jobs scheduled in the past', async () => {
+        const engine = new SchedulerEngine();
+        engine.configPath = path.join(testDir, 'scheduler_config_past.json');
+        engine.configBaseDir = testDir;
+
+        const past = new Date(Date.now() - 60 * 1000).toISOString();
+
+        assert.throws(() => {
+            engine.addJob({
+                id: 'past_job',
+                name: 'Past Job',
+                runOnce: true,
+                runAt: past,
+                workflowDef: { name: 'W', version: '1.0.0', activities: [{ id: 'a', type: 'wait', config: { duration: 1 } }] }
+            });
+        }, /future/i, 'addJob should reject a past runAt');
+
+        const base = engine.addJob({
+            id: 'base_job',
+            name: 'Base Job',
+            schedule: '0 9 * * *',
+            workflowDef: { name: 'W', version: '1.0.0', activities: [{ id: 'a', type: 'wait', config: { duration: 1 } }] }
+        });
+        assert.throws(() => {
+            engine.scheduleOnce(base.id, past);
+        }, /future/i, 'scheduleOnce should reject a past runAt');
+
+        if (fs.existsSync(engine.configPath)) {
+            await fs.promises.unlink(engine.configPath);
+        }
+    });
+
+    test('Scheduler skips past one-time jobs on load', () => {
+        const engine = new SchedulerEngine();
+        engine.configPath = path.join(testDir, 'scheduler_config_load.json');
+        engine.configBaseDir = testDir;
+
+        engine.addJob({ id: 'recurring', name: 'Recurring', schedule: '0 9 * * *' });
+        engine.saveJobs();
+
+        // Manually append a past one-time job to the persisted config
+        const config = JSON.parse(fs.readFileSync(engine.configPath, 'utf8'));
+        config.jobs.push({
+            id: 'past_one',
+            name: 'Past One-time',
+            runOnce: true,
+            runAt: new Date(Date.now() - 3600000).toISOString(),
+            schedule: '0 0 1 1 *',
+            oneTime: true
+        });
+        fs.writeFileSync(engine.configPath, JSON.stringify(config, null, 2), 'utf8');
+
+        const engine2 = new SchedulerEngine();
+        engine2.configPath = engine.configPath;
+        engine2.configBaseDir = testDir;
+        engine2.loadJobs();
+
+        assert.ok(engine2.jobs.has('recurring'), 'Recurring job should be loaded');
+        assert.ok(!engine2.jobs.has('past_one'), 'Past one-time job should be pruned on load');
+
+        engine.stop();
+        engine2.stop();
+        if (fs.existsSync(engine.configPath)) {
+            fs.unlinkSync(engine.configPath);
+        }
+    });
+
+    test('Scheduler injects built-in variables and parameters into scheduled runs', async function () {
+        this.timeout(20000);
+
+        const engine = new SchedulerEngine();
+        engine.configPath = path.join(testDir, 'scheduler_config_vars.json');
+        engine.configBaseDir = testDir;
+
+        const outPath = path.join(testDir, 'sched_params_out.txt');
+        const workflowDef = {
+            name: 'Var Test',
+            version: '1.0.0',
+            activities: [
+                {
+                    id: 'w',
+                    type: 'writeText',
+                    config: {
+                        filePath: 'sched_params_out.txt',
+                        content: 'custom',
+                        customText: '{{weird}}|{{timestamp}}|{{workflowName}}'
+                    }
+                }
+            ]
+        };
+
+        let completed = false;
+        let failed = null;
+        engine.on('jobCompleted', () => { completed = true; });
+        engine.on('jobFailed', (d) => { failed = d.error; });
+
+        engine.addJob({
+            id: 'var_job',
+            name: 'Var Job',
+            schedule: 'immediate',
+            retryCount: 0,
+            workflowDef,
+            // A parameter that would corrupt the old whole-JSON interpolation
+            parameters: { weird: 'a"b}c\\d' }
+        });
+
+        for (let i = 0; i < 40; i++) {
+            await new Promise(resolve => setTimeout(resolve, 200));
+            if (completed || failed) break;
+        }
+
+        try {
+            assert.ok(completed, `Job should complete${failed ? `, got error: ${failed}` : ''}`);
+            const content = fs.readFileSync(outPath, 'utf8');
+            const parts = content.split('|');
+            assert.strictEqual(parts[0], 'a"b}c\\d', 'Parameter with special characters should round-trip intact');
+            assert.ok(!isNaN(Date.parse(parts[1])), 'Built-in {{timestamp}} should be interpolated');
+            assert.strictEqual(parts[2], 'Var Test', '{{workflowName}} should come from the workflow name');
+        } finally {
+            engine.stop();
+        }
+
+        if (fs.existsSync(engine.configPath)) {
+            await fs.promises.unlink(engine.configPath);
+        }
+        if (fs.existsSync(outPath)) {
+            await fs.promises.unlink(outPath);
+        }
+    });
+
+    test('Scheduler refreshes nextRun after each execution', async function () {
+        this.timeout(20000);
+
+        const engine = new SchedulerEngine();
+        engine.configPath = path.join(testDir, 'scheduler_config_nextrun.json');
+        engine.configBaseDir = testDir;
+
+        const outPath = path.join(testDir, 'nextrun_out.txt');
+        const job = engine.addJob({
+            id: 'next_job',
+            name: 'Next Run',
+            schedule: '* * * * * *', // every second — recomputation is visible
+            retryCount: 0,
+            workflowDef: {
+                name: 'W',
+                version: '1.0.0',
+                activities: [{
+                    id: 'w',
+                    type: 'writeText',
+                    config: { filePath: 'nextrun_out.txt', content: 'custom', customText: 'hello' }
+                }]
+            }
+        });
+
+        const nextRunBefore = new Date(job.nextRun).getTime();
+        assert.ok(nextRunBefore > Date.now(), 'nextRun should start in the future');
+
+        // Let at least one cron boundary pass so a fresh nextRun differs
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
+        engine.runNow(job.id);
+        for (let i = 0; i < 30; i++) {
+            await new Promise(resolve => setTimeout(resolve, 200));
+            if (engine.runningJobs.size === 0) break;
+        }
+        const runEndTime = Date.now();
+
+        try {
+            assert.ok(job.nextRun, 'nextRun should be recomputed after a run');
+            const nextRunAfter = new Date(job.nextRun).getTime();
+            assert.ok(nextRunAfter > nextRunBefore, 'nextRun should advance past the stale value');
+            // The refreshed value is the next cron boundary relative to the run's
+            // end. With a one-second cron the boundary can sit just before or just
+            // after "now", so assert it was recomputed to the run's window rather
+            // than naively requiring it to be strictly in the future.
+            assert.ok(
+                nextRunAfter >= runEndTime - 1000 && nextRunAfter <= runEndTime + 2000,
+                `nextRun (${new Date(nextRunAfter).toISOString()}) should be refreshed to a cron boundary around the run end`
+            );
+        } finally {
+            engine.stop();
+        }
+
+        if (fs.existsSync(engine.configPath)) {
+            await fs.promises.unlink(engine.configPath);
+        }
+        if (fs.existsSync(outPath)) {
+            await fs.promises.unlink(outPath);
+        }
+    });
+
+    test('Scheduler watch folder triggers only on matching new files', async function () {
+        this.timeout(25000);
+
+        const engine = new SchedulerEngine();
+        engine.configPath = path.join(testDir, 'scheduler_config_watch.json');
+        engine.configBaseDir = testDir;
+
+        const watchDir = path.join(testDir, 'watch_dir');
+        if (!fs.existsSync(watchDir)) {
+            fs.mkdirSync(watchDir, { recursive: true });
+        }
+
+        let started = 0;
+        engine.on('jobStarted', (d) => { if (d.jobId === 'watch_job') started++; });
+
+        engine.addJob({
+            id: 'watch_job',
+            name: 'Watch Job',
+            schedule: '0 0 1 1 *', // never fires during the test
+            retryCount: 0,
+            workflowDef: { name: 'W', version: '1.0.0', activities: [{ id: 'q', type: 'wait', config: { duration: 1 } }] },
+            watchFolder: watchDir,
+            fileFilter: '*.csv'
+        });
+
+        try {
+            // A non-matching file must NOT trigger the job
+            fs.writeFileSync(path.join(watchDir, 'notes.txt'), 'hello');
+            await new Promise(resolve => setTimeout(resolve, 1200));
+            assert.strictEqual(started, 0, 'A .txt file must not trigger a *.csv filter job');
+
+            // A matching file must trigger the job
+            fs.writeFileSync(path.join(watchDir, 'data.csv'), 'a,b\n1,2');
+            for (let i = 0; i < 30; i++) {
+                await new Promise(resolve => setTimeout(resolve, 200));
+                if (started >= 1) break;
+            }
+            assert.ok(started >= 1, 'A matching .csv file should trigger the job');
+
+            // Give the triggered job time to finish, then confirm the output file it
+            // would have "written" (its own data.csv) is not re-triggering a loop
+            for (let i = 0; i < 40; i++) {
+                await new Promise(resolve => setTimeout(resolve, 200));
+                if (engine.runningJobs.size === 0) break;
+            }
+            const startedAfterDrain = started;
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            assert.strictEqual(started, startedAfterDrain, 'Watched files written by the run must not re-trigger the job');
+
+            engine.removeJob('watch_job');
+            assert.strictEqual(engine.watchedFolders.size, 0, 'Watcher should close after the last job is removed');
+        } finally {
+            try {
+                if (engine.jobs.has('watch_job')) {
+                    engine.removeJob('watch_job');
+                }
+            } catch (e) {
+                void e;
+            }
+            engine.stop();
+        }
+
+        if (fs.existsSync(engine.configPath)) {
+            await fs.promises.unlink(engine.configPath);
+        }
+        if (fs.existsSync(watchDir)) {
+            fs.rmSync(watchDir, { recursive: true, force: true });
         }
     });
 

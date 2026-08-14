@@ -21,16 +21,41 @@
         <span class="brand-badge">Scheduler</span>
       </div>
       <div class="header-actions">
+        <div class="live-clock" id="liveClock" title="Current local time">--:--</div>
         <span class="version-badge">v{{VERSION}}</span>
       </div>
     </header>
 
     <!-- ═══ STATS BAR ═══ -->
     <div class="stats-bar" id="statsBar">
-      <span class="stat-item">📋 Total Jobs: <span class="stat-value" id="totalJobs">0</span></span>
-      <span class="stat-item">▶ Running: <span class="stat-value running" id="runningJobs">0</span></span>
-      <span class="stat-item">✅ Completed: <span class="stat-value completed" id="completedJobs">0</span></span>
-      <span class="stat-item">❌ Failed: <span class="stat-value failed" id="failedJobs">0</span></span>
+      <button class="stat-card" data-jump="jobs" title="View all jobs">
+        <span class="stat-icon">📋</span>
+        <span class="stat-body">
+          <span class="stat-value" id="totalJobs">0</span>
+          <span class="stat-label">Total Jobs</span>
+        </span>
+      </button>
+      <button class="stat-card" data-jump="jobs" title="View running jobs">
+        <span class="stat-icon">▶️</span>
+        <span class="stat-body">
+          <span class="stat-value running" id="runningJobs">0</span>
+          <span class="stat-label">Running</span>
+        </span>
+      </button>
+      <button class="stat-card" data-jump="history" title="View successful runs">
+        <span class="stat-icon">✅</span>
+        <span class="stat-body">
+          <span class="stat-value completed" id="completedJobs">0</span>
+          <span class="stat-label">Completed</span>
+        </span>
+      </button>
+      <button class="stat-card" data-jump="history" title="View failed runs">
+        <span class="stat-icon">❌</span>
+        <span class="stat-body">
+          <span class="stat-value failed" id="failedJobs">0</span>
+          <span class="stat-label">Failed</span>
+        </span>
+      </button>
     </div>
 
     <!-- ═══ TABS ═══ -->
@@ -46,88 +71,323 @@
 
     <!-- ═══ TAB: JOBS ═══ -->
     <div class="tab-content active" id="tab-jobs">
-      <div id="jobList"></div>
+      <div class="jobs-toolbar">
+        <div class="search-box">
+          <span class="search-icon">🔎</span>
+          <input class="search-input" id="jobSearch" type="text" placeholder="Filter jobs by name, workflow, schedule…">
+        </div>
+        <button class="btn-toolbar primary" id="addJobQuickBtn">➕ New Job</button>
+      </div>
+      <div id="jobList" class="job-grid"></div>
     </div>
 
     <!-- ═══ TAB: ADD JOB ═══ -->
     <div class="tab-content" id="tab-add">
+      <div class="add-form">
 
-      <div class="form-section">
+        <input type="hidden" id="editJobId" value="">
 
-        <div class="config-field">
-          <label class="config-label">Job Name <span class="required-mark">*</span></label>
-          <input class="config-input" id="jobName" type="text" placeholder="Daily Sales Report">
-        </div>
-
-        <div class="form-row">
-          <div class="config-field">
-            <label class="config-label">Schedule (Cron) <span class="required-mark">*</span></label>
-            <input class="config-input" id="jobSchedule" type="text" placeholder="0 9 * * *" value="0 9 * * *">
-            <div class="config-hint">⏰ <code>min hr dom mon dow</code> — e.g. <code>0 9 * * *</code> = daily 9 am</div>
-          </div>
-          <div class="config-field">
-            <label class="config-label">Workflow File <span class="required-mark">*</span></label>
-            <div class="config-file-row">
-              <input class="config-input" id="workflowFile" type="text" placeholder="Select .vizflow file…">
-              <button class="btn-browse" id="browseWorkflow" title="Browse for workflow file">📂</button>
+        <!-- ── Schedule Builder ──────────────────────────────────────── -->
+        <section class="card form-card">
+          <div class="card-head">
+            <div>
+              <span class="card-title">📅 Schedule</span>
+              <span class="card-sub">Choose when this job should run</span>
             </div>
           </div>
-        </div>
 
-        <div class="form-row">
-          <div class="config-field">
-            <label class="config-label">Watch Folder <span class="config-optional">(optional)</span></label>
-            <input class="config-input" id="watchFolder" type="text" placeholder="Input/ — triggers on new files">
-            <div class="config-hint">📁 Monitor this folder for new files</div>
+          <div class="preset-row" id="presetRow">
+            <button type="button" class="preset-btn" data-preset="once">Once</button>
+            <button type="button" class="preset-btn" data-preset="everyMinute">Every Minute</button>
+            <button type="button" class="preset-btn" data-preset="hourly">Hourly</button>
+            <button type="button" class="preset-btn active" data-preset="daily">Daily</button>
+            <button type="button" class="preset-btn" data-preset="weekly">Weekly</button>
+            <button type="button" class="preset-btn" data-preset="monthly">Monthly</button>
+            <button type="button" class="preset-btn" data-preset="custom">Custom…</button>
           </div>
-          <div class="config-field">
-            <label class="config-label">Email Notifications <span class="config-optional">(optional)</span></label>
-            <input class="config-input" id="emailNotifications" type="text" placeholder="team@company.com">
-            <div class="config-hint">📧 Send alerts on job completion/failure</div>
-          </div>
-        </div>
 
-        <div class="form-row">
-          <div class="config-field">
-            <label class="config-label">One-Time Execution <span class="config-optional">(optional)</span></label>
-            <div style="display:flex;gap:6px;">
-              <input class="config-input" id="oneTimeDate" type="text" placeholder="YYYY-MM-DD">
-              <input class="config-input" id="oneTimeTime" type="text" placeholder="HH:MM" style="flex:0.7;">
+          <div class="preset-panels">
+
+            <div class="preset-panel hidden" data-panel="once">
+              <div class="preset-field">
+                <label class="config-label">Date <span class="required-mark">*</span></label>
+                <input class="config-input" id="schedOnceDate" type="date">
+              </div>
+              <div class="preset-field">
+                <label class="config-label">Time (24-hour) <span class="required-mark">*</span></label>
+                <input class="config-input" id="schedOnceTime" type="time" value="09:00">
+              </div>
             </div>
-            <div class="config-hint">📅 Leave empty to use the recurring cron schedule above</div>
+
+            <div class="preset-panel hidden" data-panel="everyMinute">
+              <p class="preset-note">Runs continuously, once every minute.</p>
+            </div>
+
+            <div class="preset-panel hidden" data-panel="hourly">
+              <div class="preset-field">
+                <label class="config-label">Every</label>
+                <select class="config-input" id="schedHourlyEvery"></select>
+                <div class="config-hint">hours</div>
+              </div>
+              <div class="preset-field">
+                <label class="config-label">Minute</label>
+                <select class="config-input" id="schedHourlyMinute"></select>
+              </div>
+            </div>
+
+            <div class="preset-panel hidden" data-panel="daily">
+              <div class="preset-field">
+                <label class="config-label">Time <span class="required-mark">*</span></label>
+                <input class="config-input" id="schedDailyTime" type="time" value="09:00">
+              </div>
+            </div>
+
+            <div class="preset-panel hidden" data-panel="weekly">
+              <div class="preset-field wide">
+                <label class="config-label">Days of the week <span class="required-mark">*</span></label>
+                <div class="dow-row" id="dowRow">
+                  <button type="button" class="dow-chip" data-dow="0">Sun</button>
+                  <button type="button" class="dow-chip" data-dow="1">Mon</button>
+                  <button type="button" class="dow-chip" data-dow="2">Tue</button>
+                  <button type="button" class="dow-chip" data-dow="3">Wed</button>
+                  <button type="button" class="dow-chip" data-dow="4">Thu</button>
+                  <button type="button" class="dow-chip" data-dow="5">Fri</button>
+                  <button type="button" class="dow-chip" data-dow="6">Sat</button>
+                </div>
+              </div>
+              <div class="preset-field">
+                <label class="config-label">Time <span class="required-mark">*</span></label>
+                <input class="config-input" id="schedWeeklyTime" type="time" value="09:00">
+              </div>
+            </div>
+
+            <div class="preset-panel hidden" data-panel="monthly">
+              <div class="preset-field">
+                <label class="config-label">Day of the month</label>
+                <select class="config-input" id="schedMonthlyDay"></select>
+              </div>
+              <div class="preset-field">
+                <label class="config-label">Time <span class="required-mark">*</span></label>
+                <input class="config-input" id="schedMonthlyTime" type="time" value="09:00">
+              </div>
+            </div>
+
+            <div class="preset-panel hidden" data-panel="custom">
+              <div class="preset-field wide">
+                <label class="config-label">Cron expression</label>
+                <input class="config-input mono" id="schedCustomCron" type="text" placeholder="0 9 * * *" value="0 9 * * *" spellcheck="false">
+                <div class="config-hint">5 or 6 fields — <code>min hour dom month dow</code></div>
+              </div>
+            </div>
+
           </div>
-          <div class="config-field">
-            <label class="config-label">Run Immediately</label>
-            <label class="toggle" style="margin-top:6px;">
-              <input type="checkbox" id="runImmediately">
-              <span class="toggle-slider"></span>
-            </label>
-            <div class="config-hint">▶ Run this job right after scheduling</div>
+
+          <div class="schedule-preview">
+            <div class="preview-row">
+              <span class="preview-icon">🗓️</span>
+              <div class="preview-text">
+                <div class="preview-human" id="previewHuman">At 09:00 AM every day</div>
+                <div class="preview-cron">
+                  <span>cron:</span>
+                  <code id="previewCron">0 9 * * *</code>
+                  <button type="button" class="copy-btn" id="previewCopy" title="Copy cron expression">⧉</button>
+                </div>
+              </div>
+            </div>
+            <div class="preview-next">
+              <span class="preview-next-label">Next run</span>
+              <span class="preview-next-value" id="previewNext">—</span>
+            </div>
           </div>
+        </section>
+
+        <!-- ── Job Details ───────────────────────────────────────────── -->
+        <div class="form-grid-2">
+
+          <section class="card form-card">
+            <div class="card-head">
+              <div>
+                <span class="card-title">⚙️ Job Details</span>
+                <span class="card-sub">Name the job and point it at a workflow</span>
+              </div>
+            </div>
+
+            <div class="config-field">
+              <label class="config-label">Job Name <span class="required-mark">*</span></label>
+              <input class="config-input" id="jobName" type="text" placeholder="Daily Sales Report">
+            </div>
+
+            <div class="config-field">
+              <label class="config-label">Workflow File <span class="required-mark">*</span></label>
+              <div class="config-file-row">
+                <input class="config-input" id="workflowFile" type="text" placeholder="Select .vizflow file…">
+                <button type="button" class="btn-browse" id="browseWorkflow" title="Browse for workflow file">📂</button>
+              </div>
+            </div>
+
+            <div class="config-field">
+              <label class="config-label">Timezone <span class="config-optional">(optional)</span></label>
+              <input class="config-input" id="jobTimezone" type="text" list="tzList"
+                     placeholder="Local timezone — type or pick…">
+              <datalist id="tzList">
+                <option value=""></option>
+                <optgroup label="North America">
+                  <option value="America/New_York"></option>
+                  <option value="America/Chicago"></option>
+                  <option value="America/Denver"></option>
+                  <option value="America/Los_Angeles"></option>
+                  <option value="America/Anchorage"></option>
+                  <option value="America/Toronto"></option>
+                  <option value="America/Vancouver"></option>
+                  <option value="America/Mexico_City"></option>
+                  <option value="Pacific/Honolulu"></option>
+                </optgroup>
+                <optgroup label="Europe">
+                  <option value="Europe/London"></option>
+                  <option value="Europe/Dublin"></option>
+                  <option value="Europe/Lisbon"></option>
+                  <option value="Europe/Paris"></option>
+                  <option value="Europe/Berlin"></option>
+                  <option value="Europe/Madrid"></option>
+                  <option value="Europe/Rome"></option>
+                  <option value="Europe/Amsterdam"></option>
+                  <option value="Europe/Stockholm"></option>
+                  <option value="Europe/Athens"></option>
+                  <option value="Europe/Istanbul"></option>
+                  <option value="Europe/Moscow"></option>
+                </optgroup>
+                <optgroup label="Asia & Middle East">
+                  <option value="Asia/Dubai"></option>
+                  <option value="Asia/Karachi"></option>
+                  <option value="Asia/Kolkata"></option>
+                  <option value="Asia/Dhaka"></option>
+                  <option value="Asia/Kathmandu"></option>
+                  <option value="Asia/Bangkok"></option>
+                  <option value="Asia/Jakarta"></option>
+                  <option value="Asia/Singapore"></option>
+                  <option value="Asia/Hong_Kong"></option>
+                  <option value="Asia/Shanghai"></option>
+                  <option value="Asia/Taipei"></option>
+                  <option value="Asia/Manila"></option>
+                  <option value="Asia/Kuala_Lumpur"></option>
+                  <option value="Asia/Tokyo"></option>
+                  <option value="Asia/Seoul"></option>
+                  <option value="Asia/Jerusalem"></option>
+                </optgroup>
+                <optgroup label="Oceania & Africa">
+                  <option value="Australia/Perth"></option>
+                  <option value="Australia/Adelaide"></option>
+                  <option value="Australia/Sydney"></option>
+                  <option value="Australia/Melbourne"></option>
+                  <option value="Australia/Brisbane"></option>
+                  <option value="Pacific/Auckland"></option>
+                  <option value="Africa/Cairo"></option>
+                  <option value="Africa/Lagos"></option>
+                  <option value="Africa/Johannesburg"></option>
+                </optgroup>
+                <optgroup label="South America">
+                  <option value="America/Sao_Paulo"></option>
+                  <option value="America/Argentina/Buenos_Aires"></option>
+                  <option value="America/Bogota"></option>
+                  <option value="America/Lima"></option>
+                </optgroup>
+              </datalist>
+              <div class="config-hint" id="tzOffsetHint">🌍 IANA timezone; empty = VS Code local time</div>
+            </div>
+          </section>
+
+          <section class="card form-card">
+            <div class="card-head">
+              <div>
+                <span class="card-title">🔗 Triggers &amp; Notifications</span>
+                <span class="card-sub">Optional watch folders and alerts</span>
+              </div>
+            </div>
+
+            <div class="config-field">
+              <label class="config-label">Watch Folder <span class="config-optional">(optional)</span></label>
+              <input class="config-input" id="watchFolder" type="text" placeholder="Input/ — triggers on new files">
+              <div class="config-hint">📁 Monitor this folder for new files</div>
+            </div>
+
+            <div class="config-field">
+              <label class="config-label">Watch File Filter <span class="config-optional">(optional)</span></label>
+              <input class="config-input" id="fileFilter" type="text" placeholder="*.csv, *Payment*.xlsx">
+              <div class="config-hint">🔎 Only trigger on matching files (comma-separated)</div>
+            </div>
+
+            <div class="config-field">
+              <label class="config-label">Email Notifications <span class="config-optional">(optional)</span></label>
+              <input class="config-input" id="emailNotifications" type="text" placeholder="team@company.com">
+              <div class="config-hint">📧 Alerts are shown as VS Code notifications (no SMTP)</div>
+            </div>
+
+            <div class="config-field">
+              <label class="config-label">Webhook Notification <span class="config-optional">(optional)</span></label>
+              <input class="config-input" id="webhookNotifications" type="text" placeholder="https://hooks.example.com/…">
+              <div class="config-hint">🔗 POST a payload when this job completes/fails</div>
+            </div>
+          </section>
+
         </div>
 
-        <div class="form-row">
-          <div class="config-field">
-            <label class="config-label">Max Retries</label>
-            <input class="config-input" id="retryCount" type="number" value="3" placeholder="3" min="0" max="10">
-            <div class="config-hint">🔄 Number of retry attempts on failure</div>
-          </div>
-          <div class="config-field">
-            <label class="config-label">Retry Delay (seconds)</label>
-            <input class="config-input" id="retryDelay" type="number" value="60" placeholder="60" min="0">
-            <div class="config-hint">⏱️ Wait time between retries</div>
-          </div>
-        </div>
+        <!-- ── Options & Parameters ──────────────────────────────────── -->
+        <div class="form-grid-2">
 
-        <div class="config-field">
-          <label class="config-label">Parameters (JSON) <span class="config-optional">(optional)</span></label>
-          <textarea class="config-input config-textarea" id="jobParams" rows="3"
-            placeholder='{"threshold": 1000, "region": "North"}'></textarea>
-          <div class="config-hint">📊 Pass variables to your workflow (e.g. <code>{{threshold}}</code>)</div>
+          <section class="card form-card">
+            <div class="card-head">
+              <div>
+                <span class="card-title">🔄 Retry &amp; Start</span>
+                <span class="card-sub">Failure handling and initial kick-off</span>
+              </div>
+            </div>
+
+            <div class="form-grid-2 tight">
+              <div class="config-field">
+                <label class="config-label">Max Retries</label>
+                <input class="config-input" id="retryCount" type="number" value="3" placeholder="3" min="0" max="10">
+                <div class="config-hint">🔄 Retry attempts on failure</div>
+              </div>
+              <div class="config-field">
+                <label class="config-label">Retry Delay (seconds)</label>
+                <input class="config-input" id="retryDelay" type="number" value="60" placeholder="60" min="0">
+                <div class="config-hint">⏱️ Wait between retries</div>
+              </div>
+            </div>
+
+            <div class="config-field">
+              <label class="config-label">Run Immediately</label>
+              <div class="toggle-row">
+                <label class="toggle" title="Run this job right after scheduling">
+                  <input type="checkbox" id="runImmediately">
+                  <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-label">▶ Kick off a run right after saving</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="card form-card">
+            <div class="card-head">
+              <div>
+                <span class="card-title">📊 Parameters</span>
+                <span class="card-sub">Extra variables for your workflow</span>
+              </div>
+            </div>
+
+            <div class="config-field">
+              <label class="config-label">Parameters (JSON) <span class="config-optional">(optional)</span></label>
+              <textarea class="config-input config-textarea" id="jobParams" rows="6"
+                        placeholder='{"threshold": 1000, "region": "North"}'></textarea>
+              <div class="config-hint">📊 Referenced in your workflow as <code>{{threshold}}</code>, <code>{{region}}</code>…</div>
+            </div>
+          </section>
+
         </div>
 
         <div class="form-actions">
-          <button class="btn-run" id="addJobBtn">➕ Schedule Job</button>
+          <button type="button" class="btn-run" id="addJobBtn">➕ Schedule Job</button>
+          <button type="button" class="btn-sm" id="cancelEditBtn" style="display:none;">✕ Cancel Edit</button>
           <div id="addStatus"></div>
         </div>
 
@@ -140,10 +400,30 @@
         <span class="section-title">📜 Execution History</span>
         <div style="display:flex;gap:6px;">
           <button class="btn-toolbar" id="refreshHistory">🔄 Refresh</button>
-          <button class="btn-toolbar" id="clearHistory">✕ Clear History</button>
+          <button class="btn-toolbar danger" id="clearHistory">✕ Clear History</button>
         </div>
       </div>
-      <div id="historyList"></div>
+      <div class="history-list" id="historyList"></div>
+    </div>
+
+    <!-- ═══ ONE-TIME MODAL ═══ -->
+    <div class="modal-overlay hidden" id="onceModal">
+      <div class="modal">
+        <div class="modal-title">📅 Schedule One-Time Run</div>
+        <div class="config-field">
+          <label class="config-label">Date <span class="required-mark">*</span></label>
+          <input class="config-input" id="onceDate" type="date">
+        </div>
+        <div class="config-field">
+          <label class="config-label">Time (24-hour) <span class="required-mark">*</span></label>
+          <input class="config-input" id="onceTime" type="time">
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn-sm" id="onceCancel">Cancel</button>
+          <button type="button" class="btn-sm success" id="onceConfirm">Schedule</button>
+        </div>
+        <div id="onceStatus"></div>
+      </div>
     </div>
 
   </div><!-- #app -->

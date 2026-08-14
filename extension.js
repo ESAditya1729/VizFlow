@@ -1,4 +1,5 @@
 const vscode = require('vscode');
+const path = require('path');
 const sumCommand = require('./commands/sum');
 const averageCommand = require('./commands/average');
 const aggregate = require('./commands/aggregate');
@@ -14,12 +15,32 @@ const chartsCommand = require('./commands/charts');
 const rbqlCommand = require('./commands/rbql');
 const workflowBuilderCommand  = require('./commands/workflowBuilder');
 const schedulerCommand        = require('./commands/scheduler');
+const { getScheduler } = require('./engine/scheduler/schedulerEngine');
+const { SchedulerStore } = require('./engine/scheduler/schedulerStore');
 
 /**
  * @param {vscode.ExtensionContext} context
  */
 
 function activate(context) {
+
+    // ─── Auto-start the scheduler on activation ─────────────────────────
+    // Scheduled jobs must fire from extension startup — not only after the
+    // Scheduler panel is opened. Jobs are persisted under globalStorageUri so
+    // they survive extension updates and do not depend on the (often
+    // read-only) install folder. Any legacy config in the extension folder is
+    // migrated on first run.
+    const schedulerEngine = getScheduler();
+    const schedulerConfigPath = path.join(context.globalStorageUri.fsPath, 'scheduler-config.json');
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    const workspaceRoot = workspaceFolders && workspaceFolders.length > 0
+        ? workspaceFolders[0].uri.fsPath
+        : null;
+    schedulerEngine.initialize(schedulerConfigPath, {
+        baseDir: workspaceRoot || context.extensionPath,
+        store: new SchedulerStore(schedulerConfigPath),
+        migrateFrom: path.join(context.extensionPath, 'scheduler-config.json')
+    });
 
     // ─── Create scheduler command instance ────────────────────────────
     const scheduler = schedulerCommand(context);
@@ -135,7 +156,11 @@ function activate(context) {
     workflowBuilderCommand.setSchedulerOpener(scheduler);
 }
 
-function deactivate() { }
+function deactivate() {
+    // Stop cron tasks + folder watchers so nothing fires after the extension
+    // unloads.
+    getScheduler().stop();
+}
 
 module.exports = {
     activate,
