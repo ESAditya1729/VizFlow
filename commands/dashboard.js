@@ -54,7 +54,8 @@ module.exports = function dashboardCommand(context) {
         try {
             dataset = csvParser.parse(csvText);
         } catch (err) {
-            vscode.window.showErrorMessage('VizFlow: Failed to parse CSV — ' + err.message);
+            const message = err instanceof Error ? err.message : String(err);
+            vscode.window.showErrorMessage('VizFlow: Failed to parse CSV — ' + message);
             return;
         }
 
@@ -107,7 +108,7 @@ module.exports = function dashboardCommand(context) {
         panel.webview.html = html;
 
         // ── 4. Send profile data once webview is ready ────────────────────
-        setImmediate(() => sendInit(panel.webview, dataset, fileName, fileSize));
+        setImmediate(() => { if (panel) sendInit(panel.webview, dataset, fileName, fileSize); });
 
         // ── 5. Handle quick-action messages ───────────────────────────────
         panel.webview.onDidReceiveMessage(
@@ -318,7 +319,7 @@ function detectPatterns(nonNull) {
     return matched;
 }
 
-/** @param {string} col @param {string} type @param {number} nullCount @param {number} rowCount @param {number} dupVals @param {any[]} nonNull @param {object|null} stats */
+/** @param {string} col @param {string} type @param {number} nullCount @param {number} rowCount @param {number} dupVals @param {any[]} nonNull @param {{mean: number, stdDev: number, min: number}|null} stats */
 function detectColumnIssues(col, type, nullCount, rowCount, dupVals, nonNull, stats) {
     const issues = [];
     const nullPct = rowCount > 0 ? (nullCount / rowCount) * 100 : 0;
@@ -588,7 +589,7 @@ function formatBytes(bytes) {
 async function handleMessage(msg, sourceUri) {
     if (msg.type !== 'action') return;
 
-    const cmdMap = {
+    const cmdMap = /** @type {Record<string, string | null>} */ ({
         duplicates: 'vizflow.duplicates',
         distinct:   'vizflow.distinctValues',
         transform:  'vizflow.transformWebview',
@@ -596,7 +597,7 @@ async function handleMessage(msg, sourceUri) {
         statistics: 'vizflow.statistics',
         export:     null,   // future: report generation
         chart:      null,   // future: chart view
-    };
+    });
 
     const cmd = cmdMap[msg.action];
     if (!cmd) {

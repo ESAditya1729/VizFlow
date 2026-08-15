@@ -74,14 +74,13 @@ function activate(context) {
 
         vscode.commands.registerCommand(
             'vizflow.about',
-            aboutCommand(context)
+            aboutCommand
         ),
 
         vscode.commands.registerCommand(
             'vizflow.dashboard',
             dashboardCommand(context)
-        ),
-        
+        ),         
         vscode.commands.registerCommand(
             'vizflow.charts',
             chartsCommand(context)

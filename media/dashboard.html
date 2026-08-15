@@ -5,7 +5,7 @@
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'none'; script-src 'nonce-{{NONCE}}'; style-src 'nonce-{{NONCE}}'; img-src vscode-resource: https: data:;">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>VizFlow — Dataset Summary Dashboard</title>
+  <title>VizFlow — {{PAGE_TITLE}}</title>
   <link nonce="{{NONCE}}" rel="stylesheet" href="{{WEBVIEW_CSS_URI}}">
 </head>
 <body>
@@ -14,8 +14,8 @@
 <div class="brand-header">
   <img class="brand-icon" src="{{ICON_URI}}" alt="VizFlow icon">
   <div>
-    <div class="brand-name">VizFlow</div>
-    <div class="brand-tagline">Dataset Summary Dashboard</div>
+    <div class="brand-name">{{REPORT_HEADER_TITLE}}</div>
+    <div class="brand-tagline">{{REPORT_HEADER_SUBTITLE}}</div>
   </div>
   <div class="brand-header-right">
     <span class="version-badge">v{{VERSION}}</span>
@@ -170,7 +170,7 @@
 
   <!-- FOOTER -->
   <div class="brand-footer">
-    <strong>VizFlow</strong> — Dataset Summary Dashboard &middot; v{{VERSION}} &middot; Built for VS Code<br>
+    <strong>{{REPORT_HEADER_TITLE}}</strong> — {{PAGE_TITLE}} &middot; v{{VERSION}} &middot; Built for VS Code<br>
     Publisher: <strong>IBM</strong>
   </div>
 

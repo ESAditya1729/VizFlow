@@ -2,9 +2,11 @@
 
 <div align="center">
 
+<img src="./images/icon.png" alt="VizFlow" width="96" />
+
 **Lightweight • Local-First • Powerful**
 
-[![VS Code Marketplace](https://img.shields.io/badge/VS%20Code-Marketplace-blue?logo=visual-studio-code)](https://marketplace.visualstudio.com/items?itemName=ESAditya1729.vizflow)
+[![VS Code Marketplace](https://img.shields.io/badge/VS%20Code-Marketplace-blue?logo=visual-studio-code)](https://marketplace.visualstudio.com/items?itemName=adoenixes-vizflow.vizflow-studio)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![GitHub Stars](https://img.shields.io/github/stars/ESAditya1729/VizFlow.svg?style=social)](https://github.com/ESAditya1729/VizFlow)
 
