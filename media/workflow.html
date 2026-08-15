@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'nonce-{{NONCE}}'; style-src 'nonce-{{NONCE}}' vscode-resource:; img-src vscode-resource: https: data:;">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#1e1e2e">
+  <title>VizFlow — Workflow Builder</title>
+  
+  <!-- Single CSS file -->
+  <link nonce="{{NONCE}}" rel="stylesheet" href="{{WEBVIEW_CSS_URI}}">
+</head>
+<body>
+
+  <div id="app">
+    <!-- ═══ HEADER ═══ -->
+    <header class="app-header">
+      <div class="brand">
+        <img class="brand-icon" src="{{ICON_URI}}" alt="VizFlow" loading="lazy">
+        <span class="brand-name">VizFlow</span>
+        <span class="brand-badge">Workflow Builder</span>
+      </div>
+      <div class="header-actions">
+        <span class="file-info" id="fileInfo" title="Current workflow file">Unsaved</span>
+        <span class="version-badge">v{{VERSION}}</span>
+        <button class="btn-icon header-btn" id="btnSettings" title="Settings" aria-label="Settings">⚙️</button>
+        <button class="btn-icon header-btn" id="btnHelp" title="Help" aria-label="Help">❓</button>
+      </div>
+    </header>
+
+    <!-- ═══ TOOLBAR ═══ -->
+    <div class="toolbar">
+      <div class="toolbar-group">
+        <input class="workflow-name" id="workflowName" type="text"
+               placeholder="Untitled Workflow" value="My Workflow" maxlength="80"
+               title="Workflow name" aria-label="Workflow name">
+        <span class="workflow-status" id="workflowStatus" title="Workflow status">● Ready</span>
+      </div>
+      
+      <div class="toolbar-divider"></div>
+      
+      <div class="toolbar-group">
+        <button class="btn-toolbar" id="btnNew" title="New Workflow (Ctrl+N)" aria-label="New workflow">📄 New</button>
+        <button class="btn-toolbar" id="btnOpen" title="Open .vizflow (Ctrl+O)" aria-label="Open workflow">📂 Open</button>
+        <button class="btn-toolbar" id="btnSave" title="Save (Ctrl+S)" aria-label="Save workflow">💾 Save</button>
+        <button class="btn-toolbar" id="btnSaveAs" title="Save As…" aria-label="Save workflow as">💾 Save As…</button>
+      </div>
+      
+      <div class="toolbar-divider"></div>
+      
+      <div class="toolbar-group">
+        <button class="btn-toolbar" id="btnSchedule" title="Open this workflow in the Scheduler" aria-label="Schedule workflow">⏰ Schedule</button>
+        <button class="btn-toolbar" id="btnExport" title="Export workflow as JSON" aria-label="Export workflow">📤 Export</button>
+      </div>
+      
+      <div class="toolbar-divider"></div>
+      
+      <div class="toolbar-group">
+        <button class="btn-run" id="btnRun" title="Run Workflow (Ctrl+Enter)" aria-label="Run workflow">▶ Run</button>
+        <button class="btn-stop" id="btnStop" title="Stop" style="display:none" aria-label="Stop workflow">⏹ Stop</button>
+        <span class="run-timer" id="runTimer" style="display:none">⏱ 0s</span>
+      </div>
+    </div>
+
+    <!-- ═══ PROGRESS ═══ -->
+    <div class="progress-container">
+      <div class="progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+        <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+      </div>
+      <span class="progress-text" id="progressText">0%</span>
+    </div>
+
+    <!-- ═══ NOTIFICATION AREA ═══ -->
+    <div class="notification-area" id="notificationArea" role="alert" aria-live="polite"></div>
+
+    <!-- ═══ MAIN LAYOUT ═══ -->
+    <div class="main-layout">
+
+      <!-- Activity Palette -->
+      <aside class="palette" id="palette" role="complementary" aria-label="Activity palette">
+        <div class="palette-header">
+          <span class="palette-title">📦 Activities</span>
+          <span class="palette-count" id="activityCount">0</span>
+        </div>
+        <div class="palette-search">
+          <input type="text" id="paletteSearch" placeholder="Search activities…" aria-label="Search activities">
+          <span class="search-clear" id="searchClear" style="display:none" role="button" aria-label="Clear search">✕</span>
+        </div>
+        <div class="palette-categories" id="paletteCategories">
+          <!-- Category filters rendered by JavaScript -->
+        </div>
+        <div class="palette-list" id="paletteList" role="listbox">
+          <!-- Populated by JavaScript -->
+        </div>
+        <div class="palette-footer">
+          <span class="palette-hint">Drag to canvas or click to add</span>
+        </div>
+      </aside>
+
+      <!-- Canvas -->
+      <main class="canvas-wrap" id="canvasWrap" role="main" aria-label="Workflow canvas">
+        <div class="canvas-inner" id="canvasInner">
+          <!-- Empty State -->
+          <div class="canvas-empty visible" id="canvasEmpty">
+            <div class="canvas-empty-icon">⚡</div>
+            <div class="canvas-empty-title">Build Your Data Pipeline</div>
+            <div class="canvas-empty-sub">
+              Drag activities from the palette or click to add them.
+            </div>
+            <div class="canvas-empty-hint">
+              💡 Try: <strong>📥 Read CSV</strong> → <strong>📊 RBQL Query</strong> → <strong>💾 Write CSV</strong>
+            </div>
+            <div class="canvas-empty-shortcuts">
+              <kbd>Ctrl+N</kbd> New · <kbd>Ctrl+O</kbd> Open · <kbd>Ctrl+S</kbd> Save · <kbd>Ctrl+Enter</kbd> Run
+            </div>
+          </div>
+
+          <!-- Steps rendered here by JavaScript -->
+          <div id="activityList" role="list" aria-label="Workflow activities"></div>
+        </div>
+        
+        <!-- Canvas context menu (hidden by default) -->
+        <div class="canvas-context-menu" id="canvasContextMenu" style="display:none" role="menu">
+          <button class="context-item" data-action="addActivity" role="menuitem">➕ Add Activity</button>
+          <button class="context-item" data-action="paste" role="menuitem">📋 Paste</button>
+          <button class="context-item" data-action="selectAll" role="menuitem">🔲 Select All</button>
+          <button class="context-item" data-action="clearAll" role="menuitem">🗑 Clear All</button>
+        </div>
+      </main>
+    </div>
+
+    <!-- ═══ LOG PANEL ═══ -->
+    <div class="log-container">
+      <div class="log-header">
+        <span class="log-title">📋 Execution Log</span>
+        <div class="log-actions">
+          <span class="log-level-filter">
+            <select id="logLevelFilter" aria-label="Log level filter">
+              <option value="all">All Levels</option>
+              <option value="info">Info</option>
+              <option value="success">Success</option>
+              <option value="warning">Warning</option>
+              <option value="error">Error</option>
+            </select>
+          </span>
+          <button class="btn-icon" id="btnToggleLog" title="Toggle log" aria-label="Toggle log">▾</button>
+          <button class="btn-icon" id="btnClearLog" title="Clear log" aria-label="Clear log">✕</button>
+        </div>
+      </div>
+      <div class="log-panel" id="logPanel" role="log" aria-label="Execution log">
+        <div class="log-empty">Ready — build a workflow and click Run.</div>
+      </div>
+      <div class="log-status" id="logStatus">
+        <span class="log-status-text">Ready</span>
+        <span class="log-status-time" id="logStatusTime"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ SINGLE JAVASCRIPT FILE ═══ -->
+  <script nonce="{{NONCE}}" src="{{WEBVIEW_JS_URI}}"></script>
+
+</body>
+</html>

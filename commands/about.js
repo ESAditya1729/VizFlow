@@ -6,7 +6,7 @@ const pkg = require('../package.json');
  *
  * @returns {() => void}
  */
-function aboutCommand() {
+function aboutCommand(context) {
     return function () {
         const panel = vscode.window.createWebviewPanel(
             'vizflowAbout',

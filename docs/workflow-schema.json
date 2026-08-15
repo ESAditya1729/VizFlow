@@ -1,0 +1,1812 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://vizflow.local/schemas/workflow.schema.json",
+  "title": "VizFlow Workflow Definition",
+  "description": "Declarative workflow definition for VizFlow (.vizflow files). Each activity receives the previous activity's dataset; the last activity's dataset is the workflow output.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "activities"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Workflow display name."
+    },
+    "version": {
+      "type": "string",
+      "description": "Workflow version."
+    },
+    "description": {
+      "type": "string",
+      "description": "Optional description."
+    },
+    "parameters": {
+      "type": "array",
+      "description": "Workflow-level parameters. String config values across activities may reference them as {{paramName}}.",
+      "items": {
+        "$ref": "#/definitions/workflowParameter"
+      }
+    },
+    "activities": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Activities run in order; each receives the previous activity's dataset.",
+      "items": {
+        "$ref": "#/definitions/activity"
+      }
+    }
+  },
+  "definitions": {
+    "workflowParameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Unique parameter name; referenced as {{name}}."
+        },
+        "label": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "string",
+            "number",
+            "boolean",
+            "array",
+            "object"
+          ],
+          "default": "string"
+        },
+        "required": {
+          "type": "boolean",
+          "default": false,
+          "description": "Required parameters must resolve to a non-empty value."
+        },
+        "defaultValue": {
+          "description": "Applied when the value is not provided; may contain {{variable}} placeholders; coerced to the declared type."
+        }
+      }
+    },
+    "activity": {
+      "type": "object",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/activity/readCsv"
+        },
+        {
+          "$ref": "#/definitions/activity/readExcel"
+        },
+        {
+          "$ref": "#/definitions/activity/sampleData"
+        },
+        {
+          "$ref": "#/definitions/activity/filter"
+        },
+        {
+          "$ref": "#/definitions/activity/transform"
+        },
+        {
+          "$ref": "#/definitions/activity/removeDuplicates"
+        },
+        {
+          "$ref": "#/definitions/activity/sort"
+        },
+        {
+          "$ref": "#/definitions/activity/selectColumns"
+        },
+        {
+          "$ref": "#/definitions/activity/query"
+        },
+        {
+          "$ref": "#/definitions/activity/previewQuery"
+        },
+        {
+          "$ref": "#/definitions/activity/columnStats"
+        },
+        {
+          "$ref": "#/definitions/activity/aggregate"
+        },
+        {
+          "$ref": "#/definitions/activity/groupBy"
+        },
+        {
+          "$ref": "#/definitions/activity/dataProfile"
+        },
+        {
+          "$ref": "#/definitions/activity/writeCsv"
+        },
+        {
+          "$ref": "#/definitions/activity/writeJson"
+        },
+        {
+          "$ref": "#/definitions/activity/exportMultiple"
+        },
+        {
+          "$ref": "#/definitions/activity/writeText"
+        },
+        {
+          "$ref": "#/definitions/activity/appendText"
+        },
+        {
+          "$ref": "#/definitions/activity/multiTransform"
+        },
+        {
+          "$ref": "#/definitions/activity/ifElse"
+        },
+        {
+          "$ref": "#/definitions/activity/forEach"
+        },
+        {
+          "$ref": "#/definitions/activity/setVariable"
+        },
+        {
+          "$ref": "#/definitions/activity/wait"
+        },
+        {
+          "$ref": "#/definitions/activity/callWorkflow"
+        },
+        {
+          "$ref": "#/definitions/activity/listFiles"
+        },
+        {
+          "$ref": "#/definitions/activity/execPowerShell"
+        },
+        {
+          "$ref": "#/definitions/activity/forEachFile"
+        }
+      ]
+    },
+    "activity/readCsv": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "readCsv"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "filePath": {
+              "description": "Absolute path or workspace-relative path of the CSV file",
+              "type": "string"
+            },
+            "delimiter": {
+              "description": "Column delimiter (default: auto-detect)",
+              "type": "string",
+              "enum": [
+                "auto",
+                ",",
+                ";",
+                "\t",
+                "|"
+              ]
+            },
+            "hasHeader": {
+              "description": "First row contains column headers (default: true)",
+              "type": "boolean"
+            },
+            "encoding": {
+              "description": "File encoding (default: UTF-8)",
+              "type": "string",
+              "enum": [
+                "utf8",
+                "utf8-bom",
+                "ascii",
+                "latin1"
+              ]
+            },
+            "skipRows": {
+              "description": "Number of rows to skip at the beginning (default: 0)",
+              "type": "number"
+            },
+            "limitRows": {
+              "description": "Maximum number of rows to read (0 = unlimited)",
+              "type": "number"
+            }
+          },
+          "required": [
+            "filePath"
+          ]
+        }
+      }
+    },
+    "activity/readExcel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "readExcel"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "filePath": {
+              "description": "Absolute or workspace-relative path to the Excel file",
+              "type": "string"
+            },
+            "sheetName": {
+              "description": "Name of the sheet to read (default: first sheet)",
+              "type": "string"
+            },
+            "headerRow": {
+              "description": "Row number containing column headers (1-based)",
+              "type": "number"
+            },
+            "startRow": {
+              "description": "Row number to start reading data from (1-based)",
+              "type": "number"
+            },
+            "hasHeader": {
+              "description": "Row specified in headerRow contains column headers (default: true)",
+              "type": "boolean"
+            },
+            "skipEmptyRows": {
+              "description": "Skip rows that are completely empty (default: true)",
+              "type": "boolean"
+            },
+            "skipFooterRows": {
+              "description": "Number of rows to skip at the bottom (default: 0)",
+              "type": "number"
+            },
+            "dateFormat": {
+              "description": "Format for converting Excel dates (default: MM/DD/YYYY)",
+              "type": "string",
+              "enum": [
+                "MM/DD/YYYY",
+                "YYYY-MM-DD",
+                "DD/MM/YYYY",
+                "MM-DD-YYYY",
+                "DD-MM-YYYY"
+              ]
+            },
+            "dateDetection": {
+              "description": "Automatically detect and convert date columns (default: true)",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "filePath"
+          ]
+        }
+      }
+    },
+    "activity/sampleData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "sampleData"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "rowCount": {
+              "description": "Number of sample rows to generate (default: 10)",
+              "type": "number"
+            },
+            "columns": {
+              "description": "Comma-separated column names (default: id, name, value, category, date)",
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "activity/filter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "filter"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "column": {
+              "description": "The column to apply the filter on",
+              "type": "string"
+            },
+            "operator": {
+              "description": "Comparison operator",
+              "type": "string",
+              "enum": [
+                "==",
+                "!=",
+                ">",
+                ">=",
+                "<",
+                "<=",
+                "contains",
+                "startsWith",
+                "endsWith",
+                "regex",
+                "isNull",
+                "isNotNull",
+                "isEmpty",
+                "isNotEmpty"
+              ]
+            },
+            "value": {
+              "description": "Value to compare against (not required for null/empty operators)",
+              "type": "string"
+            }
+          },
+          "required": [
+            "column",
+            "operator"
+          ]
+        }
+      }
+    },
+    "activity/transform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "transform"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "column": {
+              "description": "The column to transform (can be a new column name as well)",
+              "type": "string"
+            },
+            "opKey": {
+              "description": "Expression operation to apply",
+              "type": "string",
+              "enum": [
+                "upper",
+                "lower",
+                "titleCase",
+                "camelCase",
+                "snakeCase",
+                "kebabCase",
+                "trim",
+                "trimAll",
+                "clean",
+                "replace",
+                "regexReplace",
+                "regexExtract",
+                "concat",
+                "substring",
+                "len",
+                "countWords",
+                "reverse",
+                "padStart",
+                "padEnd",
+                "truncate",
+                "slugify",
+                "extractNumber",
+                "add",
+                "subtract",
+                "multiply",
+                "divide",
+                "power",
+                "sqrt",
+                "round",
+                "roundTo",
+                "ceil",
+                "floor",
+                "abs",
+                "clamp",
+                "sign",
+                "percentOf",
+                "increment",
+                "decrement",
+                "parseDate",
+                "formatDate",
+                "extractDatePart",
+                "addDays",
+                "dateDiff",
+                "formatTime",
+                "coalesce",
+                "isNull",
+                "isNumeric",
+                "isEmail",
+                "isPhone",
+                "isUrl",
+                "mask",
+                "eq",
+                "neq",
+                "gt",
+                "gte",
+                "lt",
+                "lte",
+                "ifThen",
+                "switchCase"
+              ]
+            },
+            "params": {
+              "description": "Comma-separated parameters (see hint below for format)",
+              "type": "string"
+            },
+            "asNewColumn": {
+              "description": "If checked, creates a new column instead of replacing existing",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "column",
+            "opKey"
+          ]
+        }
+      }
+    },
+    "activity/removeDuplicates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "removeDuplicates"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "column": {
+              "description": "Column to evaluate for duplicates",
+              "type": "string"
+            },
+            "caseSensitive": {
+              "description": "Treat values case-sensitively (default: true)",
+              "type": "boolean"
+            },
+            "keep": {
+              "description": "Which duplicate occurrence to keep (default: first)",
+              "type": "string",
+              "enum": [
+                "first",
+                "last"
+              ]
+            }
+          },
+          "required": [
+            "column"
+          ]
+        }
+      }
+    },
+    "activity/sort": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "sort"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "sortBy": {
+              "description": "Column name to sort by",
+              "type": "string"
+            },
+            "order": {
+              "description": "Sort order (default: ascending)",
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ]
+            },
+            "numeric": {
+              "description": "Sort numerically instead of alphabetically (default: auto-detect)",
+              "type": "string",
+              "enum": [
+                "auto",
+                "true",
+                "false"
+              ]
+            },
+            "caseSensitive": {
+              "description": "Treat strings case-sensitively (default: false)",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "sortBy"
+          ]
+        }
+      }
+    },
+    "activity/selectColumns": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "selectColumns"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "columns": {
+              "description": "Comma-separated list of column names to keep (in order)",
+              "type": "string"
+            },
+            "includeAll": {
+              "description": "If true, includes all other columns after the selected ones",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "columns"
+          ]
+        }
+      }
+    },
+    "activity/query": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "query"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "query": {
+              "description": "RBQL SQL-like query (e.g. \"SELECT a1, a2 WHERE a3 > 100\")",
+              "type": "string"
+            },
+            "allowUpdate": {
+              "description": "Allow UPDATE and DELETE operations (use with caution)",
+              "type": "boolean"
+            },
+            "timeoutMs": {
+              "description": "Query execution timeout in milliseconds (default: 30000)",
+              "type": "number"
+            }
+          },
+          "required": [
+            "query"
+          ]
+        }
+      }
+    },
+    "activity/previewQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "previewQuery"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "limit": {
+              "description": "Maximum number of rows to preview (default: 100)",
+              "type": "number"
+            },
+            "where": {
+              "description": "Optional RBQL WHERE clause (e.g., \"a1 > 100 AND a2 = 'Active'\")",
+              "type": "string"
+            },
+            "orderBy": {
+              "description": "Optional column to order by (e.g., \"a1 DESC\")",
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "activity/columnStats": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "columnStats"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "columns": {
+              "description": "Comma-separated list of column names to analyze",
+              "type": "string"
+            },
+            "stats": {
+              "description": "Which statistics to compute (default: all)",
+              "type": "string",
+              "enum": [
+                "all",
+                "basic",
+                "quality"
+              ]
+            }
+          },
+          "required": [
+            "columns"
+          ]
+        }
+      }
+    },
+    "activity/aggregate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "aggregate"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "column": {
+              "description": "The column to aggregate",
+              "type": "string"
+            },
+            "operation": {
+              "description": "Aggregation function",
+              "type": "string",
+              "enum": [
+                "sum",
+                "average",
+                "mean",
+                "min",
+                "max",
+                "count",
+                "distinct",
+                "median",
+                "stdDev",
+                "variance"
+              ]
+            },
+            "skipNulls": {
+              "description": "Skip null/undefined values in calculation (default: true)",
+              "type": "boolean"
+            },
+            "asColumn": {
+              "description": "Custom name for the result column (default: operation_column)",
+              "type": "string"
+            }
+          },
+          "required": [
+            "column",
+            "operation"
+          ]
+        }
+      }
+    },
+    "activity/groupBy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "groupBy"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "groupColumn": {
+              "description": "Column to group by",
+              "type": "string"
+            },
+            "aggregateColumn": {
+              "description": "Column to aggregate within each group",
+              "type": "string"
+            },
+            "operation": {
+              "description": "Aggregation function for each group",
+              "type": "string",
+              "enum": [
+                "sum",
+                "average",
+                "mean",
+                "min",
+                "max",
+                "count",
+                "median",
+                "stdDev",
+                "first",
+                "last"
+              ]
+            },
+            "skipNulls": {
+              "description": "Skip null/undefined values in calculation (default: true)",
+              "type": "boolean"
+            },
+            "sortBy": {
+              "description": "Sort order for results (default: groupAsc)",
+              "type": "string",
+              "enum": [
+                "groupAsc",
+                "groupDesc",
+                "aggAsc",
+                "aggDesc",
+                "none"
+              ]
+            }
+          },
+          "required": [
+            "groupColumn",
+            "aggregateColumn",
+            "operation"
+          ]
+        }
+      }
+    },
+    "activity/dataProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "dataProfile"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "columns": {
+              "description": "Comma-separated list of columns (leave empty for all columns)",
+              "type": "string"
+            },
+            "includeStats": {
+              "description": "Which statistics to include (default: all)",
+              "type": "string",
+              "enum": [
+                "all",
+                "basic",
+                "numeric",
+                "string"
+              ]
+            },
+            "maxDistinctValues": {
+              "description": "Maximum number of distinct values to show in profile",
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    "activity/writeCsv": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "writeCsv"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "filePath": {
+              "description": "Absolute path or workspace-relative path of the output CSV file",
+              "type": "string"
+            },
+            "delimiter": {
+              "description": "Column delimiter (default: comma)",
+              "type": "string",
+              "enum": [
+                ",",
+                ";",
+                "\t",
+                "|"
+              ]
+            },
+            "header": {
+              "description": "Include column headers in output (default: true)",
+              "type": "boolean"
+            },
+            "encoding": {
+              "description": "File encoding (default: UTF-8)",
+              "type": "string",
+              "enum": [
+                "utf8",
+                "utf8-bom",
+                "ascii",
+                "latin1"
+              ]
+            },
+            "overwrite": {
+              "description": "Overwrite existing file if it exists (default: true)",
+              "type": "boolean"
+            },
+            "quoteChar": {
+              "description": "Character used to quote fields (default: double quote)",
+              "type": "string",
+              "enum": [
+                "\"",
+                "'"
+              ]
+            },
+            "escapeChar": {
+              "description": "Character used to escape quotes (default: double quote)",
+              "type": "string",
+              "enum": [
+                "\"",
+                "\\"
+              ]
+            },
+            "nullValue": {
+              "description": "How to represent null/undefined values (default: empty string)",
+              "type": "string"
+            },
+            "timestampSuffix": {
+              "description": "Add timestamp to filename to avoid overwriting (default: false)",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "filePath"
+          ]
+        }
+      }
+    },
+    "activity/writeJson": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "writeJson"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "filePath": {
+              "description": "Absolute path or workspace-relative path of the output JSON file",
+              "type": "string"
+            },
+            "format": {
+              "description": "JSON formatting style (default: pretty)",
+              "type": "string",
+              "enum": [
+                "pretty",
+                "compact"
+              ]
+            },
+            "overwrite": {
+              "description": "Overwrite existing file if it exists (default: true)",
+              "type": "boolean"
+            },
+            "timestampSuffix": {
+              "description": "Add timestamp to filename to avoid overwriting (default: false)",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "filePath"
+          ]
+        }
+      }
+    },
+    "activity/exportMultiple": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "exportMultiple"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "outputDir": {
+              "description": "Directory where files will be written",
+              "type": "string"
+            },
+            "baseName": {
+              "description": "Base name for output files (default: \"output\")",
+              "type": "string"
+            },
+            "formats": {
+              "description": "Export formats (default: CSV)",
+              "type": "string",
+              "enum": [
+                "csv",
+                "json",
+                "both"
+              ]
+            },
+            "splitBy": {
+              "description": "Split into multiple files with this many rows per file (0 = no split)",
+              "type": "number"
+            },
+            "delimiter": {
+              "description": "Column delimiter for CSV (default: comma)",
+              "type": "string",
+              "enum": [
+                ",",
+                ";",
+                "\t"
+              ]
+            }
+          },
+          "required": [
+            "outputDir"
+          ]
+        }
+      }
+    },
+    "activity/writeText": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "writeText"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "filePath": {
+              "description": "Absolute path or workspace-relative path of the output text file",
+              "type": "string"
+            },
+            "content": {
+              "description": "Source of the content to write",
+              "type": "string",
+              "enum": [
+                "dataset",
+                "variable",
+                "custom"
+              ]
+            },
+            "variableName": {
+              "description": "Name of the variable containing the content (for variable source)",
+              "type": "string"
+            },
+            "customText": {
+              "description": "Custom text content to write (for custom source) - supports {{variable}} placeholders",
+              "type": "string"
+            },
+            "format": {
+              "description": "Format for dataset output (default: plain)",
+              "type": "string",
+              "enum": [
+                "plain",
+                "csv",
+                "json",
+                "table"
+              ]
+            },
+            "includeHeader": {
+              "description": "Include column headers in output (default: true)",
+              "type": "boolean"
+            },
+            "delimiter": {
+              "description": "Column delimiter for CSV format (default: comma)",
+              "type": "string",
+              "enum": [
+                ",",
+                ";",
+                "\t",
+                "|"
+              ]
+            },
+            "encoding": {
+              "description": "File encoding (default: UTF-8)",
+              "type": "string",
+              "enum": [
+                "utf8",
+                "utf8-bom",
+                "ascii",
+                "latin1"
+              ]
+            },
+            "overwrite": {
+              "description": "Overwrite existing file if it exists (default: true)",
+              "type": "boolean"
+            },
+            "timestampSuffix": {
+              "description": "Add timestamp to filename to avoid overwriting (default: false)",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "filePath",
+            "content"
+          ]
+        }
+      }
+    },
+    "activity/appendText": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "appendText"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "filePath": {
+              "description": "Absolute path or workspace-relative path of the text file to append to",
+              "type": "string"
+            },
+            "content": {
+              "description": "Source of the content to append",
+              "type": "string",
+              "enum": [
+                "dataset",
+                "variable",
+                "custom"
+              ]
+            },
+            "variableName": {
+              "description": "Name of the variable containing the content (for variable source)",
+              "type": "string"
+            },
+            "customText": {
+              "description": "Custom text content to append (for custom source)",
+              "type": "string"
+            },
+            "format": {
+              "description": "Format for dataset output (default: plain)",
+              "type": "string",
+              "enum": [
+                "plain",
+                "csv",
+                "json",
+                "table"
+              ]
+            },
+            "includeHeader": {
+              "description": "Include column headers in output (default: true)",
+              "type": "boolean"
+            },
+            "delimiter": {
+              "description": "Column delimiter for CSV format (default: comma)",
+              "type": "string",
+              "enum": [
+                ",",
+                ";",
+                "\t",
+                "|"
+              ]
+            },
+            "addNewline": {
+              "description": "Add a newline before appending (default: true)",
+              "type": "boolean"
+            },
+            "encoding": {
+              "description": "File encoding (default: UTF-8)",
+              "type": "string",
+              "enum": [
+                "utf8",
+                "utf8-bom",
+                "ascii",
+                "latin1"
+              ]
+            }
+          },
+          "required": [
+            "filePath",
+            "content"
+          ]
+        }
+      }
+    },
+    "activity/multiTransform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "multiTransform"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "actions": {
+              "description": "List of transform operations to apply in order Each entry: { column, opKey, params, asNewColumn }.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "column",
+                  "opKey"
+                ],
+                "properties": {
+                  "column": {
+                    "type": "string",
+                    "description": "Column to transform."
+                  },
+                  "opKey": {
+                    "type": "string",
+                    "description": "Operation key from the catalog operation list."
+                  },
+                  "params": {
+                    "type": [
+                      "string",
+                      "array"
+                    ],
+                    "description": "Operation parameters."
+                  },
+                  "asNewColumn": {
+                    "type": "boolean",
+                    "description": "Write result to a new column instead of overwriting (default false)."
+                  }
+                }
+              }
+            },
+            "stopOnError": {
+              "description": "Stop processing if any action fails (default: true)",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "actions"
+          ]
+        }
+      }
+    },
+    "activity/ifElse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "ifElse"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "column": {
+              "description": "Column to evaluate the condition on",
+              "type": "string"
+            },
+            "operator": {
+              "description": "Comparison operator for the condition",
+              "type": "string",
+              "enum": [
+                "==",
+                "!=",
+                ">",
+                ">=",
+                "<",
+                "<=",
+                "contains",
+                "startsWith",
+                "endsWith",
+                "isEmpty",
+                "isNotEmpty",
+                "regex"
+              ]
+            },
+            "value": {
+              "description": "Value to compare against (not needed for isEmpty / isNotEmpty)",
+              "type": "string"
+            },
+            "caseSensitive": {
+              "description": "Treat strings case-sensitively (default: true)",
+              "type": "boolean"
+            },
+            "thenSteps": {
+              "type": "array",
+              "description": "Array of activity objects to run when the condition matches.",
+              "items": {
+                "$ref": "#/definitions/activity"
+              }
+            },
+            "elseSteps": {
+              "type": "array",
+              "description": "Array of activity objects to run when the condition does not match.",
+              "items": {
+                "$ref": "#/definitions/activity"
+              }
+            }
+          },
+          "required": [
+            "column",
+            "operator"
+          ]
+        }
+      }
+    },
+    "activity/forEach": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "forEach"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "groupBy": {
+              "description": "Column whose distinct values define the groups (e.g. \"region\", \"category\")",
+              "type": "string"
+            },
+            "sortGroups": {
+              "description": "Order in which group keys are processed (default: none)",
+              "type": "string",
+              "enum": [
+                "none",
+                "asc",
+                "desc"
+              ]
+            },
+            "maxGroups": {
+              "description": "Maximum number of groups to process (0 = unlimited)",
+              "type": "number"
+            },
+            "continueOnError": {
+              "description": "Continue processing other groups if one fails (default: false)",
+              "type": "boolean"
+            },
+            "steps": {
+              "type": "array",
+              "description": "Array of activity objects to run per group. Placeholders like {{row.Column}} resolve against a sample row of the group.",
+              "items": {
+                "$ref": "#/definitions/activity"
+              }
+            }
+          },
+          "required": [
+            "groupBy"
+          ]
+        }
+      }
+    },
+    "activity/setVariable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "setVariable"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "variableName": {
+              "description": "Name of the variable to set",
+              "type": "string"
+            },
+            "sourceType": {
+              "description": "Where to get the value from",
+              "type": "string",
+              "enum": [
+                "static",
+                "column",
+                "expression",
+                "variable",
+                "jsonPath"
+              ]
+            },
+            "value": {
+              "description": "Static value to store (for static source type)",
+              "type": "string"
+            },
+            "column": {
+              "description": "Column to extract value from (for column source type)",
+              "type": "string"
+            },
+            "expression": {
+              "description": "JavaScript expression to evaluate (use {{variable}} for variable substitution)",
+              "type": "string"
+            },
+            "sourceVariable": {
+              "description": "Variable to copy from (for variable source type)",
+              "type": "string"
+            },
+            "jsonPath": {
+              "description": "JSON path to extract value from source object (e.g., \"data.user.name\")",
+              "type": "string"
+            },
+            "rowIndex": {
+              "description": "Row index to extract from (for column source type)",
+              "type": "number"
+            },
+            "defaultValue": {
+              "description": "Default value if source value is undefined or null",
+              "type": "string"
+            }
+          },
+          "required": [
+            "variableName",
+            "sourceType"
+          ]
+        }
+      }
+    },
+    "activity/wait": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "wait"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "duration": {
+              "description": "Number of seconds to wait (minimum: 1)",
+              "type": "number"
+            },
+            "maxDuration": {
+              "description": "Maximum duration to wait (0 = unlimited)",
+              "type": "number"
+            },
+            "condition": {
+              "description": "Expression to evaluate as wait condition (e.g., \"{{progress}} < 100\")",
+              "type": "string"
+            }
+          },
+          "required": [
+            "duration"
+          ]
+        }
+      }
+    },
+    "activity/callWorkflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "callWorkflow"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "workflowPath": {
+              "description": "Path to the .vizflow workflow to run (absolute or relative to the workspace)",
+              "type": "string"
+            },
+            "parameters": {
+              "description": "Values to pass into the sub-workflow parameters ({{variable}} interpolation supported)",
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "exportVariables": {
+              "description": "Copy sub-workflow variables (set via Set Variable) back into the caller (default: true)",
+              "type": "boolean"
+            },
+            "outputMode": {
+              "description": "What the activity produces as its output dataset",
+              "type": "string",
+              "enum": [
+                "passthrough",
+                "keepCaller"
+              ]
+            }
+          },
+          "required": [
+            "workflowPath"
+          ]
+        }
+      }
+    },
+    "activity/listFiles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "listFiles"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "folderPath": {
+              "description": "Path to the folder to list files from",
+              "type": "string"
+            },
+            "filter": {
+              "description": "File pattern to filter (e.g., \"*.csv\", \"*report*.xlsx\")",
+              "type": "string"
+            },
+            "recursive": {
+              "description": "Search recursively in subfolders (default: false)",
+              "type": "boolean"
+            },
+            "includeMetadata": {
+              "description": "Include file size, modified date, etc. (default: true)",
+              "type": "boolean"
+            },
+            "excludeFolders": {
+              "description": "Comma-separated folder names to exclude (e.g., \"temp,archive\")",
+              "type": "string"
+            }
+          },
+          "required": [
+            "folderPath"
+          ]
+        }
+      }
+    },
+    "activity/execPowerShell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "execPowerShell"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "sourceType": {
+              "description": "Whether to run a script file or inline command",
+              "type": "string",
+              "enum": [
+                "file",
+                "inline"
+              ]
+            },
+            "scriptPath": {
+              "description": "Path to the .ps1 script file (for script file source)",
+              "type": "string"
+            },
+            "command": {
+              "description": "PowerShell command to execute (for inline source)",
+              "type": "string"
+            },
+            "parameters": {
+              "description": "JSON object of named parameters to pass to the script",
+              "type": "string"
+            },
+            "outputVariable": {
+              "description": "Variable name to store the output (for use in later steps)",
+              "type": "string"
+            },
+            "parseOutput": {
+              "description": "How to parse the PowerShell output (default: text)",
+              "type": "string",
+              "enum": [
+                "text",
+                "json",
+                "csv"
+              ]
+            }
+          },
+          "required": [
+            "sourceType"
+          ]
+        }
+      }
+    },
+    "activity/forEachFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "forEachFile"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "folderPath": {
+              "description": "Path to the folder to process files from",
+              "type": "string"
+            },
+            "fileFilter": {
+              "description": "File pattern to filter (e.g., \"*.csv\", \"*.xlsx\")",
+              "type": "string"
+            },
+            "recursive": {
+              "description": "Search recursively in subfolders (default: false)",
+              "type": "boolean"
+            },
+            "maxFiles": {
+              "description": "Maximum number of files to process (0 = unlimited)",
+              "type": "number"
+            },
+            "continueOnError": {
+              "description": "Continue processing other files if one fails (default: false)",
+              "type": "boolean"
+            },
+            "mergeResults": {
+              "description": "Merge each file's inner output into one dataset (default: false — only the last file's dataset is kept)",
+              "type": "boolean"
+            },
+            "steps": {
+              "type": "array",
+              "description": "Array of activity objects to run per file. Loop variables available: {{filePath}}, {{fileName}}, {{fileExtension}}, {{currentFile}}.",
+              "items": {
+                "$ref": "#/definitions/activity"
+              }
+            }
+          },
+          "required": [
+            "folderPath"
+          ]
+        }
+      }
+    }
+  }
+}

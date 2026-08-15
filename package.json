@@ -44,7 +44,13 @@
     "onCommand:vizflow.about",
     "onCommand:vizflow.dashboard",
     "onCommand:vizflow.charts",
-    "onCommand:vizflow.rbqlQuery"
+    "onCommand:vizflow.rbqlQuery",
+    "onCommand:vizflow.workflowBuilder",
+    "onCommand:vizflow.openWorkflow",
+    "onCommand:vizflow.scheduler",
+    "onCommand:vizflow.scheduler.quickSchedule",
+    "onCommand:vizflow.scheduler.stopJob",
+    "onCommand:vizflow.scheduler.showRunning"
   ],
   "main": "./extension.js",
   "contributes": {
@@ -108,11 +114,65 @@
       {
         "command": "vizflow.rbqlQuery",
         "title": "VizFlow: RBQL Query Console"
+      },
+      {
+        "command": "vizflow.workflowBuilder",
+        "title": "VizFlow: Workflow Builder"
+      },
+      {
+        "command": "vizflow.openWorkflow",
+        "title": "VizFlow: Open in Workflow Builder"
+      },
+      {
+        "command": "vizflow.scheduler",
+        "title": "VizFlow: Workflow Scheduler"
+      },
+      {
+        "command": "vizflow.scheduler.quickSchedule",
+        "title": "VizFlow: Quick Schedule Workflow"
+      },
+      {
+        "command": "vizflow.scheduler.stopJob",
+        "title": "VizFlow: Stop Running Job"
+      },
+      {
+        "command": "vizflow.scheduler.showRunning",
+        "title": "VizFlow: Show Running Jobs"
       }
-    ]
+    ],
+    "languages": [
+      {
+        "id": "vizflow",
+        "aliases": [
+          "VizFlow Workflow",
+          "vizflow"
+        ],
+        "extensions": [
+          ".vizflow"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "vizflow.openWorkflow",
+          "when": "resourceExtname == .vizflow",
+          "group": "navigation"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "vizflow.openWorkflow",
+          "when": "resourceExtname == .vizflow",
+          "group": "navigation"
+        }
+      ]
+    }
   },
   "scripts": {
     "lint": "eslint .",
+    "gen:context": "node scripts/generate-ai-context.js",
     "pretest": "npm run lint",
     "test": "vscode-test"
   },
@@ -131,7 +191,9 @@
   },
   "dependencies": {
     "axios": "^1.18.1",
+    "node-cron": "^4.6.0",
     "papaparse": "^5.5.4",
-    "rbql": "^0.30.0"
+    "rbql": "^0.30.0",
+    "xlsx": "^0.18.5"
   }
 }

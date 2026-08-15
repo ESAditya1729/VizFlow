@@ -59,6 +59,19 @@ VizFlow brings **data exploration** and **lightweight analytics** directly into 
 - CSV / JSON export
 - DuckDB-compatible SQL with `{{INPUT_PATH}}` / `{{OUTPUT_PATH}}` placeholders
 
+### 🔗 Reusable Workflows
+- **Workflow parameters**: declare inputs (name, label, type, required, default) that flow into any step config as `{{paramName}}`
+- **Call Workflow**: run another `.vizflow` file as a sub-workflow, pass parameters, and receive its output dataset and variables back
+- Circular-call detection and a max call-depth guard keep nested workflows safe
+- Edit parameters and Call Workflow mappings with the built-in key/value editors (🧩)
+
+### ⏰ Workflow Scheduler
+- Schedule `.vizflow` workflows on a **cron schedule** or as a **one-time run** at a future date/time
+- Built-in variables (`{{timestamp}}`, `{{date}}`, `{{time}}`, `{{workflowName}}`, …) and per-job parameters are injected into every scheduled run
+- Optional **timezone**, **watch folder** (trigger on new files, with a filter like `*.csv`), and **webhook / email notifications**
+- Jobs persist in VS Code's global storage and **auto-start with the extension**, so schedules run even if the Scheduler panel is never opened
+- Edit jobs in place, pause/resume/stop, and browse past runs from the panel
+
 ---
 
 ## 🏃 Quick Start
@@ -80,6 +93,7 @@ VizFlow brings **data exploration** and **lightweight analytics** directly into 
 | **Analysis** | Dataset Summary Dashboard, Interactive Charts |
 | **Comparison** | Compare CSV Files |
 | **RBQL** | Run RBQL Queries, Export Results |
+| **Scheduler** | Workflow Scheduler, Quick Schedule Workflow, Stop Running Job, Show Running Jobs |
 | **About** | View Extension Author Info |
 
 ---
@@ -101,6 +115,7 @@ VizFlow runs **locally by default** — parsing, transforms, and queries are per
 ## 📚 Documentation
 
 - **Architecture & Implementation**: See [ARCHITECTURE.md](./ARCHITECTURE.md)
+- **AI-assisted workflow authoring**: `AI_CONTEXT.md`, `docs/workflow-catalog.md` and `docs/workflow-schema.json` live in the [GitHub repository](https://github.com/ESAditya1729/VizFlow) (dev-facing; not shipped in the VSIX)
 - **Full Documentation**: Coming soon!
 
 ---
