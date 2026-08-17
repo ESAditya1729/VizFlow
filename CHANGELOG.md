@@ -27,6 +27,7 @@ This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 ### Added
 - **AI workflow-authoring context**: `AI_CONTEXT.md` spec + `AGENTS.md` so AI models can author `.vizflow` JSON accurately.
 - **Auto-generated AI artifacts**: `npm run gen:context` regenerates `docs/workflow-catalog.md` (every activity, its config fields, options, defaults) and `docs/workflow-schema.json` (JSON Schema) from the live activity registry — they auto-update when activities change, enforced by a drift-guard test.
+- **Workflow Builder User Guide** (`docs/workflow-builder-guide.md`): comprehensive documentation covering all 33 activity types, variables & interpolation, control flow, data sources, scheduling, sub-workflows, 10 real-world use cases (replacing Azure Logic Apps / ADF patterns), troubleshooting, and best practices.
 - **Reusable sub-workflows**: new `callWorkflow` activity runs another `.vizflow` file, passing parameters and receiving its final dataset and variables back (with circular-call detection and a max call depth guard).
 - **Workflow parameters**: workflows can declare `parameters` (name, label, type, required, default) that are resolved as variables with defaults, type coercion, and required-value validation. Config values throughout the engine now interpolate `{{paramName}}`.
 - **For-Each File `mergeResults`**: accumulate each file's inner output rows into a single merged dataset.
@@ -59,6 +60,8 @@ This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 - `readExcel` `dateDetection` now defaults to on, converting date-column serials to readable date strings.
 
 ### Fixed
+- **`ifElse` with `regex` operator threw "Unsupported operator"**: the `VALID_OPERATORS` guard in `controlActivities.js` was missing `'regex'`, so workflows using regex conditions failed at runtime despite the UI, catalog, and schema all advertising it as valid.
+- **MongoDB SRV DNS resilience**: the DNS-over-HTTPS fallback in `mongoService.js` now makes TXT record lookups non-fatal (TXT records provide optional `replicaSet`/`authSource` params — the SRV seed list is what matters). `isDnsError` now recognizes DoH error messages, and `dohResolve` checks HTTP status codes before parsing the response body.
 - Scheduler panel: saving a job with a timezone that isn't a valid IANA zone crashed the webview silently (an uncaught `Intl` RangeError) so Update/Schedule appeared to do nothing; it now validates the timezone and shows a clear error. Unexpected webview errors are also surfaced in the status bar instead of failing silently.
 - Editing a job no longer drops its **Max Retries / Retry Delay** values (they weren't included in the edit payload) and now properly clears the one-time flags when a one-time job is converted to a recurring schedule (previously it kept self-removing after each run).
 - Scheduler panel: "Run Now" used a JS `prompt()` that VS Code blocks; one-time scheduling now uses a proper in-webview modal.

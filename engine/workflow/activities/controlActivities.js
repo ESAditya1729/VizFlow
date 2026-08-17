@@ -10,7 +10,7 @@ const Dataset = require('../../dataset');
 const templateService = require('../../../services/templateService');
 
 // ─── Constants ──────────────────────────────────────────────────────────────
-const VALID_OPERATORS = ['==', '!=', '>', '>=', '<', '<=', 'contains', 'startsWith', 'endsWith', 'isEmpty', 'isNotEmpty'];
+const VALID_OPERATORS = ['==', '!=', '>', '>=', '<', '<=', 'contains', 'startsWith', 'endsWith', 'isEmpty', 'isNotEmpty', 'regex'];
 const VALID_SOURCE_TYPES = ['static', 'column', 'expression', 'variable', 'jsonPath'];
 
 // ─── Helper Functions ───────────────────────────────────────────────────────

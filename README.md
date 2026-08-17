@@ -122,9 +122,10 @@ VizFlow runs **locally by default** — parsing, transforms, and queries are per
 
 ## 📚 Documentation
 
-- **Architecture & Implementation**: See [ARCHITECTURE.md](./ARCHITECTURE.md)
+- **Workflow Builder Guide**: [docs/workflow-builder-guide.md](./docs/workflow-builder-guide.md) — complete user guide with activity reference, real-world use cases, and troubleshooting
+- **Activity Catalog**: [docs/workflow-catalog.md](./docs/workflow-catalog.md) — auto-generated reference for every activity type and config field
+- **Architecture & Implementation**: [ARCHITECTURE.md](./ARCHITECTURE.md)
 - **AI-assisted workflow authoring**: `AI_CONTEXT.md`, `docs/workflow-catalog.md` and `docs/workflow-schema.json` live in the [GitHub repository](https://github.com/ESAditya1729/VizFlow) (dev-facing; not shipped in the VSIX)
-- **Full Documentation**: Coming soon!
 
 ---
 
