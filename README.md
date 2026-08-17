@@ -72,6 +72,13 @@ VizFlow brings **data exploration** and **lightweight analytics** directly into 
 - Jobs persist in VS Code's global storage and **auto-start with the extension**, so schedules run even if the Scheduler panel is never opened
 - Edit jobs in place, pause/resume/stop, and browse past runs from the panel
 
+### 🗄️ External Data Sources
+- Connect to **MongoDB**, **MySQL**, and **PostgreSQL** from the **VizFlow: Data Sources** panel
+- Credentials (passwords / connection strings) are stored in your **OS keychain** via VS Code SecretStorage — workflows reference connections by friendly name and stay safe to commit to git
+- **Visual query builder**: pick a collection/table, tick columns, add filters (equals / contains / greater than / between / …), sort, and preview rows before loading
+- **Advanced tab** for raw SQL `WHERE` clauses or Mongo filter JSON — all reads are strictly **read-only**
+- **"Add to Workflow Builder"** generates a ready-to-run `readMongo` / `readSql` activity that pipes the data into your pipeline
+
 ---
 
 ## 🏃 Quick Start
@@ -94,6 +101,7 @@ VizFlow brings **data exploration** and **lightweight analytics** directly into 
 | **Comparison** | Compare CSV Files |
 | **RBQL** | Run RBQL Queries, Export Results |
 | **Scheduler** | Workflow Scheduler, Quick Schedule Workflow, Stop Running Job, Show Running Jobs |
+| **Data Sources** | External Data Sources (MongoDB / MySQL / PostgreSQL) |
 | **About** | View Extension Author Info |
 
 ---

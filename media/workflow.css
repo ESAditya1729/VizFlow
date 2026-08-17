@@ -912,6 +912,9 @@ body {
   margin-top: 2px; 
 }
 
+.config-json { min-height: 90px; }
+.config-json-status { opacity: 1; white-space: pre-wrap; }
+
 .config-file-row { 
   display: flex; 
   gap: 6px; 

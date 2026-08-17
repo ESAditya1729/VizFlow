@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'nonce-{{NONCE}}'; style-src 'nonce-{{NONCE}}'; img-src vscode-resource: https: data:;">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VizFlow — Data Sources</title>
+  <link nonce="{{NONCE}}" rel="stylesheet" href="{{WEBVIEW_CSS_URI}}">
+</head>
+<body>
+
+<!-- ══════════════════ BRAND HEADER ══════════════════════ -->
+<div class="brand-header">
+  <img class="brand-icon" src="{{ICON_URI}}" alt="VizFlow icon">
+  <div>
+    <div class="brand-name">VizFlow — Data Sources</div>
+    <div class="brand-tagline">Connect to MongoDB, MySQL &amp; PostgreSQL and explore data without writing code</div>
+  </div>
+  <div class="brand-header-right">
+    <span class="version-badge">v{{VERSION}}</span>
+  </div>
+</div>
+
+<!-- ══════════════════ LOADING OVERLAY ═══════════════════ -->
+<div id="loading-overlay">
+  <div class="spinner"></div>
+  <div id="loading-text">Loading…</div>
+</div>
+
+<!-- ══════════════════ EMPTY STATE ══════════════════════ -->
+<div class="page-content" id="empty-state" style="display:none;">
+  <div class="empty-hero">
+    <div class="empty-icon">🗄️</div>
+    <div class="empty-title">No connections yet</div>
+    <div class="empty-desc">Add a connection to start exploring your data. Your credentials are stored securely in your OS keychain — never in workflow files.</div>
+    <button class="primary" id="btn-empty-add">＋ Add Connection</button>
+  </div>
+</div>
+
+<!-- ══════════════════ MAIN LAYOUT ══════════════════════ -->
+<div class="page-content" id="main-layout" style="display:none;">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <span>Connections</span>
+      <button class="btn-icon" id="btn-add-connection" title="Add connection">＋</button>
+    </div>
+    <div class="sidebar-list" id="connection-list"></div>
+  </aside>
+
+  <main class="content">
+    <!-- ─── Explorer toolbar ──────────────────────────── -->
+    <div class="toolbar">
+      <select id="connection-select" class="toolbar-select" title="Connection"></select>
+      <button id="btn-test-connection" title="Test connection">🩺 Test</button>
+      <button id="btn-edit-connection" title="Edit connection">✏️ Edit</button>
+      <button id="btn-delete-connection" title="Delete connection">🗑️ Delete</button>
+      <span class="toolbar-spacer"></span>
+      <span id="connection-status" class="status-badge"></span>
+    </div>
+
+    <!-- ─── SRV DNS fix banner ──────────────────────────── -->
+    <div id="srv-fix-banner" class="srv-fix" style="display:none;">
+      <span id="srv-fix-text">Your network DNS can't resolve MongoDB SRV records — a standard connection string was generated for you.</span>
+      <button id="btn-apply-srv-fix" type="button">Use standard connection string</button>
+    </div>
+
+    <!-- ─── Source picker ─────────────────────────────── -->
+    <section class="panel" id="source-panel">
+      <div class="panel-title">1 · Choose what to explore</div>
+      <div id="source-picker" class="source-picker"></div>
+    </section>
+
+    <!-- ─── Query builder ─────────────────────────────── -->
+    <section class="panel" id="query-panel">
+      <div class="panel-title">2 · Build your query <span class="panel-sub">(optional — leave empty to see everything)</span></div>
+
+      <div class="tabs">
+        <button class="tab active" data-tab="visual">🎯 Visual</button>
+        <button class="tab" data-tab="advanced">⚙️ Advanced</button>
+      </div>
+
+      <!-- Visual mode -->
+      <div id="tab-visual">
+        <div class="query-row">
+          <label>Columns</label>
+          <div id="column-checkboxes" class="checkbox-grid"></div>
+        </div>
+
+        <div class="query-row">
+          <label>Filters</label>
+          <div id="filter-rows" class="filter-rows"></div>
+          <button class="btn-add" id="btn-add-filter">＋ Add filter</button>
+        </div>
+
+        <div class="query-row">
+          <label>Order by</label>
+          <input type="text" id="input-orderby" placeholder="column or column:desc">
+        </div>
+      </div>
+
+      <!-- Advanced mode -->
+      <div id="tab-advanced" style="display:none;">
+        <textarea id="advanced-text" class="advanced-text"
+          placeholder="SQL: amount > 100 AND status = 'active'&#10;Mongo: { &quot;amount&quot;: { &quot;$gt&quot;: 100 } }"></textarea>
+      </div>
+
+      <div class="query-actions">
+        <label class="limit-label">Limit
+          <input type="number" id="input-limit" value="100" min="1" max="100000">
+        </label>
+        <button class="primary" id="btn-run-query">▶️ Run Query</button>
+        <button id="btn-add-to-workflow">🔗 Add to Workflow Builder</button>
+        <span class="toolbar-spacer"></span>
+        <span id="row-count-badge" class="status-badge">0 rows</span>
+      </div>
+    </section>
+
+    <!-- ─── Results preview ───────────────────────────── -->
+    <section class="panel" id="results-panel">
+      <div class="panel-title">Results preview <span class="panel-sub">first rows only — use the Workflow Builder for the full dataset</span></div>
+      <div class="table-wrapper" id="results-wrapper">
+        <div id="results-empty">Run a query or pick a collection/table above to preview data.</div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- ══════════════════ CONNECTION FORM MODAL ══════════════════ -->
+<div id="modal-overlay" style="display:none;">
+  <div class="modal">
+    <div class="modal-header">
+      <span id="modal-title">Add Connection</span>
+      <button class="btn-icon" id="btn-close-modal" title="Close">✕</button>
+    </div>
+    <form id="connection-form" class="modal-body">
+      <input type="hidden" id="conn-id">
+      <div class="form-row">
+        <label>Type</label>
+        <select id="conn-type">
+          <option value="mongodb">🍃 MongoDB</option>
+          <option value="mysql">🐬 MySQL</option>
+          <option value="postgresql">🐘 PostgreSQL</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Friendly name *</label>
+        <input type="text" id="conn-name" placeholder="e.g. Sales Database" required>
+      </div>
+      <div class="form-row form-row-2col">
+        <div>
+          <label>Host *</label>
+          <input type="text" id="conn-host" placeholder="localhost">
+        </div>
+        <div>
+          <label>Port</label>
+          <input type="number" id="conn-port" placeholder="auto">
+        </div>
+      </div>
+      <div class="form-row form-row-2col">
+        <div>
+          <label>Database <span class="label-hint">(optional)</span></label>
+          <input type="text" id="conn-database" placeholder="default database, e.g. tantika">
+        </div>
+        <div>
+          <label>Username</label>
+          <input type="text" id="conn-username" placeholder="user">
+        </div>
+      </div>
+      <div class="form-row">
+        <label>Password</label>
+        <input type="password" id="conn-password" placeholder="••••••••">
+      </div>
+      <div class="form-row">
+        <label><input type="checkbox" id="conn-ssl"> Use SSL / TLS</label>
+      </div>
+      <div class="form-row">
+        <label>Connection string <span class="label-hint">(optional, overrides the fields above)</span></label>
+        <input type="password" id="conn-string" placeholder="mongodb+srv://… or mysql://… or postgresql://…">
+      </div>
+      <div class="form-row">
+        <span class="label-hint">🛡️ Recommended: use a <b>read-only</b> database user — VizFlow only runs SELECT / find queries.</span>
+      </div>
+      <div class="modal-actions">
+        <button type="button" id="btn-test-form">🩺 Test</button>
+        <button type="submit" class="primary" id="btn-save-connection">Save Connection</button>
+      </div>
+      <div id="form-status" class="form-status"></div>
+    </form>
+  </div>
+</div>
+
+<!-- ══════════════════ CONFIRM DIALOG ══════════════════ -->
+<div id="confirm-overlay" style="display:none;">
+  <div class="confirm-box">
+    <div id="confirm-text"></div>
+    <div class="confirm-actions">
+      <button type="button" id="btn-confirm-cancel">Cancel</button>
+      <button type="button" id="btn-confirm-ok" class="primary danger">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════ TOASTS ══════════════════════ -->
+<div id="toast-container"></div>
+
+<script nonce="{{NONCE}}" src="{{WEBVIEW_JS_URI}}"></script>
+</body>
+</html>

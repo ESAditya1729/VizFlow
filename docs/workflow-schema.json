@@ -159,6 +159,21 @@
         },
         {
           "$ref": "#/definitions/activity/forEachFile"
+        },
+        {
+          "$ref": "#/definitions/activity/readMongo"
+        },
+        {
+          "$ref": "#/definitions/activity/readSql"
+        },
+        {
+          "$ref": "#/definitions/activity/mongoQuery"
+        },
+        {
+          "$ref": "#/definitions/activity/sqlQuery"
+        },
+        {
+          "$ref": "#/definitions/activity/httpRequest"
         }
       ]
     },
@@ -1804,6 +1819,302 @@
           },
           "required": [
             "folderPath"
+          ]
+        }
+      }
+    },
+    "activity/readMongo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "readMongo"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "connection": {
+              "description": "Saved connection (created in the VizFlow Data Sources panel)",
+              "type": "string"
+            },
+            "database": {
+              "description": "Database to read from (default: connection database)",
+              "type": "string"
+            },
+            "collection": {
+              "description": "Collection to read documents from",
+              "type": "string"
+            },
+            "filter": {
+              "description": "Optional Mongo filter document, e.g. { \"status\": \"active\" }",
+              "type": "string"
+            },
+            "projection": {
+              "description": "Columns to include, comma-separated or JSON (default: all)",
+              "type": "string"
+            },
+            "sort": {
+              "description": "Sort as field:1 / field:-1 or JSON (default: natural order)",
+              "type": "string"
+            },
+            "limit": {
+              "description": "Maximum documents to read (0 = up to 100,000)",
+              "type": "number"
+            }
+          },
+          "required": [
+            "connection",
+            "collection"
+          ]
+        }
+      }
+    },
+    "activity/readSql": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "readSql"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "connection": {
+              "description": "Saved connection (created in the VizFlow Data Sources panel)",
+              "type": "string"
+            },
+            "table": {
+              "description": "Table to read rows from",
+              "type": "string"
+            },
+            "columns": {
+              "description": "Columns to include (default: all)",
+              "type": "string"
+            },
+            "filterModel": {
+              "description": "Filter built by the Data Sources visual query builder",
+              "type": "object"
+            },
+            "where": {
+              "description": "Optional raw SQL WHERE clause without the WHERE keyword",
+              "type": "string"
+            },
+            "orderBy": {
+              "description": "Optional ORDER BY expression, e.g. \"created_at DESC\"",
+              "type": "string"
+            },
+            "limit": {
+              "description": "Maximum rows to read (0 = up to 100,000)",
+              "type": "number"
+            }
+          },
+          "required": [
+            "connection",
+            "table"
+          ]
+        }
+      }
+    },
+    "activity/mongoQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "mongoQuery"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "connection": {
+              "description": "Saved connection (created in the VizFlow Data Sources panel)",
+              "type": "string"
+            },
+            "database": {
+              "description": "Database to query (default: connection database)",
+              "type": "string"
+            },
+            "collection": {
+              "description": "Collection to query",
+              "type": "string"
+            },
+            "filter": {
+              "description": "Mongo filter document to apply",
+              "type": "string"
+            },
+            "projection": {
+              "description": "Columns to include, comma-separated or JSON",
+              "type": "string"
+            },
+            "sort": {
+              "description": "Sort as field:1 / field:-1 or JSON",
+              "type": "string"
+            },
+            "limit": {
+              "description": "Maximum documents to return (0 = up to 100,000)",
+              "type": "number"
+            }
+          },
+          "required": [
+            "connection",
+            "collection",
+            "filter"
+          ]
+        }
+      }
+    },
+    "activity/sqlQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "sqlQuery"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "connection": {
+              "description": "Saved connection (created in the VizFlow Data Sources panel)",
+              "type": "string"
+            },
+            "sql": {
+              "description": "Read-only SELECT query (single statement)",
+              "type": "string"
+            },
+            "limit": {
+              "description": "Maximum rows to return (0 = up to 100,000)",
+              "type": "number"
+            }
+          },
+          "required": [
+            "connection",
+            "sql"
+          ]
+        }
+      }
+    },
+    "activity/httpRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "httpRequest"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "url": {
+              "description": "Request URL — {{variable}} interpolation supported",
+              "type": "string"
+            },
+            "method": {
+              "description": "HTTP method to use",
+              "type": "string",
+              "enum": [
+                "GET",
+                "POST",
+                "PUT",
+                "PATCH",
+                "DELETE",
+                "HEAD",
+                "OPTIONS"
+              ]
+            },
+            "headers": {
+              "description": "JSON object of request headers (may include Authorization)",
+              "type": "string"
+            },
+            "queryParams": {
+              "description": "JSON object appended to the URL as query string parameters",
+              "type": "string"
+            },
+            "contentType": {
+              "description": "How the request body is interpreted",
+              "type": "string",
+              "enum": [
+                "json",
+                "text",
+                "form"
+              ]
+            },
+            "body": {
+              "description": "Request body — JSON when content type is json, {{variable}} interpolation supported",
+              "type": "string"
+            },
+            "responsePath": {
+              "description": "Dot path into the response where the data array/object lives (e.g. \"data.items\"). Leave empty to use the whole body.",
+              "type": "string"
+            },
+            "timeout": {
+              "description": "Request timeout in seconds",
+              "type": "number"
+            },
+            "maxResponseRows": {
+              "description": "Maximum rows to keep when the response is an array",
+              "type": "number"
+            },
+            "ignoreErrorStatus": {
+              "description": "When enabled, error status responses are kept as data instead of failing the workflow",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "url",
+            "method"
           ]
         }
       }

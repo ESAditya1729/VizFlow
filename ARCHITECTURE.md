@@ -12,6 +12,7 @@ High-level modules
 - media/ — static WebView assets (HTML/CSS/JS) used by panels (Transform, RBQL, Charts, Dashboard).
 - engine/ — core dataset model and pure data logic (aggregations, duplication detection, transformations).
 - services/ — adapters and utilities (CSV parsing, reading from active editor, RBQL wrapper, output helpers).
+- services/database/ — external data-source adapters (MongoDB / MySQL / PostgreSQL): connection manager, read-only drivers, and the visual filter → SQL/Mongo query builders.
 
 Directory layout
 ```
@@ -40,6 +41,18 @@ Key components
   - Communicate with the extension host via `postMessage`.
   - Keep heavy work on the host side—WebViews should render and provide UI only.
   - Use `panel.webview.asWebviewUri()` for local resources and a nonce-based CSP for security.
+
+External data sources (services/database/, commands/dataSources.js)
+- Connection model: each connection has a friendly `name` + type-specific config. Passwords / connection strings go into VS Code **SecretStorage** keyed by the connection id; workflow `.vizflow` files and the Data Sources panel only ever see the redacted profile. Editing a connection without typing a new password preserves the stored secret.
+- Drivers are wrapped by two read-only services:
+  - `mongoService.js` — MongoDB via the `mongodb` driver (`listDatabases`, `listCollections`, `listColumns`, `runQuery` with projection/filter/sort/limit).
+  - `sqlService.js` — MySQL/PostgreSQL via `mysql2` / `pg` (identical `list*` API, `runSelect` applies limit separately). `validateSelect` rejects anything that is not a `SELECT` / `WITH` statement.
+- Query builders turn the visual filter model into dialect-specific statements:
+  - `mongoFilterBuilder.js` — condition objects (`eq`, `contains`, `gt`, `between`, `null`, …) → Mongo filter document with value coercion (`'42'` → 42, `'true'` → true).
+  - `sqlQueryBuilder.js` — same condition model → parameterized SQL with MySQL backticks + `?` or PostgreSQL double quotes + `$n`. Filter values stay as strings in the params array.
+- The Data Sources panel (`commands/dataSources.js` + `media/datasources.*`) is a classic WebView host: host-side only answers `listDatabases` / `listCollections` / `listTables` / `listColumns` / `preview` / `query`; **secrets are never posted to the webview**. "Add to Workflow Builder" writes a generated `.vizflow` to `os.tmpdir()/vizflow-datasources/` and opens it.
+- Workflow integration: the registry seeds connection names into `connection`-typed config fields via `enhanceActivitiesWithDynamicOptions`, and the builder resolves database/table/column choices dynamically (`dynamic: mongodbDatabases | mongodbCollections | sqlTables | sqlColumns`, `dependsOn` chaining, `requestId` echo). Activities `readMongo`, `readSql` (Input category) and `mongoQuery`, `sqlQuery` (Query category) execute at run time with the resolved secret.
+- HTTP / REST integration (`engine/workflow/activities/httpActivities.js`, **Integration** category): the `httpRequest` activity calls a web API via `axios` (a regular dependency) and converts the JSON response into a Dataset. Top-level string config values (`url`, `headers`, `queryParams`, `body`) are `{{variable}}`-interpolated by the workflow engine before `execute`, so earlier steps can feed URLs and bodies. A `responsePath` (dot path like `data.items`) navigates into nested payloads; the response status is written to the `httpRequest` context variable for downstream branching. Activity registration requires the category to exist in `VALID_CATEGORIES` (`engine/workflow/activityRegistryCore.js`), and the WebView category chips live in `CAT` / `CAT_ORDER` in `media/workflow.js`.
 
 Design notes & recommendations
 - Large files
@@ -70,6 +83,13 @@ Extending VizFlow
 - To add a new export/dialect:
   1. Add a handler in `commands/rbql.js` or `services/rbqlService.js` to translate RBQL/AST into target SQL.
   2. Provide a small preview mode and a conservative fallback when translation is not possible.
+
+- To add a new database type (e.g. SQLite / Oracle):
+  1. Extend `CONNECTION_TYPES` in `services/database/connectionManager.js` and the profile validation.
+  2. Implement the same `list*` / `runQuery`-style surface in a new service (mirror `sqlService.js`).
+  3. Add a `queryBuilder` branch and any new placeholder style to `services/database/sqlQueryBuilder.js`.
+  4. Surface it in `media/datasources.js` (type dropdown) and, if new dynamic fields are needed, register `dynamic` options in `commands/workflowBuilder.js`.
+  5. Run `npm run gen:context` if activity configs change, then `npm test` (the drift-guard test fails if docs are stale).
 
 Developer tips
 - Use `output.clear()` / `output.writeLine()` helpers to make CLI-mode commands readable and copy-paste friendly.

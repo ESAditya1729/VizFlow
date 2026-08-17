@@ -19,6 +19,32 @@
   const MAX_LOG_ENTRIES = 500;
   const PROGRESS_ANIMATION_DURATION = 300;
 
+  // ─── CONFIRM DIALOG ────────────────────────────────────────────────────────
+  // VS Code webviews block window.confirm(), so render a small modal instead.
+
+  /**
+   * Show a confirm dialog. Invokes onOk only when the user confirms.
+   * @param {string} message
+   * @param {() => void} onOk
+   * @param {string} [okLabel]
+   */
+  function webviewConfirm(message, onOk, okLabel) {
+    const overlay = document.createElement('div');
+    overlay.className = 'params-modal-overlay';
+    overlay.style.zIndex = '2000';
+    overlay.innerHTML =
+      '<div class="params-modal" style="width:min(420px,90vw);">' +
+        '<div class="params-modal-body">' + message + '</div>' +
+        '<div class="params-modal-footer">' +
+          '<button type="button" class="btn-secondary" data-action="cancel">Cancel</button>' +
+          '<button type="button" class="btn-primary" data-action="ok">' + (okLabel || 'OK') + '</button>' +
+        '</div>' +
+      '</div>';
+    overlay.querySelector('[data-action="cancel"]').addEventListener('click', () => overlay.remove());
+    overlay.querySelector('[data-action="ok"]').addEventListener('click', () => { overlay.remove(); onOk(); });
+    document.body.appendChild(overlay);
+  }
+
   // ─── STATE ──────────────────────────────────────────────────────────────────
 
   /** @type {Array<{type:string, displayName:string, category:string, description:string, configRequirements:Array}>} */
@@ -35,6 +61,13 @@
   let isLogCollapsed = false;
   /** @type {Array<{name:string, label:string, type:string, required:boolean, defaultValue:string}>} */
   let workflowParameters = [];
+
+  /** Map of dynamic-option requestId → populate(options) callbacks */
+  const dynamicRequests = new Map();
+  let dynamicRequestCounter = 0;
+
+  /** Guards duplicate connection-option refresh requests to the host. */
+  let connectionOptionsPending = false;
 
   // ─── DOM REFS ────────────────────────────────────────────────────────────────
 
@@ -83,10 +116,11 @@
     'Query':          { color: '#c97c2a', bg: 'rgba(201,124,42,0.15)',  icon: '🔍', order: 2 },
     'Analytics':      { color: '#c75f8a', bg: 'rgba(199,95,138,0.15)', icon: '📊', order: 3 },
     'Control':        { color: '#e07b39', bg: 'rgba(224,123,57,0.15)',  icon: '🔀', order: 4 },
-    'Output':         { color: '#3a8fd4', bg: 'rgba(58,143,212,0.15)', icon: '📤', order: 5 },
+    'Integration':    { color: '#2f8fb6', bg: 'rgba(47,143,182,0.15)', icon: '🌐', order: 5 },
+    'Output':         { color: '#3a8fd4', bg: 'rgba(58,143,212,0.15)', icon: '📤', order: 6 },
   };
 
-  const CAT_ORDER = ['Input', 'Transformation', 'Query', 'Analytics', 'Control', 'Output'];
+  const CAT_ORDER = ['Input', 'Transformation', 'Query', 'Analytics', 'Control', 'Integration', 'Output'];
 
   function catMeta(cat) {
     return CAT[cat] || { color: '#5a5b7a', bg: 'rgba(90,91,122,0.15)', icon: '▪', order: 999 };
@@ -107,7 +141,7 @@
   function defaultConfig(act) {
     const cfg = {};
     for (const req of (act.configRequirements || [])) {
-      if (req.type === 'select' && req.options?.length) {
+      if ((req.type === 'select' || req.type === 'connection') && req.options?.length) {
         const first = req.options[0];
         cfg[req.name] = typeof first === 'string' ? first : first.value;
       } else if (req.type === 'multiAction') {
@@ -441,17 +475,71 @@
 
   function clearAllSteps() {
     if (steps.length === 0) return;
-    if (!confirm('Remove all activities from the workflow?')) return;
-    steps = [];
-    stepCounter = 1;
-    renderCanvas();
-    logLine('Cleared all steps', 'info');
+    webviewConfirm('Remove all activities from the workflow?', () => {
+      steps = [];
+      stepCounter = 1;
+      renderCanvas();
+      logLine('Cleared all steps', 'info');
+    }, 'Remove');
   }
 
   // ─── CONFIG FIELD RENDERER ──────────────────────────────────────────────────
 
   function renderConfigFields(step, act, parentEl) {
     const configReqs = act.configRequirements || [];
+
+    // ─── Dynamic option helpers (databases / collections / tables / columns) ─
+    function dependenciesFor(req) {
+      const deps = {};
+      if (req.dependsOn) deps[req.dependsOn] = step.config[req.dependsOn];
+      return deps;
+    }
+
+    function requestDynamicOptions(req, populate) {
+      const requestId = ++dynamicRequestCounter;
+      dynamicRequests.set(requestId, populate);
+      vscode.postMessage({
+        type: 'loadDynamicOptions',
+        requestId,
+        field: { name: req.name, dynamic: req.dynamic },
+        dependencies: dependenciesFor(req)
+      });
+    }
+
+    function refreshDependents(changedFieldName) {
+      parentEl.querySelectorAll('.config-field').forEach((f) => {
+        if (f.dataset.dependsOn === changedFieldName && f.__refreshDynamic) f.__refreshDynamic();
+      });
+    }
+
+    function populateSelect(sel, options, currentVal) {
+      sel.innerHTML = '';
+      if (!options || options.length === 0) {
+        const o = document.createElement('option');
+        o.value = '';
+        o.textContent = '— No options available —';
+        sel.appendChild(o);
+        return;
+      }
+      let found = false;
+      for (const opt of options) {
+        const o = document.createElement('option');
+        const val = typeof opt === 'string' ? opt : (opt.value != null ? opt.value : opt);
+        const lbl = typeof opt === 'string' ? opt : (opt.label != null ? opt.label : opt);
+        o.value = val;
+        o.textContent = lbl;
+        if (String(val) === String(currentVal)) { o.selected = true; found = true; }
+        sel.appendChild(o);
+      }
+      if (!found && currentVal != null && String(currentVal) !== '') {
+        const o = document.createElement('option');
+        o.value = currentVal;
+        o.textContent = `${currentVal} (missing)`;
+        sel.appendChild(o);
+        sel.value = currentVal;
+      }
+      if (!sel.value && options.length > 0) sel.options[0].selected = true;
+    }
 
     // Store reference to params field for dynamic updates
     let paramsField = null;
@@ -582,6 +670,42 @@
         cbLabel.textContent = req.description || '';
         field.appendChild(cbLabel);
 
+      // ─── Connection (saved data-source) ────────────────────────────────────
+      } else if (req.type === 'connection') {
+        const sel = document.createElement('select');
+        sel.className = 'config-select';
+        const options = req.options || [];
+        if (options.length > 0) {
+          const currentVal = step.config[req.name];
+          for (const opt of options) {
+            const o = document.createElement('option');
+            const val = typeof opt === 'string' ? opt : (opt.value || opt);
+            const lbl = typeof opt === 'string' ? opt : (opt.label || opt);
+            o.value = val;
+            o.textContent = lbl;
+            if (val === currentVal) o.selected = true;
+            sel.appendChild(o);
+          }
+          if (!sel.value && options.length > 0) {
+            sel.options[0].selected = true;
+            step.config[req.name] = sel.value;
+          }
+        } else {
+          const o = document.createElement('option');
+          o.value = '';
+          o.textContent = '— No saved connections — add one in VizFlow: Data Sources';
+          sel.appendChild(o);
+          if (!connectionOptionsPending) {
+            connectionOptionsPending = true;
+            vscode.postMessage({ type: 'loadConnectionOptions' });
+          }
+        }
+        sel.addEventListener('change', () => {
+          step.config[req.name] = sel.value;
+          refreshDependents(req.name);
+        });
+        field.appendChild(sel);
+
       // ─── Select ────────────────────────────────────────────────────────────
       } else if (req.type === 'select') {
         const sel = document.createElement('select');
@@ -625,8 +749,110 @@
           if (req.name === 'opKey' && paramsField) {
             updateParamsHint(sel, paramsInput, paramsHint);
           }
+          if (req.dynamic) refreshDependents(req.name);
         });
-        field.appendChild(sel);
+
+        // ─── Dynamic select (databases / collections / tables) ──────────────
+        if (req.dynamic) {
+          field.dataset.dynamic = 'true';
+          field.dataset.dependsOn = req.dependsOn || '';
+
+          const wrap = document.createElement('div');
+          wrap.className = 'config-select-row';
+          wrap.appendChild(sel);
+          const reloadBtn = document.createElement('button');
+          reloadBtn.className = 'btn-reload';
+          reloadBtn.textContent = '⟳';
+          reloadBtn.title = 'Reload options';
+          reloadBtn.addEventListener('click', () => field.__refreshDynamic && field.__refreshDynamic());
+          wrap.appendChild(reloadBtn);
+          field.appendChild(wrap);
+
+          field.__refreshDynamic = () => {
+            requestDynamicOptions(req, (options) => {
+              populateSelect(sel, options, step.config[req.name]);
+              step.config[req.name] = sel.value;
+              // Chain to dependents (e.g. database → collection) so auto-loaded
+              // options still cascade instead of only the manual change event.
+              refreshDependents(req.name);
+            });
+          };
+
+          if (req.dependsOn && step.config[req.dependsOn]) field.__refreshDynamic();
+        } else {
+          field.appendChild(sel);
+        }
+
+      // ─── Columns (multi-select checkboxes) ────────────────────────────────
+      } else if (req.type === 'columns') {
+        field.dataset.dynamic = 'true';
+        field.dataset.dependsOn = req.dependsOn || '';
+
+        const header = document.createElement('div');
+        header.className = 'columns-header';
+        const reloadBtn = document.createElement('button');
+        reloadBtn.className = 'btn-reload';
+        reloadBtn.textContent = '⟳ Reload';
+        reloadBtn.title = 'Reload columns';
+        header.appendChild(reloadBtn);
+
+        const container = document.createElement('div');
+        container.className = 'columns-grid';
+
+        const syncColumns = () => {
+          const checked = Array.from(container.querySelectorAll('input.column-check:checked')).map((c) => c.value);
+          step.config[req.name] = checked.join(', ');
+        };
+
+        const populate = (options) => {
+          const cols = (options || []).map((o) => typeof o === 'string' ? o : o.value);
+          const current = String(step.config[req.name] || '').split(',').map((s) => s.trim()).filter(Boolean);
+          container.innerHTML = '';
+
+          const allLabel = document.createElement('label');
+          const allCheck = document.createElement('input');
+          allCheck.type = 'checkbox';
+          allCheck.className = 'column-check-all';
+          allCheck.checked = cols.length > 0 && current.length === 0;
+          allCheck.addEventListener('change', () => {
+            container.querySelectorAll('input.column-check').forEach((c) => { c.checked = allCheck.checked; });
+            syncColumns();
+          });
+          allLabel.appendChild(allCheck);
+          allLabel.appendChild(document.createTextNode(' All fields'));
+          container.appendChild(allLabel);
+
+          if (cols.length === 0) {
+            const hint = document.createElement('div');
+            hint.className = 'config-hint';
+            hint.textContent = 'Pick ' + (req.dependsOn ? 'a ' + req.dependsOn : 'a source') + ' first to load columns.';
+            container.appendChild(hint);
+            return;
+          }
+
+          for (const col of cols) {
+            const label = document.createElement('label');
+            const check = document.createElement('input');
+            check.type = 'checkbox';
+            check.className = 'column-check';
+            check.value = col;
+            check.checked = current.includes(col);
+            check.addEventListener('change', syncColumns);
+            label.appendChild(check);
+            label.appendChild(document.createTextNode(col));
+            container.appendChild(label);
+          }
+        };
+
+        field.__refreshDynamic = () => {
+          requestDynamicOptions(req, populate);
+        };
+        reloadBtn.addEventListener('click', () => field.__refreshDynamic());
+
+        field.appendChild(header);
+        field.appendChild(container);
+
+        if (req.dependsOn && step.config[req.dependsOn]) field.__refreshDynamic();
 
       // ─── File ──────────────────────────────────────────────────────────────
       } else if (req.type === 'file') {
@@ -661,6 +887,47 @@
           step.config[req.name] = textarea.value;
         });
         field.appendChild(textarea);
+
+      // ─── Object (structured JSON, e.g. filterModel) ─────────────────────────
+      } else if (req.type === 'object') {
+        const textarea = document.createElement('textarea');
+        textarea.className = 'config-textarea config-json';
+        textarea.placeholder = req.description || req.placeholder || 'Enter a JSON object…';
+        const initial = step.config[req.name];
+        textarea.value = (initial && typeof initial === 'object')
+          ? JSON.stringify(initial, null, 2)
+          : (initial != null ? String(initial) : '');
+
+        const status = document.createElement('div');
+        status.className = 'config-hint config-json-status';
+
+        const sync = () => {
+          const raw = textarea.value.trim();
+          if (!raw) {
+            step.config[req.name] = undefined;
+            status.textContent = '';
+            status.style.color = '';
+            return;
+          }
+          try {
+            const parsed = JSON.parse(raw);
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+              throw new Error('Expected a JSON object');
+            }
+            step.config[req.name] = parsed;
+            status.textContent = '✓ Valid JSON';
+            status.style.color = 'var(--success, #2da680)';
+          } catch (err) {
+            step.config[req.name] = raw;
+            status.textContent = '✗ ' + (err.message || 'Invalid JSON');
+            status.style.color = 'var(--errorForeground, #f48771)';
+          }
+        };
+
+        textarea.addEventListener('input', sync);
+        sync();
+        field.appendChild(textarea);
+        field.appendChild(status);
 
       // ─── Params (Special Handling) ────────────────────────────────────────
       } else if (req.name === 'params') {
@@ -1296,6 +1563,31 @@
     return false;
   }
 
+  /** Auto-fill any empty `connection`-type config with the first saved option
+   *  so a step can never fail validation when connections exist. */
+  function autoFillConnections(list) {
+    for (const step of list) {
+      const act = getActivityDef(step.type);
+      if (act && act.configRequirements) {
+        for (const req of act.configRequirements) {
+          if (req.type === 'connection' && isEmptyValue(step.config && step.config[req.name])) {
+            const options = req.options || [];
+            if (options.length > 0) {
+              const first = options[0];
+              step.config[req.name] = typeof first === 'string' ? first : first.value;
+            }
+          }
+        }
+      }
+      if (step.type === 'ifElse') {
+        autoFillConnections(step.config.thenSteps || []);
+        autoFillConnections(step.config.elseSteps || []);
+      } else if (step.type === 'forEach' || step.type === 'forEachFile') {
+        autoFillConnections(step.config.steps || []);
+      }
+    }
+  }
+
   /** Walk a step list (including nested branches) and return the first step
    *  with a missing required config field. */
   function firstInvalidStep(list) {
@@ -1376,6 +1668,10 @@
       showNotification('No steps to run', 'warning', 2000);
       return;
     }
+    // Seed any empty connection fields from the first available option so
+    // validation never reports a missing connection when connections exist.
+    autoFillConnections(steps);
+
     const invalid = firstInvalidStep(steps);
     if (invalid) {
       const msg = `Missing required field "${invalid.label}" in step "${invalid.step.id}"`;
@@ -1401,15 +1697,21 @@
   // ─── FILE OPERATIONS ──────────────────────────────────────────────────────
 
   btnNew.addEventListener('click', () => {
-    if (steps.length > 0 && !confirm('Discard current workflow and start new?')) return;
-    steps = [];
-    stepCounter = 1;
-    currentFile = null;
-    workflowName.value = DEFAULT_WORKFLOW_NAME;
-    updateFileInfo();
-    renderCanvas();
-    logLine('New workflow created.', 'info');
-    showNotification('New workflow created', 'success', 1500);
+    const doNew = () => {
+      steps = [];
+      stepCounter = 1;
+      currentFile = null;
+      workflowName.value = DEFAULT_WORKFLOW_NAME;
+      updateFileInfo();
+      renderCanvas();
+      logLine('New workflow created.', 'info');
+      showNotification('New workflow created', 'success', 1500);
+    };
+    if (steps.length > 0) {
+      webviewConfirm('Discard current workflow and start new?', doNew);
+    } else {
+      doNew();
+    }
   });
 
   btnSave.addEventListener('click', () => {
@@ -1663,6 +1965,34 @@
           step.config[msg.field] = msg.filePath;
           renderCanvas();
         }
+        break;
+      }
+
+      case 'dynamicOptions': {
+        const populate = dynamicRequests.get(msg.requestId);
+        if (populate) {
+          dynamicRequests.delete(msg.requestId);
+          if (msg.field) {
+            console.log(`[VizFlow] dynamicOptions "${msg.field}" → ${(msg.options || []).length}`, msg.options || []);
+          }
+          populate(msg.options || []);
+        }
+        break;
+      }
+
+      case 'connectionOptions': {
+        connectionOptionsPending = false;
+        const opts = Array.isArray(msg.options) ? msg.options : [];
+        let changed = false;
+        for (const act of activities) {
+          for (const req of (act.configRequirements || [])) {
+            if (req.type === 'connection') {
+              if (!Array.isArray(req.options) || req.options.length !== opts.length) changed = true;
+              req.options = opts;
+            }
+          }
+        }
+        if (changed) renderCanvas();
         break;
       }
 

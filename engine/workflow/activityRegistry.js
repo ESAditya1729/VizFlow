@@ -29,6 +29,8 @@ let analyticsActivities = [];
 let outputActivities = [];
 let controlActivities = [];
 let powerShellActivities = [];
+let databaseActivities = [];
+let httpActivities = [];
 
 try {
     const activityModules = require('./activities');
@@ -39,6 +41,8 @@ try {
     outputActivities = activityModules.outputActivities || [];
     controlActivities = activityModules.controlActivities || [];
     powerShellActivities = activityModules.powerShellActivities || [];
+    databaseActivities = activityModules.databaseActivities || [];
+    httpActivities = activityModules.httpActivities || [];
 } catch (error) {
     console.error('[VizFlow] Failed to load activity modules:', error.message);
     // Continue with empty arrays to allow partial functionality
@@ -81,7 +85,9 @@ function registerAllActivities(options = {}) {
         ...analyticsActivities,
         ...outputActivities,
         ...controlActivities,
-        ...powerShellActivities
+        ...powerShellActivities,
+        ...databaseActivities,
+        ...httpActivities
     ];
 
     // Validate activity structure before registration

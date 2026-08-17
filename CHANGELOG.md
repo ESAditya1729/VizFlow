@@ -3,6 +3,25 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.2] - 2026-08-15
+
+### Added
+- **HTTP/REST integration**: new `httpRequest` activity (new **Integration** category) calls any REST API — GET / POST / PUT / PATCH / DELETE / HEAD / OPTIONS — with custom headers, query params, JSON / text / form bodies, timeouts and a `responsePath` for navigating into nested response payloads. The JSON response becomes a Dataset like any other data source, and the status is exposed as `{{httpRequest.status}}` for downstream branching (`ignoreErrorStatus` keeps non-2xx responses as data instead of failing the run).
+- Read-only database user recommendation shown in the Data Sources connection form.
+- Regression tests for the database connector fixes and the new HTTP activity (`test/http.test.js`).
+
+### Changed
+- SQL table selection now auto-previews the first rows in the Data Sources panel (previously only MongoDB did).
+- MongoDB row counts now use `estimatedDocumentCount()` when no filter is applied — dramatically faster on large collections.
+- Workflow Builder now renders object-typed config fields (e.g. `filterModel`) as a JSON editor with live validation instead of a plain text box.
+
+### Fixed
+- **MySQL connection strings were silently ignored**: mysql2 accepts a connection string via the `uri` option (not `connectionString`), so MySQL databases configured with a connection string could not connect. PostgreSQL continues to use `connectionString`.
+- **SQL columns rendered `[object Object]`** in the Data Sources panel; `listColumns` now returns plain column names.
+- **SQL "Order by" broke on the documented `col:desc` syntax**; `name:desc` now compiles to `name DESC` (raw expressions like `created_at DESC` still pass through), consistently in both the SQL builder and the `readSql` activity.
+- **"Add to Workflow" dropped the Mongo advanced filter** (raw JSON filter document); it is now carried into the generated activity.
+- **`readSql` failed silently on a malformed `filterModel`**; it now throws a clear error telling the user to build the filter in the Data Sources panel or enter valid JSON.
+
 ## [Unreleased]
 
 ### Added

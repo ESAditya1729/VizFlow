@@ -2,7 +2,7 @@
   "name": "vizflow-studio",
   "displayName": "VizFlow Studio",
   "description": "Analyze, transform, and visualize CSV data directly inside Visual Studio Code.",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "publisher": "adoenixes-vizflow",
   "icon": "images/icon.png",
   "engines": {
@@ -50,7 +50,8 @@
     "onCommand:vizflow.scheduler",
     "onCommand:vizflow.scheduler.quickSchedule",
     "onCommand:vizflow.scheduler.stopJob",
-    "onCommand:vizflow.scheduler.showRunning"
+    "onCommand:vizflow.scheduler.showRunning",
+    "onCommand:vizflow.dataSources"
   ],
   "main": "./extension.js",
   "contributes": {
@@ -138,6 +139,11 @@
       {
         "command": "vizflow.scheduler.showRunning",
         "title": "VizFlow: Show Running Jobs"
+      },
+      {
+        "command": "vizflow.dataSources",
+        "title": "VizFlow: Data Sources",
+        "icon": "$(database)"
       }
     ],
     "languages": [
@@ -191,8 +197,11 @@
   },
   "dependencies": {
     "axios": "^1.18.1",
+    "mongodb": "^7.5.0",
+    "mysql2": "^3.23.3",
     "node-cron": "^4.6.0",
     "papaparse": "^5.5.4",
+    "pg": "^8.23.0",
     "rbql": "^0.30.0",
     "xlsx": "^0.18.5"
   }

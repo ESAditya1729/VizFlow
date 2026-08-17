@@ -15,6 +15,8 @@ let analyticsActivities = [];
 let outputActivities = [];
 let controlActivities = [];
 let powerShellActivities = [];
+let databaseActivities = [];
+let httpActivities = [];
 
 // ─── Safe Module Loading ────────────────────────────────────────────────────
 try {
@@ -96,6 +98,32 @@ try {
     powerShellActivities = [];
 }
 
+// ─── Load Database Activities ───────────────────────────────────────────────
+try {
+    databaseActivities = require('./databaseActivities');
+    if (!Array.isArray(databaseActivities)) {
+        console.warn('[VizFlow] databaseActivities is not an array, wrapping...');
+        databaseActivities = Array.isArray(databaseActivities) ? databaseActivities : [databaseActivities];
+    }
+    console.log(`[VizFlow] Loaded ${databaseActivities.length} database activities`);
+} catch (error) {
+    console.error('[VizFlow] Failed to load databaseActivities:', error.message);
+    databaseActivities = [];
+}
+
+// ─── Load HTTP / Integration Activities ─────────────────────────────────────
+try {
+    httpActivities = require('./httpActivities');
+    if (!Array.isArray(httpActivities)) {
+        console.warn('[VizFlow] httpActivities is not an array, wrapping...');
+        httpActivities = Array.isArray(httpActivities) ? httpActivities : [httpActivities];
+    }
+    console.log(`[VizFlow] Loaded ${httpActivities.length} HTTP activities`);
+} catch (error) {
+    console.error('[VizFlow] Failed to load httpActivities:', error.message);
+    httpActivities = [];
+}
+
 // ─── Category Registry ──────────────────────────────────────────────────────
 
 /**
@@ -143,6 +171,18 @@ const ACTIVITY_CATEGORIES = {
         icon: '⚡',
         description: 'Activities for PowerShell integration and automation (file operations, system tasks, etc.)',
         activities: powerShellActivities
+    },
+    database: {
+        name: 'Database',
+        icon: '🗄️',
+        description: 'Activities for reading from external data sources (MongoDB, MySQL, PostgreSQL)',
+        activities: databaseActivities
+    },
+    integration: {
+        name: 'Integration',
+        icon: '🌐',
+        description: 'Activities for calling external APIs and web services (HTTP/REST)',
+        activities: httpActivities
     }
 };
 
@@ -450,6 +490,8 @@ module.exports = {
     outputActivities,
     controlActivities,
     powerShellActivities,  // New: PowerShell activities
+    databaseActivities,    // New: Database activities
+    httpActivities,        // New: HTTP / integration activities
     
     // Enhanced exports
     ACTIVITY_CATEGORIES,

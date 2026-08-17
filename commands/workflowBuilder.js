@@ -217,6 +217,14 @@ async function handleMessage(panel, message, context, initialOpenFilePath) {
             await handleScheduleWorkflow(panel, message.filePath);
             break;
 
+        case 'loadDynamicOptions':
+            await handleDynamicOptions(panel, message);
+            break;
+
+        case 'loadConnectionOptions':
+            handleConnectionOptions(panel);
+            break;
+
         default:
             console.warn('[VizFlow] Unknown message type:', message.type);
     }
@@ -256,9 +264,114 @@ async function handleReady(panel, openFilePath) {
 
     panel.webview.postMessage({
         type: 'init',
-        activities: enhancedActivities,
+        activities: enhanceActivitiesWithDynamicOptions(enhancedActivities),
         workflow,
         filePath
+    });
+}
+
+/**
+ * Seeds connection options into every `connection`-type config field and
+ * marks `select` fields with a dynamic source so the UI can fetch live
+ * databases/tables/columns.
+ */
+function enhanceActivitiesWithDynamicOptions(activities) {
+    let connections = [];
+    try {
+        const manager = require('../services/database/connectionManager').getConnectionManager();
+        connections = manager.list().map((c) => c.name);
+    } catch {
+        // Connection manager not initialized — leave connection fields empty.
+    }
+
+    return activities.map((act) => {
+        if (!act.configRequirements) return act;
+        act.configRequirements = act.configRequirements.map((req) => {
+            if (req.type === 'connection') {
+                req.options = connections.map((name) => ({ value: name, label: name }));
+            } else if (req.type === 'select' && req.dynamic) {
+                req.options = [];
+            }
+            return req;
+        });
+        return act;
+    });
+}
+
+/**
+ * Fetches live options for a dynamic select field (databases / collections /
+ * tables / columns) and sends them back to the WebView.
+ */
+async function handleDynamicOptions(panel, message) {
+    const { field, dependencies } = message;
+    if (!field || !field.dynamic) return;
+
+    const manager = require('../services/database/connectionManager').getConnectionManager();
+    const connectionName = dependencies && dependencies.connection;
+    const profile = connectionName ? await manager.getByName(connectionName) : null;
+    if (!profile) {
+        panel.webview.postMessage({ type: 'dynamicOptions', requestId: message.requestId, field: field.name, options: [] });
+        return;
+    }
+
+    const mongoService = require('../services/database/mongoService');
+    const sqlService = require('../services/database/sqlService');
+    let options = [];
+
+    try {
+        switch (field.dynamic) {
+            case 'mongodbDatabases': {
+                const databases = await mongoService.listDatabases(profile);
+                options = databases.map((db) => ({ value: db, label: db }));
+                break;
+            }
+            case 'mongodbCollections': {
+                const dbName = dependencies && dependencies.database;
+                if (!dbName) break;
+                const collections = await mongoService.listCollections(profile, dbName);
+                options = collections.map((coll) => ({ value: coll, label: coll }));
+                break;
+            }
+            case 'sqlTables': {
+                const tables = await sqlService.listTables(profile);
+                options = tables.map((table) => ({ value: table, label: table }));
+                break;
+            }
+            case 'sqlColumns': {
+                const table = dependencies && dependencies.table;
+                if (!table) break;
+                const columns = await sqlService.listColumns(profile, table);
+                options = columns.map((col) => ({ value: col, label: col }));
+                break;
+            }
+            default:
+                break;
+        }
+    } catch (err) {
+        // Post an empty list so the UI can show "No options available" instead
+        // of leaving the field silently unpopulated.
+        console.error(`[VizFlow] Failed to load options for ${field.dynamic}:`, err.message || err);
+        options = [];
+    }
+
+    panel.webview.postMessage({ type: 'dynamicOptions', requestId: message.requestId, field: field.name, options });
+}
+
+/**
+ * Refreshes the list of saved connection names so connection dropdowns can
+ * self-heal when connections are added while the builder panel is already open.
+ */
+function handleConnectionOptions(panel) {
+    let connections = [];
+    try {
+        const manager = require('../services/database/connectionManager').getConnectionManager();
+        connections = manager.list().map((c) => c.name);
+    } catch {
+        // Connection manager not initialized — respond with an empty list.
+    }
+    panel.webview.postMessage({
+        type: 'connectionOptions',
+        options: connections.map((name) => ({ value: name, label: name }))
     });
 }
 

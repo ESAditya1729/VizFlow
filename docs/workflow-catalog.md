@@ -13,12 +13,13 @@ Each activity below is a valid `type` for a `.vizflow` activity node:
 
 ## Index
 
-- **Input** (4): `listFiles`, `readCsv`, `readExcel`, `sampleData`
+- **Input** (6): `listFiles`, `readCsv`, `readExcel`, `readMongo`, `readSql`, `sampleData`
 - **Transformation** (5): `filter`, `removeDuplicates`, `selectColumns`, `sort`, `transform`
-- **Query** (2): `previewQuery`, `query`
+- **Query** (4): `mongoQuery`, `previewQuery`, `query`, `sqlQuery`
 - **Analytics** (4): `aggregate`, `columnStats`, `dataProfile`, `groupBy`
 - **Output** (5): `appendText`, `exportMultiple`, `writeCsv`, `writeJson`, `writeText`
 - **Control** (8): `callWorkflow`, `execPowerShell`, `forEach`, `forEachFile`, `ifElse`, `multiTransform`, `setVariable`, `wait`
+- **Integration** (1): `httpRequest`
 
 ## Input
 
@@ -68,6 +69,34 @@ Reads an Excel file (.xlsx, .xls) into a Dataset with flexible options.
 | `dateDetection` | boolean | no | — | Automatically detect and convert date columns (default: true) |
 
 **`dateFormat` options:** `MM/DD/YYYY`, `YYYY-MM-DD`, `DD/MM/YYYY`, `MM-DD-YYYY`, `DD-MM-YYYY`
+
+### `readMongo` — 🍃 Read Mongo Collection
+
+Reads documents from a MongoDB collection into a Dataset using a saved connection.
+
+| Config field | Type | Required | Default | Description |
+|--------------|------|----------|---------|-------------|
+| `connection` | connection | yes | — | Saved connection (created in the VizFlow Data Sources panel) |
+| `database` | select | no | — | Database to read from (default: connection database) |
+| `collection` | select | yes | — | Collection to read documents from |
+| `filter` | text | no | — | Optional Mongo filter document, e.g. { "status": "active" } |
+| `projection` | string | no | — | Columns to include, comma-separated or JSON (default: all) |
+| `sort` | string | no | — | Sort as field:1 / field:-1 or JSON (default: natural order) |
+| `limit` | number | no | 0 | Maximum documents to read (0 = up to 100,000) |
+
+### `readSql` — 🗄️ Read SQL Table
+
+Reads rows from a MySQL or PostgreSQL table into a Dataset using a saved connection.
+
+| Config field | Type | Required | Default | Description |
+|--------------|------|----------|---------|-------------|
+| `connection` | connection | yes | — | Saved connection (created in the VizFlow Data Sources panel) |
+| `table` | select | yes | — | Table to read rows from |
+| `columns` | columns | no | — | Columns to include (default: all) |
+| `filterModel` | object | no | — | Filter built by the Data Sources visual query builder |
+| `where` | text | no | — | Optional raw SQL WHERE clause without the WHERE keyword |
+| `orderBy` | string | no | — | Optional ORDER BY expression, e.g. "created_at DESC" |
+| `limit` | number | no | 1000 | Maximum rows to read (0 = up to 100,000) |
 
 ### `sampleData` — 🎲 Sample Data
 
@@ -143,6 +172,20 @@ Applies an expression operation to a column.
 
 ## Query
 
+### `mongoQuery` — 🍃 Mongo Query
+
+Runs an advanced read-only Mongo query with a raw filter document.
+
+| Config field | Type | Required | Default | Description |
+|--------------|------|----------|---------|-------------|
+| `connection` | connection | yes | — | Saved connection (created in the VizFlow Data Sources panel) |
+| `database` | select | no | — | Database to query (default: connection database) |
+| `collection` | select | yes | — | Collection to query |
+| `filter` | text | yes | — | Mongo filter document to apply |
+| `projection` | string | no | — | Columns to include, comma-separated or JSON |
+| `sort` | string | no | — | Sort as field:1 / field:-1 or JSON |
+| `limit` | number | no | 1000 | Maximum documents to return (0 = up to 100,000) |
+
 ### `previewQuery` — 👁️ Data Preview
 
 Preview top rows from a dataset with optional filtering.
@@ -162,6 +205,16 @@ Executes an RBQL query on the input dataset.
 | `query` | text | yes | — | RBQL SQL-like query (e.g. "SELECT a1, a2 WHERE a3 > 100") |
 | `allowUpdate` | boolean | no | — | Allow UPDATE and DELETE operations (use with caution) |
 | `timeoutMs` | number | no | 30000 | Query execution timeout in milliseconds (default: 30000) |
+
+### `sqlQuery` — 🗄️ SQL Query
+
+Runs an advanced read-only SQL SELECT against a saved connection.
+
+| Config field | Type | Required | Default | Description |
+|--------------|------|----------|---------|-------------|
+| `connection` | connection | yes | — | Saved connection (created in the VizFlow Data Sources panel) |
+| `sql` | text | yes | — | Read-only SELECT query (single statement) |
+| `limit` | number | no | 1000 | Maximum rows to return (0 = up to 100,000) |
 
 ## Analytics
 
@@ -440,4 +493,27 @@ Pauses workflow execution for a specified duration.
 | `duration` | number | yes | 5 | Number of seconds to wait (minimum: 1) |
 | `maxDuration` | number | no | — | Maximum duration to wait (0 = unlimited) |
 | `condition` | string | no | — | Expression to evaluate as wait condition (e.g., "{{progress}} < 100") |
+
+## Integration
+
+### `httpRequest` — 🌐 HTTP Request
+
+Calls a REST API (GET/POST/PUT/PATCH/DELETE/…) and converts the JSON response into a Dataset. {{variable}} interpolation is supported in URL, headers, query and body.
+
+| Config field | Type | Required | Default | Description |
+|--------------|------|----------|---------|-------------|
+| `url` | string | yes | — | Request URL — {{variable}} interpolation supported |
+| `method` | select | yes | "GET" | HTTP method to use |
+| `headers` | text | no | — | JSON object of request headers (may include Authorization) |
+| `queryParams` | text | no | — | JSON object appended to the URL as query string parameters |
+| `contentType` | select | no | "json" | How the request body is interpreted |
+| `body` | text | no | — | Request body — JSON when content type is json, {{variable}} interpolation supported |
+| `responsePath` | string | no | — | Dot path into the response where the data array/object lives (e.g. "data.items"). Leave empty to use the whole body. |
+| `timeout` | number | no | 30 | Request timeout in seconds |
+| `maxResponseRows` | number | no | 10000 | Maximum rows to keep when the response is an array |
+| `ignoreErrorStatus` | boolean | no | false | When enabled, error status responses are kept as data instead of failing the workflow |
+
+**`method` options:** `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, `OPTIONS`
+
+**`contentType` options:** `json`, `text`, `form`
 

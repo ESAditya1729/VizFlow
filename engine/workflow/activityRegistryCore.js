@@ -15,7 +15,8 @@ const VALID_CATEGORIES = [
     'Analytics',
     'Output',
     'Control',
-    'Utility'
+    'Utility',
+    'Integration'
 ];
 
 // ─── Registry Storage ──────────────────────────────────────────────────────
@@ -42,7 +43,8 @@ function validateConfigRequirements(configRequirements) {
     // Allowed types including special UI types
     const ALLOWED_TYPES = [
         'string', 'number', 'boolean', 'array', 'object', 'select',
-        'file', 'multiAction', 'text', 'date', 'time', 'color', 'keyValue'
+        'file', 'multiAction', 'text', 'date', 'time', 'color', 'keyValue',
+        'connection', 'columns'
     ];
 
     const seenNames = new Set();
@@ -68,8 +70,10 @@ function validateConfigRequirements(configRequirements) {
             }
         }
 
-        // Only validate select options if type is 'select'
-        if (req.type === 'select') {
+        // Only validate select options if type is 'select' and options are
+        // static. Dynamic selects (e.g. database tables/collections) declare a
+        // `dynamic` hint and load their options at render time instead.
+        if (req.type === 'select' && !req.dynamic) {
             if (!req.options || !Array.isArray(req.options) || req.options.length === 0) {
                 throw new Error(`Select field "${req.name}" must have options array with at least one option`);
             }

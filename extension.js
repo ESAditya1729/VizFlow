@@ -15,14 +15,21 @@ const chartsCommand = require('./commands/charts');
 const rbqlCommand = require('./commands/rbql');
 const workflowBuilderCommand  = require('./commands/workflowBuilder');
 const schedulerCommand        = require('./commands/scheduler');
+const dataSourcesCommand      = require('./commands/dataSources');
 const { getScheduler } = require('./engine/scheduler/schedulerEngine');
 const { SchedulerStore } = require('./engine/scheduler/schedulerStore');
+const { initConnectionManager } = require('./services/database/connectionManager');
 
 /**
  * @param {vscode.ExtensionContext} context
  */
 
 function activate(context) {
+
+    // Initialize the external data-source connection manager (MongoDB / MySQL /
+    // PostgreSQL). Connection metadata lives in globalState and credentials in
+    // SecretStorage, so this must run before any Data Sources command.
+    initConnectionManager(context);
 
     // ─── Auto-start the scheduler on activation ─────────────────────────
     // Scheduled jobs must fire from extension startup — not only after the
@@ -138,6 +145,12 @@ function activate(context) {
             showRunning
         )
 
+    );
+
+    // VizFlow: Data Sources — manage MongoDB / MySQL / PostgreSQL connections
+    // and explore data with a visual query builder.
+    context.subscriptions.push(
+        vscode.commands.registerCommand('vizflow.dataSources', dataSourcesCommand(context))
     );
 
     // ─── Workflow Builder Commands ─────────────────────────────────────
