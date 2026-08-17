@@ -287,12 +287,13 @@ function enhanceActivitiesWithDynamicOptions(activities) {
     return activities.map((act) => {
         if (!act.configRequirements) return act;
         act.configRequirements = act.configRequirements.map((req) => {
-            if (req.type === 'connection') {
-                req.options = connections.map((name) => ({ value: name, label: name }));
-            } else if (req.type === 'select' && req.dynamic) {
-                req.options = [];
+            const clone = { ...req };
+            if (clone.type === 'connection') {
+                clone.options = connections.map((name) => ({ value: name, label: name }));
+            } else if (clone.type === 'select' && clone.dynamic) {
+                clone.options = [];
             }
-            return req;
+            return clone;
         });
         return act;
     });

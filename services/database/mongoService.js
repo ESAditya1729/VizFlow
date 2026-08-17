@@ -324,7 +324,7 @@ function isSrvUri(uri) {
  */
 function isDnsError(err) {
     const msg = String((err && err.message) || err || '');
-    return /querySrv|ECONNREFUSED|ENOTFOUND|ESERVFAIL|EBADRESP|ETIMEOUT|SERVFAIL/i.test(msg);
+    return /querySrv|ECONNREFUSED|ENOTFOUND|ESERVFAIL|EBADRESP|ETIMEOUT|SERVFAIL|DNS-over-HTTPS/i.test(msg);
 }
 
 function sleep(ms) {
@@ -404,6 +404,11 @@ function dohResolve(name, type, providerIndex = 0) {
             provider.url(name, type),
             { headers: provider.headers, timeout: 8000 },
             (res) => {
+                if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
+                    res.resume();
+                    resolve(dohResolve(name, type, providerIndex + 1));
+                    return;
+                }
                 let body = '';
                 res.on('data', (chunk) => (body += chunk));
                 res.on('end', () => {
@@ -440,7 +445,7 @@ async function srvToStandardUri(uri, resolver = dohResolve) {
 
     const [srvAnswers, txtAnswers] = await Promise.all([
         resolver(srvName, 'SRV'),
-        resolver(srvName, 'TXT')
+        resolver(srvName, 'TXT').catch(() => [])
     ]);
 
     const hosts = [];

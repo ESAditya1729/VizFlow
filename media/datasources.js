@@ -855,6 +855,14 @@
         } else {
             setFormStatus('✗ ' + ((result && result.error) || 'Connection failed.'), 'err');
         }
+        if (result && result.parsed) {
+            const p = result.parsed;
+            if (p.host) $('conn-host').value = p.host;
+            if (p.port) $('conn-port').value = p.port;
+            if (p.database) $('conn-database').value = p.database;
+            if (p.username) $('conn-username').value = p.username;
+            if (p.type && !$('conn-id').value) $('conn-type').value = p.type;
+        }
         if (result && result.srvFixed && result.standardUri) {
             showSrvFix(result.standardUri, connectionId, result.verified);
         } else {

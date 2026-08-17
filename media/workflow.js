@@ -491,7 +491,16 @@
     // ─── Dynamic option helpers (databases / collections / tables / columns) ─
     function dependenciesFor(req) {
       const deps = {};
-      if (req.dependsOn) deps[req.dependsOn] = step.config[req.dependsOn];
+      // Walk up the full dependency chain so the backend always receives
+      // the connection name (needed to resolve the profile) plus every
+      // intermediate value (database, table, …).
+      const visited = new Set();
+      let cur = req;
+      while (cur && cur.dependsOn && !visited.has(cur.dependsOn)) {
+        visited.add(cur.dependsOn);
+        deps[cur.dependsOn] = step.config[cur.dependsOn];
+        cur = configReqs.find(r => r.name === cur.dependsOn);
+      }
       return deps;
     }
 

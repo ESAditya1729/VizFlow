@@ -490,6 +490,29 @@ suite('Database Services Test Suite', () => {
                 /No SRV records/
             );
         });
+
+        test('srvToStandardUri succeeds when TXT lookup fails', async () => {
+            const fakeResolver = (name, type) => {
+                if (type === 'SRV') {
+                    return Promise.resolve([
+                        { name, type: 33, TTL: 60, data: '0 0 27017 shard-00.h.mongodb.net.' }
+                    ]);
+                }
+                return Promise.reject(new Error('DNS-over-HTTPS lookup failed for TXT'));
+            };
+            const standard = await srvToStandardUri(
+                'mongodb+srv://user:pass@cluster.mongodb.net/sales',
+                fakeResolver
+            );
+            assert.ok(standard.includes('shard-00.h.mongodb.net:27017'));
+            assert.ok(standard.includes('ssl=true'));
+            assert.ok(!standard.includes('replicaSet='));
+            assert.ok(!standard.includes('authSource='));
+        });
+
+        test('isDnsError recognizes DoH fallback errors', () => {
+            assert.strictEqual(isDnsError(new Error('DNS-over-HTTPS lookup failed for _mongodb._tcp.x (TXT)')), true);
+        });
     });
 
     // ── mongoService.listDatabases ─────────────────────────────────────────

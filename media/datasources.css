@@ -322,7 +322,7 @@ table.data-table { border-collapse: collapse; width: 100%; font-size: 12px; }
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.5);
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   z-index: 1000;

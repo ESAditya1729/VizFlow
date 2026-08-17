@@ -28,6 +28,31 @@ const crypto = require('crypto');
 const { getConnectionManager } = require('../services/database/connectionManager');
 const mongoService = require('../services/database/mongoService');
 const sqlService = require('../services/database/sqlService');
+
+/**
+ * Best-effort parse of a connection URI into individual fields.
+ * Returns an object with host, port, database, username, and type
+ * (mongodb | mysql | postgresql), or null on failure.
+ */
+function parseConnectionString(uri) {
+    if (!uri || typeof uri !== 'string') return null;
+    try {
+        const url = new URL(uri.trim());
+        let type = 'mongodb';
+        const proto = url.protocol.replace(/:$/, '').toLowerCase();
+        if (proto === 'mysql') type = 'mysql';
+        else if (proto === 'postgresql' || proto === 'postgres') type = 'postgresql';
+        return {
+            type,
+            host: url.hostname || undefined,
+            port: url.port || undefined,
+            database: url.pathname && url.pathname !== '/' ? decodeURIComponent(url.pathname.slice(1)) : undefined,
+            username: url.username ? decodeURIComponent(url.username) : undefined
+        };
+    } catch {
+        return null;
+    }
+}
 const { buildMongoFilter } = require('../services/database/mongoFilterBuilder');
 const { buildSelect } = require('../services/database/sqlQueryBuilder');
 
@@ -184,6 +209,10 @@ async function handleMessage(panel, message) {
                         error: `${result.error} — This usually means your network DNS can't resolve MongoDB Atlas SRV records. Set a public DNS (e.g. 8.8.8.8) or use a standard (non-SRV) connection string.`
                     };
                 }
+            }
+            if (result.ok && profile.connectionString) {
+                const parsed = parseConnectionString(profile.connectionString);
+                if (parsed) result.parsed = parsed;
             }
             wv.postMessage({ type: 'testResult', id: message.id, result });
             break;

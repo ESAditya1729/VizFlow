@@ -915,6 +915,52 @@ body {
 .config-json { min-height: 90px; }
 .config-json-status { opacity: 1; white-space: pre-wrap; }
 
+.config-select-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.config-select-row .config-select { flex: 1; }
+
+.btn-reload {
+  padding: 3px 8px;
+  background: var(--vscode-button-secondaryBackground, #3a3d41);
+  color: var(--vscode-button-secondaryForeground, #cccccc);
+  border: 1px solid var(--vscode-button-secondaryBorder, #3a3d41);
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.btn-reload:hover {
+  background: var(--vscode-button-secondaryHoverBackground, #45494e);
+}
+
+.columns-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.columns-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 150px;
+  overflow-y: auto;
+  border: 1px solid var(--vscode-input-border, #3c3c3c);
+  border-radius: 3px;
+  padding: 4px;
+}
+.columns-grid label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.columns-grid label:hover { background: var(--vscode-list-hoverBackground, rgba(255,255,255,0.04)); }
+.column-check-all { margin-right: 2px; }
+
 .config-file-row { 
   display: flex; 
   gap: 6px; 
