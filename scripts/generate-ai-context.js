@@ -249,6 +249,11 @@ function buildJsonSchema(data) {
                 minItems: 1,
                 description: 'Activities run in order; each receives the previous activity\'s dataset.',
                 items: { $ref: '#/definitions/activity' }
+            },
+            edges: {
+                type: 'array',
+                description: 'Visual connections (arrows) between activities on the canvas. These define the DAG layout but do not affect execution order.',
+                items: { $ref: '#/definitions/edge' }
             }
         },
         definitions: {
@@ -262,6 +267,31 @@ function buildJsonSchema(data) {
                     type: { type: 'string', enum: ['string', 'number', 'boolean', 'array', 'object'], default: 'string' },
                     required: { type: 'boolean', default: false, description: 'Required parameters must resolve to a non-empty value.' },
                     defaultValue: { description: 'Applied when the value is not provided; may contain {{variable}} placeholders; coerced to the declared type.' }
+                }
+            },
+            edge: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['id', 'source', 'target'],
+                properties: {
+                    id: { type: 'string', description: 'Unique edge identifier.' },
+                    source: {
+                        type: 'object',
+                        required: ['nodeId', 'port'],
+                        properties: {
+                            nodeId: { type: 'string', description: 'Source activity ID.' },
+                            port: { type: 'string', enum: ['input', 'output'], description: 'Source port type.' }
+                        }
+                    },
+                    target: {
+                        type: 'object',
+                        required: ['nodeId', 'port'],
+                        properties: {
+                            nodeId: { type: 'string', description: 'Target activity ID.' },
+                            port: { type: 'string', enum: ['input', 'output'], description: 'Target port type.' }
+                        }
+                    },
+                    label: { type: 'string', description: 'Optional label displayed on the edge.' }
                 }
             },
             activity: {
@@ -279,6 +309,8 @@ function buildJsonSchema(data) {
                 description: 'Unique id within this workflow (and nested branches).'
             },
             type: { const: act.type },
+            displayName: { type: 'string', description: 'Custom display name for this activity on the canvas.' },
+            notes: { type: 'string', description: 'Free-text notes/comments about this activity.' },
             config: {
                 type: 'object',
                 additionalProperties: false

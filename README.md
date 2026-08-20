@@ -162,7 +162,7 @@ npm test             # Run tests
 
 ## 📄 License
 
-MIT — see [LICENSE](./LICENSE)
+MIT — see [LICENSE](./LICENSE.txt)
 
 ---
 

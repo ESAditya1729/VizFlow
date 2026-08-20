@@ -29,6 +29,8 @@ module.exports = function rbqlCommand(context) {
     let panel;
     /** @type {import('../engine/dataset') | undefined} */
     let dataset;
+    /** @type {import('../engine/dataset') | undefined} */
+    let joinDataset;
 
     return async function () {
 
@@ -48,12 +50,10 @@ module.exports = function rbqlCommand(context) {
 
         // ── 2. Reveal existing panel or create a new one ─────────────────────
         if (panel) {
-            panel.reveal(vscode.ViewColumn.One);
-                // Build positional mapping a1,a2,... to help users write RBQL queries
-                const positional = columns.map((_, i) => `a${i + 1}`);
-                const columnMap = columns.map((name, i) => ({ pos: `a${i + 1}`, name }));
-                panel.webview.postMessage({ type: 'init', columns, rowCount, positional, columnMap });
-                return;
+            // Dispose the old panel so the updated HTML (templates, autocomplete,
+            // cursor fixes) is always loaded fresh from disk.
+            panel.dispose();
+            panel = undefined;
         }
 
         panel = vscode.window.createWebviewPanel(
@@ -81,6 +81,10 @@ module.exports = function rbqlCommand(context) {
             vscode.Uri.joinPath(context.extensionUri, 'media', 'rbql-syntax.js')
         ).toString();
 
+        const templatesUri = panel.webview.asWebviewUri(
+            vscode.Uri.joinPath(context.extensionUri, 'media', 'rbql-templates.js')
+        ).toString();
+
         const iconUri = panel.webview.asWebviewUri(
             vscode.Uri.joinPath(context.extensionUri, 'images', 'icon.png')
         ).toString();
@@ -96,6 +100,7 @@ module.exports = function rbqlCommand(context) {
             .replace('{{WEBVIEW_RESOURCE_ROOT}}', panel.webview.cspSource)
             .replace('{{WEBVIEW_CSS_URI}}', cssUri)
             .replace('{{WEBVIEW_SYNTAX_URI}}', syntaxUri)
+            .replace('{{WEBVIEW_TEMPLATES_URI}}', templatesUri)
             .replace('{{ICON_URI}}', iconUri)
             .split('{{VERSION}}').join(version);
 
@@ -117,10 +122,17 @@ module.exports = function rbqlCommand(context) {
                 try {
                     switch (message.type) {
                         case 'execute':
-                            await handleExecute(message, dataset, panel);
+                            await handleExecute(message, dataset, joinDataset, panel);
                             break;
                         case 'export':
                             await handleExport(message, panel);
+                            break;
+                        case 'selectJoinFile':
+                            joinDataset = await handleSelectJoinFile(panel);
+                            break;
+                        case 'clearJoinFile':
+                            joinDataset = undefined;
+                            panel.webview.postMessage({ type: 'joinFileCleared' });
                             break;
                     }
                 } catch (err) {
@@ -146,9 +158,10 @@ module.exports = function rbqlCommand(context) {
 /**
  * @param {any} message
  * @param {import('../engine/dataset')} ds
+ * @param {import('../engine/dataset') | undefined} joinDs
  * @param {vscode.WebviewPanel} webviewPanel
  */
-async function handleExecute(message, ds, webviewPanel) {
+async function handleExecute(message, ds, joinDs, webviewPanel) {
     const { query, hasHeader } = message;
 
     if (!query || !query.trim()) {
@@ -169,7 +182,8 @@ async function handleExecute(message, ds, webviewPanel) {
     webviewPanel.webview.postMessage({ type: 'progress', pct: 30 });
 
     const result = await rbqlService.executeQuery(ds, query, {
-        hasHeader: hasHeader !== false
+        hasHeader: hasHeader !== false,
+        joinDataset: joinDs || null
     });
 
     webviewPanel.webview.postMessage({ type: 'progress', pct: 90 });
@@ -306,5 +320,44 @@ async function handleExport(message, webviewPanel) {
         );
     } catch (err) {
         vscode.window.showErrorMessage(`Export failed: ${err.message}`);
+    }
+}
+
+/**
+ * Handle join file selection — opens a file picker, parses the CSV,
+ * and returns the parsed dataset for use in JOIN queries.
+ *
+ * @param {vscode.WebviewPanel} webviewPanel
+ * @returns {Promise<import('../engine/dataset') | undefined>}
+ */
+async function handleSelectJoinFile(webviewPanel) {
+    const uris = await vscode.window.showOpenDialog({
+        canSelectFiles: true,
+        canSelectMany: false,
+        filters: { 'CSV Files': ['csv'], 'All Files': ['*'] },
+        title: 'Select Join Table (CSV)'
+    });
+
+    if (!uris || !uris.length) return undefined;
+
+    const joinUri = uris[0];
+    try {
+        const bytes = await vscode.workspace.fs.readFile(joinUri);
+        const text = Buffer.from(bytes).toString('utf8');
+        const parsed = csvParser.parse(text);
+
+        const joinCols = parsed.getColumns();
+        const joinRows = parsed.getRowCount();
+        webviewPanel.webview.postMessage({
+            type: 'joinFileLoaded',
+            fileName: path.basename(joinUri.fsPath),
+            columns: joinCols,
+            rowCount: joinRows,
+            columnMap: joinCols.map((name, i) => ({ pos: `b${i + 1}`, name }))
+        });
+        return parsed;
+    } catch (err) {
+        vscode.window.showErrorMessage(`Failed to parse join file: ${err.message}`);
+        return undefined;
     }
 }

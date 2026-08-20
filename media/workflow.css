@@ -147,12 +147,12 @@ body {
 .toolbar {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 12px;
   background: var(--vscode-editorWidget-background, #252526);
   border-bottom: 1px solid var(--vscode-panel-border, #454545);
   flex-shrink: 0;
-  flex-wrap: wrap;
 }
 
 .toolbar-group {
@@ -160,6 +160,18 @@ body {
   align-items: center;
   gap: 4px;
 }
+
+.toolbar-left { flex-shrink: 0; }
+.toolbar-center { flex: 1; justify-content: center; flex-wrap: wrap; }
+.toolbar-right { flex-shrink: 0; }
+
+.toolbar-toggle {
+  padding: 4px 6px;
+  font-size: 14px;
+  opacity: 0.7;
+  transition: opacity var(--transition-fast);
+}
+.toolbar-toggle:hover { opacity: 1; }
 
 .workflow-name {
   background: var(--vscode-input-background);
@@ -374,12 +386,22 @@ body {
 /* ── Palette ───────────────────────────────────── */
 .palette {
   width: 280px;
+  min-width: 280px;
   background: var(--vscode-editorWidget-background, #252526);
   border-right: 1px solid var(--vscode-panel-border, #454545);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
   overflow: hidden;
+  transition: width 0.25s ease, min-width 0.25s ease, opacity 0.2s ease;
+}
+
+.palette.collapsed {
+  width: 0;
+  min-width: 0;
+  opacity: 0;
+  border-right: none;
+  pointer-events: none;
 }
 
 .palette-header {
@@ -611,6 +633,185 @@ body {
 
 .canvas-empty.visible { display: block; }
 .canvas-empty { display: none; }
+
+/* ── Config Panel (right side) ──────────────────── */
+.config-panel {
+  width: 340px;
+  min-width: 340px;
+  background: var(--vscode-editorWidget-background, #252526);
+  border-left: 1px solid var(--vscode-panel-border, #454545);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  overflow: hidden;
+  transition: width 0.25s ease, min-width 0.25s ease, opacity 0.2s ease;
+}
+
+.config-panel.hidden {
+  width: 0;
+  min-width: 0;
+  opacity: 0;
+  border-left: none;
+  pointer-events: none;
+}
+
+.config-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--vscode-panel-border, #454545);
+  flex-shrink: 0;
+}
+
+.config-panel-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.config-panel-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.config-panel-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.config-panel-close {
+  flex-shrink: 0;
+  padding: 4px 6px;
+  font-size: 14px;
+  opacity: 0.6;
+  transition: opacity var(--transition-fast);
+}
+.config-panel-close:hover { opacity: 1; }
+
+.config-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 14px;
+}
+
+.config-panel-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.config-panel-empty-icon {
+  font-size: 32px;
+  margin-bottom: 10px;
+  opacity: 0.5;
+}
+
+.config-panel-empty-text {
+  font-size: 12px;
+  opacity: 0.6;
+  line-height: 1.5;
+}
+
+/* ── Config Panel Fields ──────────────────────── */
+.config-panel-body .config-field {
+  margin-bottom: 12px;
+}
+
+.config-panel-body .config-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.config-panel-body .config-input,
+.config-panel-body .config-select,
+.config-panel-body .config-textarea {
+  width: 100%;
+  padding: 5px 8px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border, #454545);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.config-panel-body .config-input:focus,
+.config-panel-body .config-select:focus,
+.config-panel-body .config-textarea:focus {
+  border-color: var(--vscode-focusBorder, #007fd4);
+}
+
+.config-panel-body .config-textarea {
+  min-height: 60px;
+  resize: vertical;
+}
+
+.config-panel-body .required-mark {
+  color: var(--error, #c75f8a);
+}
+
+.config-panel-body .config-field-invalid {
+  border-left: 2px solid var(--error, #c75f8a);
+  padding-left: 6px;
+}
+
+.config-panel-actions {
+  display: flex;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--vscode-panel-border, #454545);
+  flex-shrink: 0;
+}
+
+.config-panel-actions .btn-primary {
+  flex: 1;
+  background: var(--vscode-button-background, #0e639c);
+  color: var(--vscode-button-foreground, #fff);
+  border: none;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.config-panel-actions .btn-primary:hover {
+  background: var(--vscode-button-hoverBackground, #1177bb);
+}
+
+.config-panel-actions .btn-secondary {
+  background: transparent;
+  color: var(--vscode-foreground);
+  border: 1px solid var(--vscode-panel-border, #454545);
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.config-panel-actions .btn-secondary:hover {
+  background: var(--vscode-list-hoverBackground, #2a2d2e);
+}
 
 /* ── Context Menu ─────────────────────────────── */
 .canvas-context-menu {
@@ -1448,4 +1649,343 @@ body {
   color: var(--vscode-descriptionForeground, #9a9a9a);
   margin-top: 6px;
   line-height: 1.5;
+}
+
+/* ============================================
+   DAG Canvas Styles
+   ============================================ */
+
+/* ── DAG Canvas Container ─────────────────── */
+.dag-canvas {
+  width: 100%;
+  height: 100%;
+  background: var(--vscode-editor-background, #1e1e1e);
+  cursor: grab;
+  user-select: none;
+}
+
+.dag-canvas:active {
+  cursor: grabbing;
+}
+
+/* ── DAG Nodes ────────────────────────────── */
+.dag-node {
+  cursor: move;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+  transition: filter 0.15s ease;
+}
+
+.dag-node:hover {
+  filter: drop-shadow(0 4px 8px rgba(0,0,0,0.4));
+}
+
+.dag-node.selected {
+  filter: drop-shadow(0 0 0 2px var(--vscode-focusBorder, #007fd4));
+}
+
+.dag-node-body {
+  fill: var(--vscode-editorWidget-background, #252526);
+  stroke: var(--vscode-panel-border, #454545);
+  stroke-width: 1;
+  rx: 6;
+  ry: 6;
+}
+
+.dag-node.selected .dag-node-body {
+  stroke: var(--vscode-focusBorder, #007fd4);
+  stroke-width: 2;
+}
+
+.dag-node-header {
+  fill: var(--vscode-titleBar-activeBackground, #3c3c3c);
+  rx: 6;
+  ry: 6;
+}
+
+.dag-node.selected .dag-node-header {
+  fill: var(--vscode-focusBorder, #007fd4);
+}
+
+.dag-node-title {
+  font-size: 12px;
+  font-weight: 600;
+  fill: var(--vscode-foreground, #cccccc);
+  pointer-events: none;
+}
+
+.dag-node-type {
+  font-size: 10px;
+  fill: var(--vscode-descriptionForeground, #9a9a9a);
+  pointer-events: none;
+}
+
+.dag-node-icon {
+  font-size: 14px;
+  pointer-events: none;
+}
+
+.dag-node-status {
+  font-size: 10px;
+  pointer-events: none;
+}
+
+.dag-node-status.pending {
+  fill: var(--vscode-badge-background, #4d4d4d);
+}
+
+.dag-node-status.running {
+  fill: var(--info, #3a8fd4);
+  animation: pulse-badge 1.2s ease-in-out infinite;
+}
+
+.dag-node-status.completed {
+  fill: var(--success, #2da680);
+}
+
+.dag-node-status.failed {
+  fill: var(--error, #c75f8a);
+}
+
+/* ── DAG Ports ────────────────────────────── */
+.dag-port {
+  cursor: crosshair;
+  transition: fill 0.15s ease, stroke 0.15s ease;
+}
+
+.dag-port:hover {
+  filter: brightness(1.4);
+}
+
+.dag-port-input {
+  fill: var(--vscode-editorWidget-background, #252526);
+  stroke: var(--vscode-panel-border, #454545);
+  stroke-width: 1.5;
+}
+
+.dag-port-output {
+  fill: var(--vscode-editorWidget-background, #252526);
+  stroke: var(--vscode-panel-border, #454545);
+  stroke-width: 1.5;
+}
+
+.dag-port-input.connected,
+.dag-port-output.connected {
+  fill: var(--vscode-focusBorder, #007fd4);
+}
+
+.dag-port-label {
+  fill: var(--vscode-descriptionForeground, #9a9a9a);
+  font-size: 9px;
+  font-weight: 600;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ── DAG Edges ────────────────────────────── */
+.dag-edge {
+  fill: none;
+  stroke: var(--vscode-foreground, #cccccc);
+  stroke-width: 2;
+  cursor: pointer;
+  transition: stroke 0.15s ease;
+}
+
+.dag-edge:hover {
+  stroke: var(--vscode-focusBorder, #007fd4);
+}
+
+.dag-edge.selected {
+  stroke: var(--vscode-focusBorder, #007fd4);
+  stroke-width: 3;
+}
+
+.dag-temp-connection {
+  fill: none;
+  stroke: var(--vscode-focusBorder, #007fd4);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  pointer-events: none;
+  will-change: d;
+}
+
+/* ── DAG Minimap ──────────────────────────── */
+.dag-minimap {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  width: 160px;
+  height: 120px;
+  background: var(--vscode-editorWidget-background, #252526);
+  border: 1px solid var(--vscode-panel-border, #454545);
+  border-radius: var(--radius-md, 6px);
+  overflow: hidden;
+  opacity: 0.8;
+  transition: opacity 0.2s ease;
+}
+
+.dag-minimap:hover {
+  opacity: 1;
+}
+
+.dag-minimap svg {
+  width: 100%;
+  height: 100%;
+}
+
+.dag-minimap-viewport {
+  fill: rgba(0, 122, 204, 0.15);
+  stroke: var(--vscode-focusBorder, #007fd4);
+  stroke-width: 1;
+  stroke-dasharray: 3, 2;
+}
+
+/* ── DAG Zoom Controls ────────────────────── */
+.dag-zoom-controls {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--vscode-editorWidget-background, #252526);
+  border: 1px solid var(--vscode-panel-border, #454545);
+  border-radius: var(--radius-md, 6px);
+  padding: 4px;
+}
+
+.dag-zoom-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--vscode-foreground, #cccccc);
+  border: none;
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: background 0.15s ease;
+}
+
+.dag-zoom-btn:hover {
+  background: var(--vscode-list-hoverBackground, #2a2d2e);
+}
+
+.dag-zoom-level {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground, #9a9a9a);
+  min-width: 40px;
+  text-align: center;
+}
+
+/* ── DAG Node Inline Preview ──────────────── */
+.dag-node-preview {
+  background: var(--vscode-editor-background, #1e1e1e);
+  border: 1px solid var(--vscode-panel-border, #454545);
+  border-radius: var(--radius-sm, 4px);
+  padding: 4px 6px;
+  font-size: 10px;
+  font-family: var(--font-mono, monospace);
+  color: var(--vscode-foreground, #cccccc);
+  max-height: 60px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+/* ── DAG Node Stats ───────────────────────── */
+.dag-node-stats {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.dag-stat-pill {
+  background: var(--vscode-badge-background, #4d4d4d);
+  color: var(--vscode-badge-foreground, #ffffff);
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 9px;
+}
+
+/* ── DAG Node Error ───────────────────────── */
+.dag-node-error {
+  background: var(--vscode-inputValidation-errorBackground, #5a1d1d);
+  border: 1px solid var(--vscode-inputValidation-errorBorder, #be1100);
+  border-radius: var(--radius-sm, 4px);
+  padding: 4px 6px;
+  font-size: 10px;
+  color: var(--vscode-inputValidation-errorForeground, #f48771);
+  margin-top: 4px;
+  max-height: 40px;
+  overflow: hidden;
+}
+
+/* ── DAG Selection Box ────────────────────── */
+.dag-selection-box {
+  fill: rgba(0, 122, 204, 0.1);
+  stroke: var(--vscode-focusBorder, #007fd4);
+  stroke-width: 1;
+  stroke-dasharray: 4, 4;
+  pointer-events: none;
+}
+
+/* ── Data Preview Modal ──────────────────── */
+.data-preview-container {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+}
+
+.data-preview-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+  font-size: 11px;
+}
+
+.data-preview-table th {
+  background: var(--vscode-editorWidget-background, #252526);
+  border: 1px solid var(--vscode-panel-border, #454545);
+  padding: 6px 10px;
+  text-align: left;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  white-space: nowrap;
+}
+
+.data-preview-table td {
+  border: 1px solid var(--vscode-panel-border, #454545);
+  padding: 4px 10px;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.data-preview-table tbody tr:hover {
+  background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.05));
+}
+
+.data-preview-table .null-value {
+  color: var(--vscode-descriptionForeground, #9a9a9a);
+  font-style: italic;
+}
+
+.data-preview-more {
+  text-align: center;
+  padding: 8px;
+  color: var(--vscode-descriptionForeground, #9a9a9a);
+  font-size: 11px;
+  border-top: 1px solid var(--vscode-panel-border, #454545);
+}
+
+/* ── DAG Preview Button ──────────────────── */
+.dag-preview-btn {
+  transition: opacity 0.15s ease;
+}
+
+.dag-node:hover .dag-preview-btn {
+  opacity: 1;
 }

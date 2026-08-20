@@ -534,7 +534,6 @@ async function executeWorkflow(workflowDef, options = {}) {
     } = options;
     
     const results = {};
-    let currentDataset = null;
     const startTime = Date.now();
     const isTimedOut = () => workflowTimeoutMs > 0 && (Date.now() - startTime) > workflowTimeoutMs;
 
@@ -607,34 +606,121 @@ async function executeWorkflow(workflowDef, options = {}) {
         onStateChange: onStateChange || null
     };
 
-    // Mark every activity from `fromIndex` onwards as Failed (used on cancel/timeout)
-    function markPendingFailed(fromIndex, reason) {
-        if (!onStateChange) return;
-        for (let j = fromIndex; j < total; j++) {
-            const a = workflowDef.activities[j];
-            const aId = a.id || `activity_${j + 1}`;
-            onStateChange(aId, 'Failed', {}, reason);
+    // ─── Resolve execution order from edges (topological sort) ─────────────
+    const edges = workflowDef.edges;
+    const hasEdges = Array.isArray(edges) && edges.length > 0;
+
+    // Build a map from nodeId → activity definition
+    const activityMap = new Map();
+    for (let i = 0; i < total; i++) {
+        const a = workflowDef.activities[i];
+        const aId = a.id || `activity_${i + 1}`;
+        activityMap.set(aId, a);
+    }
+
+    let executionOrder;
+    if (hasEdges) {
+        // Topological sort using Kahn's algorithm
+        const inDegree = new Map();
+        const adj = new Map(); // parent → [children]
+        for (const id of activityMap.keys()) {
+            inDegree.set(id, 0);
+            adj.set(id, []);
+        }
+        for (const edge of edges) {
+            const src = edge.source.nodeId;
+            const tgt = edge.target.nodeId;
+            if (activityMap.has(src) && activityMap.has(tgt)) {
+                adj.get(src).push(tgt);
+                inDegree.set(tgt, (inDegree.get(tgt) || 0) + 1);
+            }
+        }
+        const queue = [];
+        for (const [id, deg] of inDegree) {
+            if (deg === 0) queue.push(id);
+        }
+        executionOrder = [];
+        while (queue.length > 0) {
+            const id = queue.shift();
+            executionOrder.push(id);
+            for (const child of adj.get(id)) {
+                inDegree.set(child, inDegree.get(child) - 1);
+                if (inDegree.get(child) === 0) queue.push(child);
+            }
+        }
+        // If topological sort didn't cover all nodes (disconnected), append remaining
+        if (executionOrder.length < total) {
+            for (const id of activityMap.keys()) {
+                if (!executionOrder.includes(id)) executionOrder.push(id);
+            }
+        }
+    } else {
+        // No edges — fall back to array order (backward compatible)
+        executionOrder = [];
+        for (let i = 0; i < total; i++) {
+            const a = workflowDef.activities[i];
+            executionOrder.push(a.id || `activity_${i + 1}`);
         }
     }
 
-    // ─── Execute each activity ─────────────────────────────────────────────
-    let failedActivities = [];
+    // Build parent map: each node → its parent (the node whose output feeds into it)
+    const parentOf = new Map();
+    if (hasEdges) {
+        // For each node, find the edge whose target is this node.
+        // If multiple edges target the same node, use the first one found
+        // (the engine passes one dataset per activity).
+        for (const edge of edges) {
+            const tgt = edge.target.nodeId;
+            if (!parentOf.has(tgt)) {
+                parentOf.set(tgt, edge.source.nodeId);
+            }
+        }
+    } else {
+        // Sequential: each node's parent is the previous node in array order
+        for (let i = 1; i < total; i++) {
+            const prevId = workflowDef.activities[i - 1].id || `activity_${i}`;
+            const curId = workflowDef.activities[i].id || `activity_${i + 1}`;
+            parentOf.set(curId, prevId);
+        }
+    }
 
-    for (let i = 0; i < total; i++) {
-        const activity = workflowDef.activities[i];
-        const activityId = activity.id || `activity_${i + 1}`;
+    // Store results keyed by activity ID (dataset output of each activity)
+    const datasetResults = new Map();
+
+    // Mark a set of activity IDs as Failed
+    function markIdsFailed(ids, reason) {
+        if (!onStateChange) return;
+        for (const id of ids) {
+            onStateChange(id, 'Failed', {}, reason);
+        }
+    }
+
+    // ─── Execute each activity in topological order ────────────────────────
+    let failedActivities = [];
+    const executedIds = new Set();
+
+    for (const activityId of executionOrder) {
+        const activity = activityMap.get(activityId);
+        if (!activity) continue;
 
         // Cancellation / overall timeout take priority between activities
         if (getAbortReason(signal)) {
             const reason = getAbortReason(signal);
-            markPendingFailed(i, reason);
+            // Mark all remaining unexecuted activities as Failed
+            const remaining = executionOrder.filter(id => !executedIds.has(id));
+            markIdsFailed(remaining, reason);
             return { success: false, error: reason, results, variables: context.variables };
         }
         if (isTimedOut()) {
             const reason = `Workflow timed out after ${workflowTimeoutMs}ms`;
-            markPendingFailed(i, reason);
+            const remaining = executionOrder.filter(id => !executedIds.has(id));
+            markIdsFailed(remaining, reason);
             return { success: false, error: reason, results, variables: context.variables };
         }
+
+        // Determine input dataset: use the parent's output dataset
+        const parentId = parentOf.get(activityId);
+        const inputDataset = parentId ? (datasetResults.get(parentId) || null) : null;
 
         try {
             // Reset per-activity stats so prior activity stats don't bleed through
@@ -646,10 +732,12 @@ async function executeWorkflow(workflowDef, options = {}) {
             }
 
             // Execute the activity
-            const startTime = Date.now();
-            const result = await executeActivity(activity, context, currentDataset, engineOptions);
-            const executionTime = Date.now() - startTime;
+            const actStartTime = Date.now();
+            const result = await executeActivity(activity, context, inputDataset, engineOptions);
+            const executionTime = Date.now() - actStartTime;
             
+            executedIds.add(activityId);
+
             if (!result.success) {
                 failedActivities.push(activityId);
                 if (onStateChange) {
@@ -659,12 +747,14 @@ async function executeWorkflow(workflowDef, options = {}) {
                 // If execution was cancelled/timed out mid-activity, stop cleanly
                 if (getAbortReason(signal)) {
                     const reason = getAbortReason(signal);
-                    markPendingFailed(i + 1, reason);
+                    const remaining = executionOrder.filter(id => !executedIds.has(id));
+                    markIdsFailed(remaining, reason);
                     return { success: false, error: reason, results, variables: context.variables };
                 }
                 if (isTimedOut()) {
                     const reason = `Workflow timed out after ${workflowTimeoutMs}ms`;
-                    markPendingFailed(i + 1, reason);
+                    const remaining = executionOrder.filter(id => !executedIds.has(id));
+                    markIdsFailed(remaining, reason);
                     return { success: false, error: reason, results, variables: context.variables };
                 }
                 
@@ -681,11 +771,11 @@ async function executeWorkflow(workflowDef, options = {}) {
                 continue;
             }
 
-            // Store result
-            currentDataset = result.dataset;
+            // Store the output dataset for this activity (used by downstream children)
+            datasetResults.set(activityId, result.dataset);
             results[activityId] = {
                 success: true,
-                dataset: currentDataset,
+                dataset: result.dataset,
                 executionTime,
                 timestamp: new Date().toISOString()
             };
@@ -693,6 +783,15 @@ async function executeWorkflow(workflowDef, options = {}) {
             // Update state: Completed
             const stats = context.getActivityStats();
             stats.executionTime = executionTime;
+            // Include a preview of the dataset for the webview data preview feature
+            if (result.dataset && typeof result.dataset.getRowCount === 'function') {
+                const previewRows = Math.min(50, result.dataset.getRowCount());
+                stats.preview = {
+                    columns: result.dataset.getColumns(),
+                    rowCount: result.dataset.getRowCount(),
+                    rows: result.dataset.rows.slice(0, previewRows)
+                };
+            }
             if (onStateChange) {
                 onStateChange(activityId, 'Completed', stats, null);
             }
@@ -700,6 +799,7 @@ async function executeWorkflow(workflowDef, options = {}) {
         } catch (error) {
             const errorMsg = error.message || String(error);
             failedActivities.push(activityId);
+            executedIds.add(activityId);
             
             if (onStateChange) {
                 onStateChange(activityId, 'Failed', {}, errorMsg);

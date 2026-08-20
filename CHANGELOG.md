@@ -3,9 +3,10 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [Unreleased]
+## [0.0.2] - 2026-08-24
 
 ### Added
+- **RBQL JOIN support**: load a second CSV as a join table directly in the RBQL Query Console; use `b1`, `b2`, ... for join columns with `INNER JOIN` / `LEFT JOIN` / `STRICT LEFT JOIN` syntax.
 - **Visual Workflow Builder**: drag-and-drop pipeline editor with 28+ activity types across 7 categories (Input, Transformation, Query, Analytics, Output, Control, PowerShell) — chain CSV reads, transforms, RBQL queries, charts, and file writes into repeatable `.vizflow` workflows.
 - **Workflow Scheduler**: schedule `.vizflow` workflows on a **cron schedule** or as a **one-time run** with built-in variables (`{{timestamp}}`, `{{date}}`, `{{time}}`, `{{workflowName}}`), timezone support, watch-folder triggers, and webhook/email notifications. Jobs auto-start with the extension and persist across restarts.
 - **External Data Sources**: connect to **MongoDB**, **MySQL**, and **PostgreSQL** from the Data Sources panel; credentials stored in OS keychain via VS Code SecretStorage; visual query builder with column selection, filters, sort, and preview; "Add to Workflow Builder" generates ready-to-run activities.

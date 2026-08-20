@@ -78,10 +78,10 @@
   const paletteSearch = $('paletteSearch');
   const paletteCategories = $('paletteCategories');
   const searchClear = $('searchClear');
-  const activityList = $('activityList');
   const canvasEmpty = $('canvasEmpty');
   const canvasWrap = $('canvasWrap');
   const canvasContextMenu = $('canvasContextMenu');
+  const nodeContextMenu = $('nodeContextMenu');
   const logPanel = $('logPanel');
   const logLevelFilterEl = $('logLevelFilter');
   const progressFill = $('progressFill');
@@ -105,8 +105,89 @@
   const btnToggleLog = $('btnToggleLog');
   const btnSettings = $('btnSettings');
   const btnHelp = $('btnHelp');
+  const btnTogglePalette = $('btnTogglePalette');
+  const palette = $('palette');
+
+  // Config panel refs
+  const configPanel = $('configPanel');
+  const configPanelBody = $('configPanelBody');
+  const configPanelTitle = $('configPanelTitle');
+  const configPanelIcon = $('configPanelIcon');
+  const configPanelClose = $('configPanelClose');
+  let configPanelNodeId = null;  // Currently editing node
 
   const vscode = acquireVsCodeApi();
+
+  // ─── DAG STATE ─────────────────────────────────────────────────────────────
+  // Visual DAG editor state for node-based workflow canvas.
+
+  /** @type {Map<string, {id:string, type:string, displayName:string, notes:string, position:{x:number,y:number}, config:Object, status:string, stats:Object, error:string|null}>} */
+  const dagNodes = new Map();
+
+  /** @type {Map<string, {id:string, source:{nodeId:string, port:string}, target:{nodeId:string, port:string}, label?:string}>} */
+  const dagEdges = new Map();
+
+  /** @type {Set<string>} IDs of currently selected nodes */
+  const dagSelectedNodes = new Set();
+
+  /** @type {string|null} ID of currently selected edge */
+  let dagSelectedEdge = null;
+
+  /** Pan/zoom state */
+  let dagViewBox = { x: 0, y: 0, width: 1200, height: 800 };
+  let dagZoom = 1;
+  let dagPanOffset = { x: 0, y: 0 };
+
+  /** Interaction state */
+  let dagDraggingNode = null;
+  let dagDraggingOffset = { x: 0, y: 0 };
+  let dagConnectingFrom = null;  // {nodeId, port, startX, startY}
+  let dagSelectionBox = null;    // {startX, startY, endX, endY}
+  let dagPanning = false;
+  let dagPanStart = { x: 0, y: 0 };
+
+  /** Cached canvas rect during drag operations (avoids getBoundingClientRect per frame) */
+  let dagCachedCanvasRect = null;
+  /** rAF id for batching connection drag updates */
+  let dagConnectRafId = 0;
+  /** Pending connection endpoint for the next rAF frame */
+  let dagConnectPendingPos = null;
+
+  /** Undo/redo stacks */
+  let dagUndoStack = [];
+  let dagRedoStack = [];
+  const DAG_MAX_UNDO = 50;
+
+  /** DOM refs for SVG elements */
+  let dagCanvasEl = null;
+  let dagTransformEl = null;
+  let dagNodesEl = null;
+  let dagEdgesEl = null;
+  let dagTempConnectionEl = null;
+  let dagMinimapEl = null;
+  let dagMinimapContentEl = null;
+  let dagMinimapViewportEl = null;
+  let dagZoomLevelEl = null;
+
+  /** Node dimensions */
+  const DAG_NODE_WIDTH = 200;
+  const DAG_NODE_HEIGHT = 80;
+  const DAG_PORT_RADIUS = 6;
+
+  /** Get the absolute canvas position of a port on a node. */
+  function dagGetPortPosition(nodeId, port) {
+    const node = dagNodes.get(nodeId);
+    if (!node) return { x: 0, y: 0 };
+    const x = node.position.x;
+    const y = node.position.y;
+    switch (port) {
+      case 'then':  return { x: x + DAG_NODE_WIDTH, y: y + 25 };
+      case 'else':  return { x: x + DAG_NODE_WIDTH, y: y + DAG_NODE_HEIGHT - 25 };
+      case 'output': return { x: x + DAG_NODE_WIDTH, y: y + DAG_NODE_HEIGHT / 2 };
+      case 'input':  return { x: x, y: y + DAG_NODE_HEIGHT / 2 };
+      default:       return { x: x + DAG_NODE_WIDTH, y: y + DAG_NODE_HEIGHT / 2 };
+    }
+  }
 
   // ─── CATEGORY METADATA ──────────────────────────────────────────────────────
 
@@ -178,16 +259,122 @@
     } else if (s && (s.type === 'forEach' || s.type === 'forEachFile')) {
       cfg.steps = Array.isArray(s.config?.steps) ? s.config.steps.map(serializeStep) : [];
     }
-    return { id: s.id, type: s.type, config: cfg };
+    const out = { id: s.id, type: s.type, config: cfg };
+    if (s.displayName) out.displayName = s.displayName;
+    if (s.notes) out.notes = s.notes;
+    return out;
+  }
+
+  /**
+   * BFS from a given node+port to collect all downstream node IDs.
+   * Stops when a node has no outgoing edges from the given context.
+   */
+  function dagCollectBranch(startNodeId, startPort) {
+    const visited = new Set();
+    const queue = [];
+    // Find the first edge from the start port
+    for (const edge of dagEdges.values()) {
+      if (edge.source.nodeId === startNodeId && edge.source.port === startPort) {
+        queue.push(edge.target.nodeId);
+      }
+    }
+    while (queue.length > 0) {
+      const nid = queue.shift();
+      if (visited.has(nid)) continue;
+      visited.add(nid);
+      // Follow any output edge from this node (port can be 'output', 'then', 'else')
+      for (const edge of dagEdges.values()) {
+        if (edge.source.nodeId === nid && !visited.has(edge.target.nodeId)) {
+          // Stop at merge points: a node with incoming edges from outside this branch
+          // (i.e. from a node NOT already in visited) is a merge point — include it
+          // only if it hasn't been visited yet from another path within this branch.
+          queue.push(edge.target.nodeId);
+        }
+      }
+    }
+    return visited;
   }
 
   function buildWorkflowDef() {
+    const edges = [];
+    for (const edge of dagEdges.values()) {
+      edges.push({
+        id: edge.id,
+        source: { nodeId: edge.source.nodeId, port: edge.source.port },
+        target: { nodeId: edge.target.nodeId, port: edge.target.port },
+        label: edge.label || undefined
+      });
+    }
+
+    // Derive thenSteps/elseSteps for ifElse nodes from port connections
+    const branchNodeIds = new Set();
+    const ifElseBranches = new Map(); // nodeId → { thenIds, elseIds }
+
+    for (const step of steps) {
+      if (step.type === 'ifElse') {
+        const thenIds = dagCollectBranch(step.id, 'then');
+        const elseIds = dagCollectBranch(step.id, 'else');
+        ifElseBranches.set(step.id, { thenIds, elseIds });
+        for (const id of thenIds) branchNodeIds.add(id);
+        for (const id of elseIds) branchNodeIds.add(id);
+      }
+    }
+
+    // Build the node map for quick lookup
+    const nodeMap = new Map();
+    for (const node of dagNodes.values()) {
+      nodeMap.set(node.id, node);
+    }
+
+    // Helper: convert a set of node IDs into a serializable step array (topological order)
+    function branchToSteps(idSet) {
+      if (idSet.size === 0) return [];
+      // Topological sort within the branch
+      const ids = Array.from(idSet);
+      const inBranch = new Set(ids);
+      const result = [];
+      const visited = new Set();
+      function visit(nid) {
+        if (visited.has(nid)) return;
+        visited.add(nid);
+        // Visit predecessors within the branch first
+        for (const edge of dagEdges.values()) {
+          if (edge.target.nodeId === nid && inBranch.has(edge.source.nodeId)) {
+            visit(edge.source.nodeId);
+          }
+        }
+        const node = nodeMap.get(nid);
+        if (node) result.push(node);
+      }
+      for (const id of ids) visit(id);
+      return result;
+    }
+
+    // Build top-level steps: exclude branch nodes, populate ifElse thenSteps/elseSteps
+    const topLevelSteps = [];
+    for (const step of steps) {
+      if (branchNodeIds.has(step.id)) continue;
+      if (step.type === 'ifElse' && ifElseBranches.has(step.id)) {
+        const { thenIds, elseIds } = ifElseBranches.get(step.id);
+        const cfg = { ...(step.config || {}) };
+        cfg.thenSteps = branchToSteps(thenIds).map(serializeStep);
+        cfg.elseSteps = branchToSteps(elseIds).map(serializeStep);
+        const out = { id: step.id, type: step.type, config: cfg };
+        if (step.displayName) out.displayName = step.displayName;
+        if (step.notes) out.notes = step.notes;
+        topLevelSteps.push(out);
+      } else {
+        topLevelSteps.push(serializeStep(step));
+      }
+    }
+
     return {
       name: workflowName.value.trim() || DEFAULT_WORKFLOW_NAME,
       version: '1.0.0',
       createdAt: new Date().toISOString(),
       parameters: workflowParameters.length ? workflowParameters.map(p => ({ ...p })) : undefined,
-      activities: steps.map(serializeStep)
+      activities: topLevelSteps,
+      edges: edges.length > 0 ? edges : undefined
     };
   }
 
@@ -212,6 +399,8 @@
         id: a.id, 
         type: a.type, 
         config: cfg, 
+        displayName: a.displayName || '',
+        notes: a.notes || '',
         collapsed: false, 
         status: 'Pending', 
         stats: {}, 
@@ -232,15 +421,137 @@
       for (const s of list) {
         const m = s.id.match(/^step_(\d+)$/);
         if (m) max = Math.max(max, +m[1]);
-        if (s.type === 'ifElse') { 
-          scanIds(s.config.thenSteps || []); 
-          scanIds(s.config.elseSteps || []); 
+        if (s.type === 'ifElse') {
+          scanIds(s.config.thenSteps || []);
+          scanIds(s.config.elseSteps || []);
         }
         if (s.type === 'forEach' || s.type === 'forEachFile') scanIds(s.config.steps || []);
       }
     }
     scanIds(steps);
     stepCounter = max + 1;
+
+    // Initialize DAG nodes from loaded steps
+    dagNodes.clear();
+    dagEdges.clear();
+    dagSelectedNodes.clear();
+    dagSelectedEdge = null;
+
+    // Collect all node IDs that belong to ifElse branches (will be flattened into DAG)
+    const branchNodes = new Map(); // nodeId → step object (from nested thenSteps/elseSteps)
+    const ifElsePortEdges = []; // { fromId, port, toId }
+
+    function collectBranchNodes(ifElseStep) {
+      const thenSteps = ifElseStep.config.thenSteps || [];
+      const elseSteps = ifElseStep.config.elseSteps || [];
+      // Connect ifElse → first thenStep
+      if (thenSteps.length > 0) {
+        ifElsePortEdges.push({ fromId: ifElseStep.id, port: 'then', toId: thenSteps[0].id });
+      }
+      // Connect consecutive thenSteps
+      for (let i = 0; i < thenSteps.length - 1; i++) {
+        ifElsePortEdges.push({ fromId: thenSteps[i].id, port: 'output', toId: thenSteps[i + 1].id });
+      }
+      // Connect ifElse → first elseStep
+      if (elseSteps.length > 0) {
+        ifElsePortEdges.push({ fromId: ifElseStep.id, port: 'else', toId: elseSteps[0].id });
+      }
+      // Connect consecutive elseSteps
+      for (let i = 0; i < elseSteps.length - 1; i++) {
+        ifElsePortEdges.push({ fromId: elseSteps[i].id, port: 'output', toId: elseSteps[i + 1].id });
+      }
+      // Recursively collect nested ifElse branches
+      function registerBranch(list) {
+        for (const s of list) {
+          branchNodes.set(s.id, s);
+          if (s.type === 'ifElse') collectBranchNodes(s);
+          if (s.type === 'forEach' || s.type === 'forEachFile') registerBranch(s.config.steps || []);
+        }
+      }
+      registerBranch(thenSteps);
+      registerBranch(elseSteps);
+    }
+
+    for (const step of steps) {
+      if (step.type === 'ifElse') collectBranchNodes(step);
+      if (step.type === 'forEach' || step.type === 'forEachFile') {
+        // forEach/forEachFile children stay nested (not flattened into DAG for now)
+      }
+    }
+
+    // Create nodes with default positions (will be auto-laid-out)
+    const nodeSpacing = 250;
+    let nodeIndex = 0;
+    function createNode(step) {
+      const act = activities.find(a => a.type === step.type);
+      return {
+        id: step.id,
+        type: step.type,
+        displayName: step.displayName || (act ? act.displayName : step.type),
+        notes: step.notes || '',
+        position: { x: nodeIndex * nodeSpacing, y: 100 },
+        config: step.config,
+        status: step.status || 'Pending',
+        stats: step.stats || {},
+        error: step.error || null,
+        preview: null
+      };
+    }
+
+    // Create top-level nodes
+    for (const step of steps) {
+      const node = createNode(step);
+      dagNodes.set(step.id, node);
+      nodeIndex++;
+    }
+
+    // Create branch nodes (flattened from ifElse nested children)
+    for (const [id, step] of branchNodes) {
+      if (!dagNodes.has(id)) {
+        const node = createNode(step);
+        dagNodes.set(id, node);
+        nodeIndex++;
+      }
+    }
+
+    // Restore saved edges (from new-format files that include branch edges)
+    const savedEdgeSet = new Set();
+    if (Array.isArray(def.edges)) {
+      for (const savedEdge of def.edges) {
+        if (savedEdge && savedEdge.source && savedEdge.target) {
+          dagEdges.set(savedEdge.id, {
+            id: savedEdge.id,
+            source: { nodeId: savedEdge.source.nodeId, port: savedEdge.source.port },
+            target: { nodeId: savedEdge.target.nodeId, port: savedEdge.target.port },
+            label: savedEdge.label || undefined
+          });
+          savedEdgeSet.add(`${savedEdge.source.nodeId}:${savedEdge.source.port}:${savedEdge.target.nodeId}`);
+        }
+      }
+    }
+
+    // For old-format files: create branch edges from nested thenSteps/elseSteps
+    // (skip if edges already exist for these connections)
+    for (const pe of ifElsePortEdges) {
+      const key = `${pe.fromId}:${pe.port === 'output' ? 'output' : pe.port}:${pe.toId}`;
+      if (!savedEdgeSet.has(key)) {
+        const edgeId = `edge_branch_${pe.fromId}_${pe.port}_${pe.toId}`;
+        dagEdges.set(edgeId, {
+          id: edgeId,
+          source: { nodeId: pe.fromId, port: pe.port === 'output' ? 'output' : pe.port },
+          target: { nodeId: pe.toId, port: 'input' },
+          label: undefined
+        });
+      }
+    }
+
+    // Auto-layout the nodes
+    if (dagNodes.size > 0) {
+      dagAutoLayout();
+    } else {
+      dagRenderAll();
+    }
+
     updateFileInfo();
     renderCanvas();
   }
@@ -439,18 +750,16 @@
       return;
     }
     
-    steps.push({
-      id: `step_${stepCounter++}`,
-      type,
-      config: defaultConfig(act),
-      collapsed: false,
-      status: 'Pending',
-      stats: {},
-      error: null
-    });
-    renderCanvas();
-    logLine(`Added: ${act.displayName}`, 'info');
-    showNotification(`Added "${act.displayName}"`, 'success', 1500);
+    // Calculate position for new node (center of visible canvas area)
+    let x = 200, y = 200;
+    if (dagCanvasEl) {
+      const rect = dagCanvasEl.getBoundingClientRect();
+      x = (rect.width / 2 - dagPanOffset.x) / dagZoom - DAG_NODE_WIDTH / 2;
+      y = (rect.height / 2 - dagPanOffset.y) / dagZoom - DAG_NODE_HEIGHT / 2;
+    }
+
+    // dagAddNode handles adding to both dagNodes and steps
+    dagAddNode(type, x, y);
   }
 
   function removeStep(id) {
@@ -462,6 +771,10 @@
       }
     }
     steps = steps.filter(s => s.id !== id);
+    // Also remove from DAG canvas
+    if (dagNodes.has(id)) {
+      dagRemoveNode(id);
+    }
     renderCanvas();
   }
 
@@ -478,6 +791,8 @@
     webviewConfirm('Remove all activities from the workflow?', () => {
       steps = [];
       stepCounter = 1;
+      // Also clear DAG canvas
+      dagClearAll();
       renderCanvas();
       logLine('Cleared all steps', 'info');
     }, 'Remove');
@@ -1097,362 +1412,11 @@
     }
   }
 
-  // ─── SUB-CANVAS RENDERER ────────────────────────────────────────────────────
-
-  function renderSubCanvas(subSteps, container, branchLabel, borderColor, onMutate) {
-    const safeSubSteps = Array.isArray(subSteps) ? subSteps : [];
-    container.innerHTML = '';
-
-    const header = document.createElement('div');
-    header.className = `block-branch-header ${branchLabel.toLowerCase()}`;
-    header.style.borderLeftColor = borderColor;
-    header.textContent = branchLabel;
-    container.appendChild(header);
-
-    const stepsWrap = document.createElement('div');
-    stepsWrap.className = 'block-branch-steps';
-
-    function rebuildSub() {
-      stepsWrap.innerHTML = '';
-      for (let i = 0; i < safeSubSteps.length; i++) {
-        const subStep = safeSubSteps[i];
-        const subAct = activities.find(a => a.type === subStep.type);
-        if (!subAct) continue;
-
-        if (i > 0) stepsWrap.appendChild(createSubConnector());
-
-        const card = document.createElement('div');
-        card.className = `activity-card sub-card status-${subStep.status}` + (subStep.collapsed ? ' collapsed' : '');
-        card.dataset.stepId = subStep.id;
-
-        const subMeta = catMeta(subAct.category);
-        const hdr = document.createElement('div');
-        hdr.className = 'activity-card-header';
-
-        const num = document.createElement('div');
-        num.className = 'step-num';
-        num.style.background = subMeta.color;
-        num.textContent = String(i + 1);
-
-        const badge = document.createElement('div');
-        badge.className = 'activity-icon-badge';
-        badge.style.background = subMeta.bg;
-        badge.textContent = subMeta.icon;
-
-        const txt = document.createElement('div');
-        txt.className = 'card-text';
-        txt.innerHTML = `<div class="activity-card-title">${esc(subAct.displayName)}</div><div class="activity-card-meta">${esc(subStep.id)}</div>`;
-
-        const statusBadge = document.createElement('span');
-        statusBadge.className = `activity-status-badge status-badge-${subStep.status}`;
-        statusBadge.textContent = subStep.status;
-
-        const btns = document.createElement('div');
-        btns.className = 'card-actions';
-        btns.addEventListener('click', e => e.stopPropagation());
-
-        if (i > 0) {
-          const up = document.createElement('button');
-          up.className = 'btn-icon'; up.title = 'Move up'; up.textContent = '↑';
-          up.addEventListener('click', () => {
-            [safeSubSteps[i - 1], safeSubSteps[i]] = [safeSubSteps[i], safeSubSteps[i - 1]];
-            rebuildSub();
-            onMutate?.();
-          });
-          btns.appendChild(up);
-        }
-        if (i < safeSubSteps.length - 1) {
-          const dn = document.createElement('button');
-          dn.className = 'btn-icon'; dn.title = 'Move down'; dn.textContent = '↓';
-          dn.addEventListener('click', () => {
-            [safeSubSteps[i], safeSubSteps[i + 1]] = [safeSubSteps[i + 1], safeSubSteps[i]];
-            rebuildSub();
-            onMutate?.();
-          });
-          btns.appendChild(dn);
-        }
-        const del = document.createElement('button');
-        del.className = 'btn-icon'; del.title = 'Remove'; del.innerHTML = '&times;'; del.style.color = '#c75f8a';
-        del.addEventListener('click', () => {
-          safeSubSteps.splice(i, 1);
-          rebuildSub();
-          onMutate?.();
-        });
-        btns.appendChild(del);
-
-        const chev = document.createElement('span');
-        chev.className = 'collapse-chevron'; chev.textContent = '▾';
-
-        hdr.appendChild(num); hdr.appendChild(badge); hdr.appendChild(txt);
-        hdr.appendChild(statusBadge); hdr.appendChild(btns); hdr.appendChild(chev);
-        hdr.addEventListener('click', () => { 
-          subStep.collapsed = !subStep.collapsed; 
-          card.classList.toggle('collapsed', subStep.collapsed); 
-        });
-        card.appendChild(hdr);
-
-        const body = document.createElement('div');
-        body.className = 'activity-body';
-        renderConfigFields(subStep, subAct, body);
-        
-        if (subStep.status === 'Completed' && Object.keys(subStep.stats || {}).length > 0) {
-          const sr = document.createElement('div'); sr.className = 'stats-row';
-          for (const [k, v] of Object.entries(subStep.stats)) {
-            const lbl = k === 'durationMs' ? 'time' : k.replace(/([A-Z])/g, ' $1').toLowerCase().trim();
-            const val = k === 'durationMs' ? `${v}ms` : String(v);
-            const pill = document.createElement('div'); pill.className = 'stat-pill';
-            pill.innerHTML = `<span class="stat-label">${esc(lbl)}</span><span class="stat-value">${esc(val)}</span>`;
-            sr.appendChild(pill);
-          }
-          body.appendChild(sr);
-        }
-        if (subStep.error) {
-          const errEl = document.createElement('div'); errEl.className = 'error-banner';
-          errEl.innerHTML = `<span class="error-banner-icon">⚠</span><span>${esc(subStep.error)}</span>`;
-          body.appendChild(errEl);
-        }
-        card.appendChild(body);
-        stepsWrap.appendChild(card);
-      }
-
-      // "Add step to branch" dropdown
-      const addRow = document.createElement('div');
-      addRow.className = 'block-add-step-row';
-      const sel = document.createElement('select');
-      sel.className = 'config-select block-add-select';
-      const placeholder = document.createElement('option');
-      placeholder.value = ''; placeholder.textContent = '+ Add step to branch…';
-      sel.appendChild(placeholder);
-      for (const a of activities) {
-        const o = document.createElement('option');
-        o.value = a.type; o.textContent = a.displayName;
-        sel.appendChild(o);
-      }
-      sel.addEventListener('change', () => {
-        const type = sel.value;
-        if (!type) return;
-        const subAct2 = activities.find(a => a.type === type);
-        if (!subAct2) return;
-        safeSubSteps.push({
-          id: `step_${stepCounter++}`,
-          type,
-          config: defaultConfig(subAct2),
-          collapsed: false,
-          status: 'Pending',
-          stats: {},
-          error: null
-        });
-        sel.value = '';
-        rebuildSub();
-        onMutate?.();
-      });
-      addRow.appendChild(sel);
-      stepsWrap.appendChild(addRow);
-    }
-
-    rebuildSub();
-    container.appendChild(stepsWrap);
-  }
-
   // ─── CANVAS ──────────────────────────────────────────────────────────────────
 
   function renderCanvas() {
-    const empty = steps.length === 0;
-    canvasEmpty.classList.toggle('visible', empty);
-    activityList.innerHTML = '';
-
-    for (let i = 0; i < steps.length; i++) {
-      const step = steps[i];
-      const act = activities.find(a => a.type === step.type);
-      if (!act) continue;
-      const meta = catMeta(act.category);
-
-      if (i > 0) activityList.appendChild(createConnector());
-
-      const card = document.createElement('div');
-      const isBlock = step.type === 'ifElse' || step.type === 'forEach' || step.type === 'forEachFile';
-      card.className = `activity-card${isBlock ? ' block-card' : ''} status-${step.status}` + (step.collapsed ? ' collapsed' : '');
-      card.dataset.stepId = step.id;
-
-      // ── Header ──
-      const header = document.createElement('div');
-      header.className = 'activity-card-header';
-
-      const stepNum = document.createElement('div');
-      stepNum.className = 'step-num';
-      stepNum.style.background = meta.color;
-      stepNum.textContent = String(i + 1);
-
-      const iconBadge = document.createElement('div');
-      iconBadge.className = 'activity-icon-badge';
-      iconBadge.style.background = meta.bg;
-      iconBadge.textContent = meta.icon;
-
-      const cardText = document.createElement('div');
-      cardText.className = 'card-text';
-      cardText.innerHTML = `
-        <div class="activity-card-title">${esc(act.displayName)}</div>
-        <div class="activity-card-meta">${esc(step.id)}</div>
-      `;
-
-      const statusBadge = document.createElement('span');
-      statusBadge.className = `activity-status-badge status-badge-${step.status}`;
-      statusBadge.textContent = step.status;
-
-      const cardActions = document.createElement('div');
-      cardActions.className = 'card-actions';
-      cardActions.addEventListener('click', e => e.stopPropagation());
-
-      if (i > 0) {
-        const up = document.createElement('button');
-        up.className = 'btn-icon'; up.title = 'Move up'; up.textContent = '↑';
-        up.addEventListener('click', () => moveStep(step.id, -1));
-        cardActions.appendChild(up);
-      }
-      if (i < steps.length - 1) {
-        const dn = document.createElement('button');
-        dn.className = 'btn-icon'; dn.title = 'Move down'; dn.textContent = '↓';
-        dn.addEventListener('click', () => moveStep(step.id, 1));
-        cardActions.appendChild(dn);
-      }
-      const del = document.createElement('button');
-      del.className = 'btn-icon'; del.title = 'Remove step'; del.innerHTML = '&times;'; del.style.color = '#c75f8a';
-      del.addEventListener('click', () => removeStep(step.id));
-      cardActions.appendChild(del);
-
-      const chevron = document.createElement('span');
-      chevron.className = 'collapse-chevron';
-      chevron.textContent = '▾';
-
-      header.appendChild(stepNum); header.appendChild(iconBadge); header.appendChild(cardText);
-      header.appendChild(statusBadge); header.appendChild(cardActions); header.appendChild(chevron);
-      header.addEventListener('click', () => {
-        step.collapsed = !step.collapsed;
-        card.classList.toggle('collapsed', step.collapsed);
-      });
-      card.appendChild(header);
-
-      // ── Body ──
-      const body = document.createElement('div');
-      body.className = 'activity-body';
-
-      // Flat config fields (shared by all types)
-      renderConfigFields(step, act, body);
-
-      // ── Block-specific branch sub-canvases ──
-      if (step.type === 'ifElse') {
-        if (!Array.isArray(step.config.thenSteps)) step.config.thenSteps = [];
-        if (!Array.isArray(step.config.elseSteps)) step.config.elseSteps = [];
-
-        const thenContainer = document.createElement('div');
-        thenContainer.className = 'block-branch';
-        const elseContainer = document.createElement('div');
-        elseContainer.className = 'block-branch';
-
-        const repaint = () => {
-          renderSubCanvas(step.config.thenSteps, thenContainer, '✅ THEN (matching rows)', '#2da680', repaint);
-          renderSubCanvas(step.config.elseSteps, elseContainer, '❌ ELSE (non-matching rows)', '#c75f8a', repaint);
-        };
-        renderSubCanvas(step.config.thenSteps, thenContainer, '✅ THEN (matching rows)', '#2da680', repaint);
-        renderSubCanvas(step.config.elseSteps, elseContainer, '❌ ELSE (non-matching rows)', '#c75f8a', repaint);
-
-        const branchWrap = document.createElement('div');
-        branchWrap.className = 'block-branches';
-        branchWrap.appendChild(thenContainer);
-        branchWrap.appendChild(elseContainer);
-        body.appendChild(branchWrap);
-
-      } else if (step.type === 'forEach') {
-        if (!Array.isArray(step.config.steps)) step.config.steps = [];
-
-        const doContainer = document.createElement('div');
-        doContainer.className = 'block-branch';
-        renderSubCanvas(step.config.steps, doContainer, '🔁 DO (per group)', '#e07b39', null);
-
-        const branchWrap = document.createElement('div');
-        branchWrap.className = 'block-branches';
-        branchWrap.appendChild(doContainer);
-        body.appendChild(branchWrap);
-
-      } else if (step.type === 'forEachFile') {
-        if (!Array.isArray(step.config.steps)) step.config.steps = [];
-
-        const doContainer = document.createElement('div');
-        doContainer.className = 'block-branch';
-        renderSubCanvas(step.config.steps, doContainer, '📁 DO (per file)', '#5b8def', null);
-
-        const branchWrap = document.createElement('div');
-        branchWrap.className = 'block-branches';
-        branchWrap.appendChild(doContainer);
-        body.appendChild(branchWrap);
-      }
-
-      // Stats + error
-      if (step.status === 'Completed' && Object.keys(step.stats || {}).length > 0) {
-        const sr = document.createElement('div');
-        sr.className = 'stats-row';
-        for (const [k, v] of Object.entries(step.stats)) {
-          const lbl = k === 'durationMs' ? 'time' : k.replace(/([A-Z])/g, ' $1').toLowerCase().trim();
-          const val = k === 'durationMs' ? `${v}ms` : String(v);
-          const pill = document.createElement('div');
-          pill.className = 'stat-pill';
-          pill.innerHTML = `<span class="stat-label">${esc(lbl)}</span><span class="stat-value">${esc(val)}</span>`;
-          sr.appendChild(pill);
-        }
-        body.appendChild(sr);
-      }
-      if (step.error) {
-        const errEl = document.createElement('div');
-        errEl.className = 'error-banner';
-        errEl.innerHTML = `<span class="error-banner-icon">⚠</span><span>${esc(step.error)}</span>`;
-        body.appendChild(errEl);
-      }
-
-      card.appendChild(body);
-      activityList.appendChild(card);
-    }
-    
-    updateStatus();
-  }
-
-  function createConnector() {
-    const wrap = document.createElement('div');
-    wrap.className = 'step-connector';
-    wrap.innerHTML = `
-      <svg width="20" height="32" viewBox="0 0 20 32">
-        <defs>
-          <marker id="arr" markerWidth="8" markerHeight="8"
-                  refX="4" refY="4" orient="auto">
-            <path d="M1,1 L7,4 L1,7 Z" fill="var(--connector-arrow, #454545)" />
-          </marker>
-        </defs>
-        <line x1="10" y1="0" x2="10" y2="26"
-              class="connector-line"
-              stroke="var(--vscode-panel-border, #454545)"
-              stroke-width="2"
-              marker-end="url(#arr)" />
-      </svg>`;
-    return wrap;
-  }
-
-  function createSubConnector() {
-    const wrap = document.createElement('div');
-    wrap.className = 'step-connector sub-connector';
-    wrap.innerHTML = `
-      <svg width="14" height="20" viewBox="0 0 14 20">
-        <defs>
-          <marker id="arr-sub" markerWidth="6" markerHeight="6"
-                  refX="3" refY="3" orient="auto">
-            <path d="M1,1 L5,3 L1,5 Z" fill="var(--connector-arrow, #454545)" />
-          </marker>
-        </defs>
-        <line x1="7" y1="0" x2="7" y2="16"
-              class="connector-line"
-              stroke="var(--vscode-panel-border, #454545)"
-              stroke-width="1.5"
-              marker-end="url(#arr-sub)" />
-      </svg>`;
-    return wrap;
+    canvasEmpty.classList.toggle('visible', steps.length === 0);
+    dagRenderAll();
   }
 
   // ─── UPDATE FUNCTIONS ──────────────────────────────────────────────────────
@@ -1488,7 +1452,8 @@
   }
 
   // ─── CANVAS DRAG AND DROP ──────────────────────────────────────────────────
-
+  // Old canvasWrap drop handler removed — dagCanvas handles drops via dagOnCanvasDrop.
+  // Keep dragover for the visual border feedback.
   canvasWrap.addEventListener('dragover', (e) => {
     e.preventDefault();
     canvasWrap.style.borderColor = 'var(--vscode-focusBorder, #007fd4)';
@@ -1496,13 +1461,6 @@
 
   canvasWrap.addEventListener('dragleave', (e) => {
     canvasWrap.style.borderColor = '';
-  });
-
-  canvasWrap.addEventListener('drop', (e) => {
-    e.preventDefault();
-    canvasWrap.style.borderColor = '';
-    const type = e.dataTransfer.getData('activity-type');
-    if (type) addStep(type);
   });
 
   // ─── CONTEXT MENU ──────────────────────────────────────────────────────────
@@ -1540,6 +1498,76 @@
       case 'paste':
         // Placeholder for paste functionality
         showNotification('Paste not yet implemented', 'info', 1500);
+        break;
+    }
+  });
+
+  // ─── NODE CONTEXT MENU ─────────────────────────────────────────────────────
+
+  let nodeContextMenuTarget = null;
+
+  function showNodeContextMenu(e, nodeId) {
+    nodeContextMenuTarget = nodeId;
+    const menu = nodeContextMenu;
+    menu.style.display = 'block';
+    menu.style.left = Math.min(e.clientX, window.innerWidth - 180) + 'px';
+    menu.style.top = Math.min(e.clientY, window.innerHeight - 160) + 'px';
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  document.addEventListener('click', (e) => {
+    if (!nodeContextMenu.contains(e.target)) {
+      nodeContextMenu.style.display = 'none';
+      nodeContextMenuTarget = null;
+    }
+  });
+
+  nodeContextMenu.addEventListener('click', (e) => {
+    const action = e.target.dataset.action;
+    const targetId = nodeContextMenuTarget;
+    nodeContextMenu.style.display = 'none';
+    nodeContextMenuTarget = null;
+
+    if (!targetId) return;
+    const node = dagNodes.get(targetId);
+    if (!node) return;
+
+    switch (action) {
+      case 'editNotes': {
+        openConfigPanel(targetId);
+        // Focus the notes textarea after panel opens
+        setTimeout(() => {
+          const notesArea = configPanelBody.querySelector('textarea');
+          if (notesArea) notesArea.focus();
+        }, 50);
+        break;
+      }
+      case 'previewData':
+        if (node.preview) {
+          showDataPreview(node);
+        } else {
+          showNotification('No data preview available. Run the workflow first.', 'info', 2000);
+        }
+        break;
+      case 'renameNode': {
+        openConfigPanel(targetId);
+        setTimeout(() => {
+          const nameInput = configPanelBody.querySelector('input[type="text"]');
+          if (nameInput) nameInput.focus();
+        }, 50);
+        break;
+      }
+      case 'duplicateNode': {
+        const act = activities.find(a => a.type === node.type);
+        if (act) {
+          dagAddNode(node.type, node.position.x + 40, node.position.y + 40);
+          showNotification(`Duplicated "${node.displayName}"`, 'success', 1500);
+        }
+        break;
+      }
+      case 'deleteNode':
+        dagRemoveNode(targetId);
         break;
     }
   });
@@ -1623,19 +1651,22 @@
   }
 
   function highlightInvalidField(step, fieldName) {
-    const card = document.querySelector(`.activity-card[data-step-id="${CSS.escape(step.id)}"]`);
-    if (!card) return;
-    card.classList.remove('collapsed');
-    step.collapsed = false;
-    const fieldEl = card.querySelector(`.config-field[data-req-name="${CSS.escape(fieldName)}"]`);
-    if (fieldEl) {
-      fieldEl.classList.add('config-field-invalid');
-      fieldEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      const input = fieldEl.querySelector('input, select, textarea');
-      if (input) input.focus({ preventScroll: true });
-    } else {
-      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
+    // DAG canvas: select the node and open config panel to highlight the field
+    dagSelectedNodes.clear();
+    dagSelectedNodes.add(step.id);
+    dagUpdateSelectionVisuals();
+    openConfigPanel(step.id);
+
+    // Try to highlight the specific field in the config panel
+    setTimeout(() => {
+      const fieldEl = document.querySelector(`.config-field[data-req-name="${CSS.escape(fieldName)}"]`);
+      if (fieldEl) {
+        fieldEl.classList.add('config-field-invalid');
+        fieldEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const input = fieldEl.querySelector('input, select, textarea');
+        if (input) input.focus({ preventScroll: true });
+      }
+    }, 100);
   }
 
   // ─── RUN / STOP ────────────────────────────────────────────────────────────
@@ -1852,6 +1883,18 @@
         step.status = msg.state;
         step.stats = msg.stats || step.stats;
         step.error = msg.error || null;
+        // Also sync the DAG node state so the canvas reflects status changes
+        const dagNode = dagNodes.get(msg.activityId);
+        if (dagNode) {
+          dagNode.status = step.status;
+          dagNode.stats = step.stats;
+          dagNode.error = step.error;
+          // Store dataset preview if provided
+          if (msg.stats && msg.stats.preview) {
+            dagNode.preview = msg.stats.preview;
+          }
+        }
+        dagRenderAll();
         renderCanvas();
         const sym = { Completed: '✓', Failed: '✗', Running: '…' }[msg.state] || '·';
         const level = msg.state === 'Failed' ? 'error' : msg.state === 'Completed' ? 'success' : 'info';
@@ -1972,6 +2015,8 @@
         const step = findStepById(steps, msg.stepId);
         if (step && msg.filePath) {
           step.config[msg.field] = msg.filePath;
+          // Update config panel input if it's open for this step
+          dagSyncConfigPanelField(msg.stepId, msg.field, msg.filePath);
           renderCanvas();
         }
         break;
@@ -2163,10 +2208,1492 @@
   }
 
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && paramsModal) closeParamsModal();
+    if (e.key === 'Escape') {
+      if (paramsModal) closeParamsModal();
+      else if (configPanelNodeId) closeConfigPanel();
+    }
   });
 
+  // ─── DAG FUNCTIONS ─────────────────────────────────────────────────────────
+  // Visual DAG editor functions for node-based workflow canvas.
+
+  /**
+   * Initialize DAG canvas DOM references.
+   * Called once on page load after DOM is ready.
+   */
+  function initDagCanvas() {
+    dagCanvasEl = $('dagCanvas');
+    dagTransformEl = $('dagTransform');
+    dagNodesEl = $('dagNodes');
+    dagEdgesEl = $('dagEdges');
+    dagTempConnectionEl = $('dagTempConnection');
+    dagMinimapEl = $('dagMinimap');
+    dagMinimapContentEl = $('dagMinimapContent');
+    dagMinimapViewportEl = $('dagMinimapViewport');
+    dagZoomLevelEl = $('dagZoomLevel');
+
+    // Set up zoom controls
+    $('dagZoomIn').addEventListener('click', () => dagSetZoom(dagZoom * 1.2));
+    $('dagZoomOut').addEventListener('click', () => dagSetZoom(dagZoom / 1.2));
+    $('dagZoomFit').addEventListener('click', dagFitToView);
+
+    // Set up canvas mouse events for pan
+    dagCanvasEl.addEventListener('mousedown', dagOnCanvasMouseDown);
+    dagCanvasEl.addEventListener('mousemove', dagOnCanvasMouseMove);
+    dagCanvasEl.addEventListener('mouseup', dagOnCanvasMouseUp);
+    dagCanvasEl.addEventListener('mouseleave', dagOnCanvasMouseUp);
+    dagCanvasEl.addEventListener('wheel', dagOnCanvasWheel, { passive: false });
+
+    // Set up drop zone for palette items
+    dagCanvasEl.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    });
+    dagCanvasEl.addEventListener('drop', dagOnCanvasDrop);
+
+    // Palette toggle button
+    btnTogglePalette.addEventListener('click', () => {
+      palette.classList.toggle('collapsed');
+    });
+
+    // Config panel close button
+    configPanelClose.addEventListener('click', closeConfigPanel);
+
+    dagUpdateTransform();
+    dagUpdateMinimap();
+  }
+
+  /**
+   * Convert screen coordinates to DAG canvas coordinates.
+   * @param {number} screenX 
+   * @param {number} screenY 
+   * @returns {{x: number, y: number}}
+   */
+  function dagScreenToCanvas(screenX, screenY) {
+    const rect = dagCanvasEl.getBoundingClientRect();
+    return {
+      x: (screenX - rect.left - dagPanOffset.x) / dagZoom,
+      y: (screenY - rect.top - dagPanOffset.y) / dagZoom
+    };
+  }
+
+  /** Fast screen→canvas using a pre-cached rect (used during drag). */
+  function dagScreenToCanvasFast(screenX, screenY) {
+    const r = dagCachedCanvasRect;
+    return {
+      x: (screenX - r.left - dagPanOffset.x) / dagZoom,
+      y: (screenY - r.top - dagPanOffset.y) / dagZoom
+    };
+  }
+
+  /**
+   * Convert DAG canvas coordinates to screen coordinates.
+   * @param {number} canvasX 
+   * @param {number} canvasY 
+   * @returns {{x: number, y: number}}
+   */
+  function dagCanvasToScreen(canvasX, canvasY) {
+    const rect = dagCanvasEl.getBoundingClientRect();
+    return {
+      x: canvasX * dagZoom + dagPanOffset.x + rect.left,
+      y: canvasY * dagZoom + dagPanOffset.y + rect.top
+    };
+  }
+
+  /**
+   * Update the SVG transform attribute for pan/zoom.
+   */
+  function dagUpdateTransform() {
+    if (!dagTransformEl) return;
+    dagTransformEl.setAttribute('transform', 
+      `translate(${dagPanOffset.x}, ${dagPanOffset.y}) scale(${dagZoom})`
+    );
+    if (dagZoomLevelEl) {
+      dagZoomLevelEl.textContent = `${Math.round(dagZoom * 100)}%`;
+    }
+  }
+
+  /**
+   * Set zoom level and update transform.
+   * @param {number} newZoom - New zoom level (0.1 to 3.0)
+   */
+  function dagSetZoom(newZoom) {
+    dagZoom = Math.max(0.1, Math.min(3.0, newZoom));
+    dagUpdateTransform();
+    dagUpdateMinimap();
+  }
+
+  /**
+   * Fit all nodes in view.
+   */
+  function dagFitToView() {
+    if (dagNodes.size === 0) {
+      dagPanOffset = { x: 0, y: 0 };
+      dagZoom = 1;
+      dagUpdateTransform();
+      dagUpdateMinimap();
+      return;
+    }
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const node of dagNodes.values()) {
+      minX = Math.min(minX, node.position.x);
+      minY = Math.min(minY, node.position.y);
+      maxX = Math.max(maxX, node.position.x + DAG_NODE_WIDTH);
+      maxY = Math.max(maxY, node.position.y + DAG_NODE_HEIGHT);
+    }
+
+    const padding = 50;
+    const width = maxX - minX + padding * 2;
+    const height = maxY - minY + padding * 2;
+
+    const rect = dagCanvasEl.getBoundingClientRect();
+    const scaleX = rect.width / width;
+    const scaleY = rect.height / height;
+    dagZoom = Math.min(scaleX, scaleY, 1.5);
+
+    dagPanOffset = {
+      x: (rect.width - width * dagZoom) / 2 - minX * dagZoom + padding * dagZoom,
+      y: (rect.height - height * dagZoom) / 2 - minY * dagZoom + padding * dagZoom
+    };
+
+    dagUpdateTransform();
+    dagUpdateMinimap();
+  }
+
+  /**
+   * Save current state to undo stack.
+   */
+  function dagSaveState() {
+    const state = {
+      nodes: Array.from(dagNodes.entries()).map(([id, node]) => ({ ...node, position: { ...node.position } })),
+      edges: Array.from(dagEdges.entries()).map(([id, edge]) => ({ ...edge }))
+    };
+    dagUndoStack.push(state);
+    if (dagUndoStack.length > DAG_MAX_UNDO) {
+      dagUndoStack.shift();
+    }
+    dagRedoStack = [];
+  }
+
+  /**
+   * Undo last action.
+   */
+  function dagUndo() {
+    if (dagUndoStack.length === 0) return;
+    const currentState = {
+      nodes: Array.from(dagNodes.entries()).map(([id, node]) => ({ ...node, position: { ...node.position } })),
+      edges: Array.from(dagEdges.entries()).map(([id, edge]) => ({ ...edge }))
+    };
+    dagRedoStack.push(currentState);
+
+    const prevState = dagUndoStack.pop();
+    dagNodes.clear();
+    dagEdges.clear();
+    for (const node of prevState.nodes) {
+      dagNodes.set(node.id, node);
+    }
+    for (const edge of prevState.edges) {
+      dagEdges.set(edge.id, edge);
+    }
+    dagSelectedNodes.clear();
+    dagSelectedEdge = null;
+    dagRenderAll();
+  }
+
+  /**
+   * Redo last undone action.
+   */
+  function dagRedo() {
+    if (dagRedoStack.length === 0) return;
+    const currentState = {
+      nodes: Array.from(dagNodes.entries()).map(([id, node]) => ({ ...node, position: { ...node.position } })),
+      edges: Array.from(dagEdges.entries()).map(([id, edge]) => ({ ...edge }))
+    };
+    dagUndoStack.push(currentState);
+
+    const nextState = dagRedoStack.pop();
+    dagNodes.clear();
+    dagEdges.clear();
+    for (const node of nextState.nodes) {
+      dagNodes.set(node.id, node);
+    }
+    for (const edge of nextState.edges) {
+      dagEdges.set(edge.id, edge);
+    }
+    dagSelectedNodes.clear();
+    dagSelectedEdge = null;
+    dagRenderAll();
+  }
+
+  /**
+   * Add a new node to the DAG canvas.
+   * @param {string} type - Activity type
+   * @param {number} x - X position
+   * @param {number} y - Y position
+   * @returns {string} Node ID
+   */
+  function dagAddNode(type, x, y) {
+    const act = activities.find(a => a.type === type);
+    if (!act) {
+      showNotification(`Activity type "${type}" not found`, 'error');
+      return null;
+    }
+
+    dagSaveState();
+    const nodeId = `step_${stepCounter++}`;
+    const node = {
+      id: nodeId,
+      type,
+      displayName: act.displayName,
+      notes: '',
+      position: { x, y },
+      config: defaultConfig(act),
+      status: 'Pending',
+      stats: {},
+      error: null,
+      preview: null
+    };
+
+    dagNodes.set(nodeId, node);
+    // Also add to steps array for compatibility
+    steps.push(node);
+    
+    dagRenderNode(node);
+    dagUpdateMinimap();
+    dagUpdateEmptyState();
+
+    logLine(`Added: ${act.displayName}`, 'info');
+    showNotification(`Added "${act.displayName}"`, 'success', 1500);
+
+    return nodeId;
+  }
+
+  /**
+   * Remove a node and its connected edges from the DAG canvas.
+   * @param {string} nodeId 
+   */
+  function dagRemoveNode(nodeId) {
+    dagSaveState();
+    const node = dagNodes.get(nodeId);
+    if (!node) return;
+
+    const act = activities.find(a => a.type === node.type);
+    if (act) {
+      logLine(`Removed: ${act.displayName}`, 'info');
+    }
+
+    // Remove connected edges
+    const edgesToRemove = [];
+    for (const [edgeId, edge] of dagEdges) {
+      if (edge.source.nodeId === nodeId || edge.target.nodeId === nodeId) {
+        edgesToRemove.push(edgeId);
+      }
+    }
+    for (const edgeId of edgesToRemove) {
+      dagEdges.delete(edgeId);
+    }
+
+    dagNodes.delete(nodeId);
+    steps = steps.filter(s => s.id !== nodeId);
+    dagSelectedNodes.delete(nodeId);
+
+    dagRenderAll();
+    dagUpdateMinimap();
+    dagUpdateEmptyState();
+  }
+
+  /**
+   * Add an edge between two nodes.
+   * @param {string} sourceNodeId 
+   * @param {string} sourcePort 
+   * @param {string} targetNodeId 
+   * @param {string} targetPort 
+   * @param {string} [label] 
+   * @returns {string} Edge ID
+   */
+  function dagAddEdge(sourceNodeId, sourcePort, targetNodeId, targetPort, label) {
+    // Validate: no self-loops
+    if (sourceNodeId === targetNodeId) {
+      showNotification('Cannot connect a node to itself', 'warning');
+      return null;
+    }
+
+    // Validate: no duplicate edges
+    for (const edge of dagEdges.values()) {
+      if (edge.source.nodeId === sourceNodeId && edge.source.port === sourcePort &&
+          edge.target.nodeId === targetNodeId && edge.target.port === targetPort) {
+        showNotification('Connection already exists', 'warning');
+        return null;
+      }
+    }
+
+    dagSaveState();
+    const edgeId = `edge_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const edge = {
+      id: edgeId,
+      source: { nodeId: sourceNodeId, port: sourcePort },
+      target: { nodeId: targetNodeId, port: targetPort },
+      label
+    };
+
+    dagEdges.set(edgeId, edge);
+    dagRenderEdge(edge);
+    dagUpdateMinimap();
+
+    return edgeId;
+  }
+
+  /**
+   * Remove an edge from the DAG canvas.
+   * @param {string} edgeId 
+   */
+  function dagRemoveEdge(edgeId) {
+    dagSaveState();
+    dagEdges.delete(edgeId);
+    dagSelectedEdge = null;
+    dagRenderAll();
+    dagUpdateMinimap();
+  }
+
+  /**
+   * Get all edges connected to a node.
+   * @param {string} nodeId 
+   * @returns {Array}
+   */
+  function dagGetNodeEdges(nodeId) {
+    const result = [];
+    for (const edge of dagEdges.values()) {
+      if (edge.source.nodeId === nodeId || edge.target.nodeId === nodeId) {
+        result.push(edge);
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Check if a port is connected.
+   * @param {string} nodeId 
+   * @param {string} port 
+   * @returns {boolean}
+   */
+  function dagIsPortConnected(nodeId, port) {
+    for (const edge of dagEdges.values()) {
+      if ((edge.source.nodeId === nodeId && edge.source.port === port) ||
+          (edge.target.nodeId === nodeId && edge.target.port === port)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Update the empty state visibility.
+   */
+  function dagUpdateEmptyState() {
+    const isEmpty = dagNodes.size === 0;
+    canvasEmpty.classList.toggle('visible', isEmpty);
+  }
+
+  // ─── DAG RENDERING ─────────────────────────────────────────────────────────
+
+  /**
+   * Render all DAG elements (nodes and edges).
+   */
+  function dagRenderAll() {
+    if (!dagNodesEl || !dagEdgesEl) return;
+
+    dagNodesEl.innerHTML = '';
+    dagEdgesEl.innerHTML = '';
+
+    for (const node of dagNodes.values()) {
+      dagRenderNode(node);
+    }
+
+    for (const edge of dagEdges.values()) {
+      dagRenderEdge(edge);
+    }
+
+    updateStatus();
+  }
+
+  /**
+   * Render a single node.
+   * @param {Object} node 
+   */
+  function dagRenderNode(node) {
+    const act = activities.find(a => a.type === node.type);
+    if (!act) return;
+
+    const meta = catMeta(act.category);
+    const isSelected = dagSelectedNodes.has(node.id);
+
+    // Create node group
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.setAttribute('class', `dag-node ${isSelected ? 'selected' : ''}`);
+    g.setAttribute('data-node-id', node.id);
+    g.setAttribute('transform', `translate(${node.position.x}, ${node.position.y})`);
+
+    // Clipped content group — prevents text from overflowing the node box
+    const clip = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    clip.setAttribute('clip-path', 'url(#dagNodeClip)');
+
+    // Node body
+    const body = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    body.setAttribute('class', 'dag-node-body');
+    body.setAttribute('width', DAG_NODE_WIDTH);
+    body.setAttribute('height', DAG_NODE_HEIGHT);
+    clip.appendChild(body);
+
+    // Node header background
+    const headerBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    headerBg.setAttribute('class', 'dag-node-header');
+    headerBg.setAttribute('width', DAG_NODE_WIDTH);
+    headerBg.setAttribute('height', 24);
+    headerBg.setAttribute('rx', '6');
+    headerBg.setAttribute('ry', '6');
+    clip.appendChild(headerBg);
+
+    // Category icon
+    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    icon.setAttribute('class', 'dag-node-icon');
+    icon.setAttribute('x', '12');
+    icon.setAttribute('y', '16');
+    icon.setAttribute('fill', meta.color);
+    icon.textContent = meta.icon;
+    clip.appendChild(icon);
+
+    // Node title (uses custom displayName, falls back to activity name)
+    const title = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    title.setAttribute('class', 'dag-node-title');
+    title.setAttribute('x', '30');
+    title.setAttribute('y', '16');
+    title.textContent = node.displayName || act.displayName;
+    clip.appendChild(title);
+
+    // Node type label (show activity type, not the custom name)
+    const typeLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    typeLabel.setAttribute('class', 'dag-node-type');
+    typeLabel.setAttribute('x', '12');
+    typeLabel.setAttribute('y', '42');
+    typeLabel.textContent = act.displayName;
+    clip.appendChild(typeLabel);
+
+    // Notes indicator (small icon if notes exist)
+    if (node.notes) {
+      const notesIcon = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      notesIcon.setAttribute('x', String(DAG_NODE_WIDTH - 28));
+      notesIcon.setAttribute('y', '16');
+      notesIcon.setAttribute('font-size', '10');
+      notesIcon.setAttribute('fill', 'var(--vscode-descriptionForeground, #9a9a9a)');
+      notesIcon.textContent = '📝';
+      notesIcon.title = node.notes;
+      clip.appendChild(notesIcon);
+
+      // Show first line of notes on the node
+      const notesPreview = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      notesPreview.setAttribute('class', 'dag-node-type');
+      notesPreview.setAttribute('x', '12');
+      notesPreview.setAttribute('y', '58');
+      notesPreview.setAttribute('fill', 'var(--vscode-descriptionForeground, #9a9a9a)');
+      notesPreview.setAttribute('font-style', 'italic');
+      const firstLine = node.notes.split('\n')[0].substring(0, 22);
+      notesPreview.textContent = firstLine + (node.notes.length > 22 ? '…' : '');
+      notesPreview.title = node.notes;
+      clip.appendChild(notesPreview);
+    }
+
+    // Status indicator
+    const statusCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    statusCircle.setAttribute('class', `dag-node-status ${node.status.toLowerCase()}`);
+    statusCircle.setAttribute('cx', String(DAG_NODE_WIDTH - 12));
+    statusCircle.setAttribute('cy', '12');
+    statusCircle.setAttribute('r', '4');
+    clip.appendChild(statusCircle);
+
+    // Error indicator
+    if (node.error) {
+      const errorIcon = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      errorIcon.setAttribute('class', 'dag-node-status failed');
+      errorIcon.setAttribute('x', String(DAG_NODE_WIDTH - 28));
+      errorIcon.setAttribute('y', '16');
+      errorIcon.textContent = '⚠';
+      clip.appendChild(errorIcon);
+    }
+
+    g.appendChild(clip);
+
+    // Input port (left side)
+    const inputPort = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    inputPort.setAttribute('class', `dag-port dag-port-input ${dagIsPortConnected(node.id, 'input') ? 'connected' : ''}`);
+    inputPort.setAttribute('cx', '0');
+    inputPort.setAttribute('cy', String(DAG_NODE_HEIGHT / 2));
+    inputPort.setAttribute('r', String(DAG_PORT_RADIUS));
+    inputPort.setAttribute('data-node-id', node.id);
+    inputPort.setAttribute('data-port', 'input');
+    inputPort.setAttribute('data-port-type', 'input');
+    g.appendChild(inputPort);
+
+    // Output port(s) — ifElse gets two: "then" (top-right) and "else" (bottom-right)
+    if (node.type === 'ifElse') {
+      const thenPort = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      thenPort.setAttribute('class', `dag-port dag-port-output ${dagIsPortConnected(node.id, 'then') ? 'connected' : ''}`);
+      thenPort.setAttribute('cx', String(DAG_NODE_WIDTH));
+      thenPort.setAttribute('cy', '25');
+      thenPort.setAttribute('r', String(DAG_PORT_RADIUS));
+      thenPort.setAttribute('data-node-id', node.id);
+      thenPort.setAttribute('data-port', 'then');
+      thenPort.setAttribute('data-port-type', 'output');
+      g.appendChild(thenPort);
+
+      const thenLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      thenLabel.setAttribute('class', 'dag-port-label');
+      thenLabel.setAttribute('x', String(DAG_NODE_WIDTH + 12));
+      thenLabel.setAttribute('y', '29');
+      thenLabel.textContent = 'Yes';
+      g.appendChild(thenLabel);
+
+      const elsePort = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      elsePort.setAttribute('class', `dag-port dag-port-output ${dagIsPortConnected(node.id, 'else') ? 'connected' : ''}`);
+      elsePort.setAttribute('cx', String(DAG_NODE_WIDTH));
+      elsePort.setAttribute('cy', String(DAG_NODE_HEIGHT - 25));
+      elsePort.setAttribute('r', String(DAG_PORT_RADIUS));
+      elsePort.setAttribute('data-node-id', node.id);
+      elsePort.setAttribute('data-port', 'else');
+      elsePort.setAttribute('data-port-type', 'output');
+      g.appendChild(elsePort);
+
+      const elseLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      elseLabel.setAttribute('class', 'dag-port-label');
+      elseLabel.setAttribute('x', String(DAG_NODE_WIDTH + 12));
+      elseLabel.setAttribute('y', String(DAG_NODE_HEIGHT - 21));
+      elseLabel.textContent = 'No';
+      g.appendChild(elseLabel);
+    } else {
+      const outputPort = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      outputPort.setAttribute('class', `dag-port dag-port-output ${dagIsPortConnected(node.id, 'output') ? 'connected' : ''}`);
+      outputPort.setAttribute('cx', String(DAG_NODE_WIDTH));
+      outputPort.setAttribute('cy', String(DAG_NODE_HEIGHT / 2));
+      outputPort.setAttribute('r', String(DAG_PORT_RADIUS));
+      outputPort.setAttribute('data-node-id', node.id);
+      outputPort.setAttribute('data-port', 'output');
+      outputPort.setAttribute('data-port-type', 'output');
+      g.appendChild(outputPort);
+    }
+
+    // Stats preview (if completed) — inside clipped group
+    if (node.status === 'Completed' && Object.keys(node.stats || {}).length > 0) {
+      const statsText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      statsText.setAttribute('class', 'dag-node-type');
+      statsText.setAttribute('x', '12');
+      statsText.setAttribute('y', '58');
+      const stats = Object.entries(node.stats).slice(0, 2).map(([k, v]) => {
+        const lbl = k === 'durationMs' ? 'time' : k.replace(/([A-Z])/g, ' $1').toLowerCase().trim();
+        const val = k === 'durationMs' ? `${v}ms` : String(v);
+        return `${lbl}: ${val}`;
+      }).join(' | ');
+      statsText.textContent = stats;
+      clip.appendChild(statsText);
+    }
+
+    // Error message (if failed) — inside clipped group
+    if (node.error) {
+      const errorText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      errorText.setAttribute('class', 'dag-node-type');
+      errorText.setAttribute('x', '12');
+      errorText.setAttribute('y', '72');
+      errorText.setAttribute('fill', '#c75f8a');
+      errorText.textContent = node.error.substring(0, 25) + (node.error.length > 25 ? '…' : '');
+      clip.appendChild(errorText);
+    }
+
+    // Data preview button (if completed with preview data)
+    if (node.status === 'Completed' && node.preview) {
+      const previewBtn = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      previewBtn.setAttribute('class', 'dag-preview-btn');
+      previewBtn.setAttribute('x', String(DAG_NODE_WIDTH - 28));
+      previewBtn.setAttribute('y', '72');
+      previewBtn.setAttribute('font-size', '12');
+      previewBtn.setAttribute('fill', 'var(--vscode-focusBorder, #007fd4)');
+      previewBtn.setAttribute('cursor', 'pointer');
+      previewBtn.textContent = '👁';
+      previewBtn.title = 'Preview data';
+      previewBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        showDataPreview(node);
+      });
+      clip.appendChild(previewBtn);
+    }
+
+    // Add event listeners
+    g.addEventListener('mousedown', (e) => dagOnNodeMouseDown(e, node.id));
+    g.addEventListener('dblclick', (e) => dagOnNodeDoubleClick(e, node.id));
+
+    // Port event listeners
+    inputPort.addEventListener('mousedown', (e) => {
+      e.stopPropagation();
+      dagOnPortMouseDown(e, node.id, 'input');
+    });
+    if (node.type === 'ifElse') {
+      g.querySelectorAll('.dag-port[data-port-type="output"]').forEach((p) => {
+        p.addEventListener('mousedown', (e) => {
+          e.stopPropagation();
+          dagOnPortMouseDown(e, node.id, p.getAttribute('data-port'));
+        });
+      });
+    } else {
+      const op = g.querySelector('.dag-port-output');
+      if (op) {
+        op.addEventListener('mousedown', (e) => {
+          e.stopPropagation();
+          dagOnPortMouseDown(e, node.id, 'output');
+        });
+      }
+    }
+
+    dagNodesEl.appendChild(g);
+  }
+
+  /**
+   * Render a single edge.
+   * @param {Object} edge 
+   */
+  /** Compute the bezier path string for an edge (used by render + drag). */
+  function dagComputeEdgePath(edge) {
+    const src = dagNodes.get(edge.source.nodeId);
+    const tgt = dagNodes.get(edge.target.nodeId);
+    if (!src || !tgt) return '';
+    const s = dagGetPortPosition(edge.source.nodeId, edge.source.port);
+    const t = dagGetPortPosition(edge.target.nodeId, edge.target.port);
+    const dx = Math.abs(t.x - s.x) * 0.5;
+    return `M ${s.x} ${s.y} C ${s.x + dx} ${s.y}, ${t.x - dx} ${t.y}, ${t.x} ${t.y}`;
+  }
+
+  function dagRenderEdge(edge) {
+    const sourceNode = dagNodes.get(edge.source.nodeId);
+    const targetNode = dagNodes.get(edge.target.nodeId);
+    if (!sourceNode || !targetNode) return;
+
+    const d = dagComputeEdgePath(edge);
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('class', `dag-edge ${dagSelectedEdge === edge.id ? 'selected' : ''}`);
+    path.setAttribute('d', d);
+    path.setAttribute('data-edge-id', edge.id);
+    path.setAttribute('marker-end', dagSelectedEdge === edge.id ? 'url(#arrowhead-selected)' : 'url(#arrowhead)');
+
+    path.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dagSelectedEdge = edge.id;
+      dagRenderAll();
+    });
+
+    dagEdgesEl.appendChild(path);
+
+    // Auto-label ifElse branch edges if no explicit label set
+    const edgeLabel = edge.label || (sourceNode.type === 'ifElse' && edge.source.port === 'then' ? 'Yes' : null)
+      || (sourceNode.type === 'ifElse' && edge.source.port === 'else' ? 'No' : null);
+    if (edgeLabel) {
+      const s = dagGetPortPosition(edge.source.nodeId, edge.source.port);
+      const t = dagGetPortPosition(edge.target.nodeId, edge.target.port);
+      const midX = (s.x + t.x) / 2;
+      const midY = (s.y + t.y) / 2 - 10;
+      const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      label.setAttribute('x', String(midX));
+      label.setAttribute('y', String(midY));
+      label.setAttribute('text-anchor', 'middle');
+      label.setAttribute('fill', 'var(--vscode-descriptionForeground, #9a9a9a)');
+      label.setAttribute('font-size', '10');
+      label.textContent = edgeLabel;
+      dagEdgesEl.appendChild(label);
+    }
+  }
+
+  /**
+   * Update minimap.
+   */
+  function dagUpdateMinimap() {
+    if (!dagMinimapContentEl || !dagMinimapViewportEl || !dagCanvasEl) return;
+
+    dagMinimapContentEl.innerHTML = '';
+
+    if (dagNodes.size === 0) {
+      dagMinimapViewportEl.setAttribute('style', 'display: none');
+      return;
+    }
+
+    // Calculate bounds
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const node of dagNodes.values()) {
+      minX = Math.min(minX, node.position.x);
+      minY = Math.min(minY, node.position.y);
+      maxX = Math.max(maxX, node.position.x + DAG_NODE_WIDTH);
+      maxY = Math.max(maxY, node.position.y + DAG_NODE_HEIGHT);
+    }
+
+    const padding = 50;
+    minX -= padding;
+    minY -= padding;
+    maxX += padding;
+    maxY += padding;
+
+    const width = maxX - minX;
+    const height = maxY - minY;
+
+    const minimapRect = dagMinimapEl.getBoundingClientRect();
+    const scaleX = minimapRect.width / width;
+    const scaleY = minimapRect.height / height;
+    const scale = Math.min(scaleX, scaleY);
+
+    // Render nodes in minimap
+    for (const node of dagNodes.values()) {
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      rect.setAttribute('x', String((node.position.x - minX) * scale));
+      rect.setAttribute('y', String((node.position.y - minY) * scale));
+      rect.setAttribute('width', String(DAG_NODE_WIDTH * scale));
+      rect.setAttribute('height', String(DAG_NODE_HEIGHT * scale));
+      rect.setAttribute('fill', 'var(--vscode-focusBorder, #007fd4)');
+      rect.setAttribute('opacity', '0.6');
+      rect.setAttribute('rx', '2');
+      dagMinimapContentEl.appendChild(rect);
+    }
+
+    // Render viewport indicator
+    const canvasRect = dagCanvasEl.getBoundingClientRect();
+    const viewportX = (-dagPanOffset.x / dagZoom - minX) * scale;
+    const viewportY = (-dagPanOffset.y / dagZoom - minY) * scale;
+    const viewportW = (canvasRect.width / dagZoom) * scale;
+    const viewportH = (canvasRect.height / dagZoom) * scale;
+
+    dagMinimapViewportEl.setAttribute('x', String(viewportX));
+    dagMinimapViewportEl.setAttribute('y', String(viewportY));
+    dagMinimapViewportEl.setAttribute('width', String(viewportW));
+    dagMinimapViewportEl.setAttribute('height', String(viewportH));
+    dagMinimapViewportEl.setAttribute('style', '');
+  }
+
+  // ─── DAG EVENT HANDLERS ────────────────────────────────────────────────────
+
+  /**
+   * Handle mousedown on canvas (pan start).
+   */
+  function dagOnCanvasMouseDown(e) {
+    // Only start pan on middle click or when clicking on empty canvas
+    if (e.button === 1 || (e.button === 0 && e.target === dagCanvasEl || e.target.classList.contains('dag-grid'))) {
+      dagPanning = true;
+      dagPanStart = { x: e.clientX - dagPanOffset.x, y: e.clientY - dagPanOffset.y };
+      dagCanvasEl.style.cursor = 'grabbing';
+      e.preventDefault();
+    }
+  }
+
+  /**
+   * Handle mousemove on canvas (pan, node drag, connection drag, selection).
+   * Connection and node drag use rAF / direct SVG mutation to stay at 60 fps.
+   */
+  function dagOnCanvasMouseMove(e) {
+    if (dagPanning) {
+      dagPanOffset.x = e.clientX - dagPanStart.x;
+      dagPanOffset.y = e.clientY - dagPanStart.y;
+      dagUpdateTransform();
+      dagUpdateMinimap();
+      return;
+    }
+
+    if (dagDraggingNode) {
+      const pos = dagScreenToCanvasFast(e.clientX, e.clientY);
+      const node = dagNodes.get(dagDraggingNode);
+      if (node) {
+        node.position.x = pos.x - dagDraggingOffset.x;
+        node.position.y = pos.y - dagDraggingOffset.y;
+        // Direct SVG mutation instead of full dagRenderAll()
+        dagUpdateDraggedNodeEdges(dagDraggingNode);
+      }
+      return;
+    }
+
+    if (dagConnectingFrom) {
+      // Batch connection-line updates via rAF to avoid layout thrash
+      dagConnectPendingPos = { x: e.clientX, y: e.clientY };
+      if (!dagConnectRafId) {
+        dagConnectRafId = requestAnimationFrame(dagFlushConnectionDrag);
+      }
+    }
+
+    if (dagSelectionBox) {
+      dagSelectionBox.endX = e.clientX;
+      dagSelectionBox.endY = e.clientY;
+      dagRenderSelectionBox();
+    }
+  }
+
+  /** rAF callback — updates the temp connection path once per frame. */
+  function dagFlushConnectionDrag() {
+    dagConnectRafId = 0;
+    const pos = dagConnectPendingPos;
+    if (!pos || !dagConnectingFrom) return;
+    const canvasPos = dagScreenToCanvasFast(pos.x, pos.y);
+    const isOutput = dagConnectingFrom.port !== 'input';
+    const s = isOutput
+      ? dagGetPortPosition(dagConnectingFrom.nodeId, dagConnectingFrom.port)
+      : canvasPos;
+    const t = isOutput
+      ? canvasPos
+      : dagGetPortPosition(dagConnectingFrom.nodeId, dagConnectingFrom.port);
+    const dx = Math.abs(t.x - s.x) * 0.5;
+    const d = isOutput
+      ? `M ${s.x} ${s.y} C ${s.x + dx} ${s.y}, ${t.x - dx} ${t.y}, ${t.x} ${t.y}`
+      : `M ${s.x} ${s.y} C ${s.x + dx} ${s.y}, ${t.x - dx} ${t.y}, ${t.x} ${t.y}`;
+    dagTempConnectionEl.setAttribute('d', d);
+    if (dagConnectingFrom) {
+      dagConnectRafId = requestAnimationFrame(dagFlushConnectionDrag);
+    }
+  }
+
+  /**
+   * Lightweight per-frame update for a dragged node: repositions the node's
+   * SVG group and rebuilds only its connected edges.  Avoids full dagRenderAll().
+   */
+  function dagUpdateDraggedNodeEdges(nodeId) {
+    const node = dagNodes.get(nodeId);
+    if (!node) return;
+    // Move the SVG <g> directly
+    const g = dagNodesEl.querySelector(`g[data-node-id="${CSS.escape(nodeId)}"]`);
+    if (g) g.setAttribute('transform', `translate(${node.position.x}, ${node.position.y})`);
+    // Rebuild connected edges in-place
+    for (const [, edge] of dagEdges) {
+      if (edge.source.nodeId === nodeId || edge.target.nodeId === nodeId) {
+        const path = dagEdgesEl.querySelector(`path[data-edge-id="${CSS.escape(edge.id)}"]`);
+        if (path) path.setAttribute('d', dagComputeEdgePath(edge));
+      }
+    }
+    dagUpdateMinimap();
+  }
+
+  /**
+   * Handle mouseup on canvas (end pan, drag, connect, or selection).
+   */
+  function dagOnCanvasMouseUp(e) {
+    if (dagPanning) {
+      dagPanning = false;
+      dagCanvasEl.style.cursor = 'grab';
+    }
+
+    if (dagDraggingNode) {
+      dagDraggingNode = null;
+      dagCachedCanvasRect = null;
+      dagSaveState();
+    }
+
+    if (dagConnectingFrom) {
+      // Cancel any pending rAF frame
+      if (dagConnectRafId) { cancelAnimationFrame(dagConnectRafId); dagConnectRafId = 0; }
+      dagConnectPendingPos = null;
+      dagCachedCanvasRect = null;
+      // Check if we dropped on a port
+      const target = e.target;
+      if (target.classList && target.classList.contains('dag-port')) {
+        const targetNodeId = target.getAttribute('data-node-id');
+        const targetPort = target.getAttribute('data-port');
+        const targetType = target.getAttribute('data-port-type');
+
+        // Connect output to input (handles 'output', 'then', 'else' port types)
+        const fromPort = dagConnectingFrom.port;
+        const fromIsOutput = fromPort !== 'input';
+        if (fromIsOutput && targetType === 'input') {
+          dagAddEdge(dagConnectingFrom.nodeId, fromPort, targetNodeId, targetPort);
+        } else if (!fromIsOutput && targetType === 'output') {
+          dagAddEdge(targetNodeId, targetPort, dagConnectingFrom.nodeId, fromPort);
+        }
+      }
+      dagConnectingFrom = null;
+      dagTempConnectionEl.setAttribute('d', '');
+      dagTempConnectionEl.style.display = 'none';
+      dagRenderAll();
+    }
+
+    if (dagSelectionBox) {
+      dagFinishSelection();
+      dagSelectionBox = null;
+      dagClearSelectionBox();
+    }
+  }
+
+  /**
+   * Handle wheel event for zoom.
+   */
+  function dagOnCanvasWheel(e) {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    dagSetZoom(dagZoom * delta);
+  }
+
+  /**
+   * Handle mousedown on a node (start drag or select).
+   */
+  function dagOnNodeMouseDown(e, nodeId) {
+    // Handle right-click (context menu)
+    if (e.button === 2) {
+      showNodeContextMenu(e, nodeId);
+      return;
+    }
+    if (e.button !== 0) return; // Only left click
+
+    const node = dagNodes.get(nodeId);
+    if (!node) return;
+
+    // Handle selection with shift key
+    if (e.shiftKey) {
+      if (dagSelectedNodes.has(nodeId)) {
+        dagSelectedNodes.delete(nodeId);
+      } else {
+        dagSelectedNodes.add(nodeId);
+      }
+    } else if (!dagSelectedNodes.has(nodeId)) {
+      dagSelectedNodes.clear();
+      dagSelectedNodes.add(nodeId);
+    }
+
+    dagSelectedEdge = null;
+
+    // Start dragging — cache rect for fast screen→canvas during drag
+    dagCachedCanvasRect = dagCanvasEl.getBoundingClientRect();
+    const pos = dagScreenToCanvasFast(e.clientX, e.clientY);
+    dagDraggingNode = nodeId;
+    dagDraggingOffset = {
+      x: pos.x - node.position.x,
+      y: pos.y - node.position.y
+    };
+
+    // Targeted selection update — do NOT rebuild all SVG elements,
+    // which would destroy the DOM node before dblclick can fire.
+    dagUpdateSelectionVisuals();
+  }
+
+  /**
+   * Update selection CSS classes on existing SVG nodes/edges
+   * without rebuilding the entire DOM. This preserves element
+   * identity so dblclick events fire correctly.
+   */
+  function dagUpdateSelectionVisuals() {
+    // Update node selection classes
+    const nodeGroups = dagNodesEl.querySelectorAll('.dag-node');
+    nodeGroups.forEach(g => {
+      const nid = g.getAttribute('data-node-id');
+      g.classList.toggle('selected', dagSelectedNodes.has(nid));
+    });
+    // Update edge selection classes
+    const edgePaths = dagEdgesEl.querySelectorAll('.dag-edge');
+    edgePaths.forEach(p => {
+      const eid = p.getAttribute('data-edge-id');
+      const isSel = dagSelectedEdge === eid;
+      p.classList.toggle('selected', isSel);
+      p.setAttribute('marker-end', isSel ? 'url(#arrowhead-selected)' : 'url(#arrowhead)');
+    });
+  }
+
+  /**
+   * Handle double-click on a node (open config editor).
+   */
+  function dagOnNodeDoubleClick(e, nodeId) {
+    openConfigPanel(nodeId);
+  }
+
+  // ─── CONFIG PANEL ──────────────────────────────────────────────────────────
+
+  /**
+   * Open the config panel for a given node.
+   * @param {string} nodeId 
+   */
+  function openConfigPanel(nodeId) {
+    const node = dagNodes.get(nodeId);
+    if (!node) return;
+
+    const act = activities.find(a => a.type === node.type);
+    if (!act) return;
+
+    const meta = catMeta(act.category);
+    configPanelNodeId = nodeId;
+
+    // Update header
+    configPanelIcon.textContent = meta.icon;
+    configPanelTitle.textContent = node.displayName || act.displayName;
+
+    // Remove hidden class
+    configPanel.classList.remove('hidden');
+
+    // Build config fields
+    configPanelBody.innerHTML = '';
+
+    // ── Display Name (editable) ──
+    const nameField = document.createElement('div');
+    nameField.className = 'config-field';
+    const nameLabel = document.createElement('label');
+    nameLabel.className = 'config-label';
+    nameLabel.textContent = 'Display Name';
+    const nameInput = document.createElement('input');
+    nameInput.className = 'config-input';
+    nameInput.type = 'text';
+    nameInput.value = node.displayName || act.displayName;
+    nameInput.placeholder = act.displayName;
+    nameInput.addEventListener('input', () => {
+      node.displayName = nameInput.value || act.displayName;
+      configPanelTitle.textContent = node.displayName;
+      dagRenderAll();
+    });
+    nameField.appendChild(nameLabel);
+    nameField.appendChild(nameInput);
+    configPanelBody.appendChild(nameField);
+
+    // ── Notes / Comments ──
+    const notesField = document.createElement('div');
+    notesField.className = 'config-field';
+    const notesLabel = document.createElement('label');
+    notesLabel.className = 'config-label';
+    notesLabel.textContent = 'Notes';
+    const notesArea = document.createElement('textarea');
+    notesArea.className = 'config-input';
+    notesArea.style.cssText = 'min-height: 60px; resize: vertical; font-size: 11px;';
+    notesArea.value = node.notes || '';
+    notesArea.placeholder = 'Add notes about this step…';
+    notesArea.addEventListener('input', () => {
+      node.notes = notesArea.value;
+      dagRenderAll();
+    });
+    notesField.appendChild(notesLabel);
+    notesField.appendChild(notesArea);
+    configPanelBody.appendChild(notesField);
+
+    // ── Separator ──
+    const sep = document.createElement('div');
+    sep.style.cssText = 'border-top: 1px solid var(--vscode-panel-border); margin: 8px 0 12px;';
+    configPanelBody.appendChild(sep);
+
+    // ── Activity-specific config fields ──
+    renderConfigFields(node, act, configPanelBody);
+
+    // ── Actions footer ──
+    const actions = document.createElement('div');
+    actions.className = 'config-panel-actions';
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'btn-secondary';
+    deleteBtn.textContent = '🗑 Delete';
+    deleteBtn.style.color = '#c75f8a';
+    deleteBtn.addEventListener('click', () => {
+      dagRemoveNode(nodeId);
+      closeConfigPanel();
+    });
+
+    const resetBtn = document.createElement('button');
+    resetBtn.className = 'btn-secondary';
+    resetBtn.textContent = '↺ Reset';
+    resetBtn.addEventListener('click', () => {
+      node.config = defaultConfig(act);
+      openConfigPanel(nodeId);
+      dagRenderAll();
+    });
+
+    const applyBtn = document.createElement('button');
+    applyBtn.className = 'btn-primary';
+    applyBtn.textContent = '✓ Apply';
+    applyBtn.addEventListener('click', () => {
+      dagRenderAll();
+      showNotification(`Configuration updated for "${act.displayName}"`, 'success', 1500);
+    });
+
+    actions.appendChild(deleteBtn);
+    actions.appendChild(resetBtn);
+    actions.appendChild(applyBtn);
+    configPanelBody.appendChild(actions);
+  }
+
+  /**
+   * Close the config panel.
+   */
+  function closeConfigPanel() {
+    configPanelNodeId = null;
+    configPanel.classList.add('hidden');
+    configPanelBody.innerHTML = `
+      <div class="config-panel-empty">
+        <div class="config-panel-empty-icon">🖱️</div>
+        <div class="config-panel-empty-text">Double-click a node on the canvas to configure it.</div>
+      </div>
+    `;
+  }
+
+  /**
+   * Show a data preview modal for a completed node's output dataset.
+   * @param {Object} node - DAG node with preview data
+   */
+  function showDataPreview(node) {
+    if (!node || !node.preview) return;
+    const preview = node.preview;
+    const columns = preview.columns || [];
+    const rows = preview.rows || [];
+    const rowCount = preview.rowCount || rows.length;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'params-modal-overlay';
+    overlay.style.zIndex = '2000';
+
+    let tableHtml = '<table class="data-preview-table"><thead><tr>';
+    for (const col of columns) {
+      tableHtml += '<th>' + esc(String(col)) + '</th>';
+    }
+    tableHtml += '</tr></thead><tbody>';
+    for (const row of rows) {
+      tableHtml += '<tr>';
+      for (const col of columns) {
+        const val = row[col];
+        const display = val === null || val === undefined ? '<span class="null-value">null</span>' : esc(String(val));
+        tableHtml += '<td>' + display + '</td>';
+      }
+      tableHtml += '</tr>';
+    }
+    tableHtml += '</tbody></table>';
+
+    if (rowCount > rows.length) {
+      tableHtml += '<div class="data-preview-more">Showing ' + rows.length + ' of ' + rowCount + ' rows</div>';
+    }
+
+    const act = activities.find(a => a.type === node.type);
+    const title = node.displayName || (act ? act.displayName : node.type);
+
+    overlay.innerHTML =
+      '<div class="params-modal" style="width:min(90vw,800px);max-height:80vh;display:flex;flex-direction:column;">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--vscode-panel-border);">' +
+          '<div style="font-weight:600;">Data Preview: ' + esc(title) + '</div>' +
+          '<button type="button" class="btn-icon" data-action="close" style="font-size:14px;" aria-label="Close">✕</button>' +
+        '</div>' +
+        '<div class="data-preview-container" style="flex:1;overflow:auto;padding:0 16px;">' + tableHtml + '</div>' +
+        '<div class="params-modal-footer">' +
+          '<button type="button" class="btn-primary" data-action="close">Close</button>' +
+        '</div>' +
+      '</div>';
+
+    overlay.querySelectorAll('[data-action="close"]').forEach(btn => {
+      btn.addEventListener('click', () => overlay.remove());
+    });
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    document.body.appendChild(overlay);
+  }
+
+  /**
+   * Sync a single config field in the config panel when the value
+   * changes externally (e.g. file picker result, dynamic options).
+   * Finds the matching <input> or <select> and updates its value.
+   * @param {string} stepId
+   * @param {string} fieldName
+   * @param {*} value
+   */
+  function dagSyncConfigPanelField(stepId, fieldName, value) {
+    if (!configPanelNodeId || configPanelNodeId !== stepId) return;
+    const fields = configPanelBody.querySelectorAll('.config-field');
+    for (const fieldEl of fields) {
+      const reqName = fieldEl.dataset.reqName;
+      if (reqName !== fieldName) continue;
+      const inp = fieldEl.querySelector('input, select, textarea');
+      if (inp) {
+        inp.value = value ?? '';
+        // Fire an input event so any dependent logic picks up the change
+        inp.dispatchEvent(new Event('input', { bubbles: true }));
+        inp.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      break;
+    }
+  }
+
+  /**
+   * Handle mousedown on a port (start connection).
+   */
+  function dagOnPortMouseDown(e, nodeId, portType) {
+    e.stopPropagation();
+    const node = dagNodes.get(nodeId);
+    if (!node) return;
+
+    // Cache canvas rect once at drag start — avoids getBoundingClientRect per mousemove
+    dagCachedCanvasRect = dagCanvasEl.getBoundingClientRect();
+    dagConnectingFrom = {
+      nodeId,
+      port: portType,
+      startX: node.position.x,
+      startY: node.position.y
+    };
+    dagTempConnectionEl.style.display = '';
+  }
+
+  /**
+   * Handle drop from palette to canvas.
+   */
+  function dagOnCanvasDrop(e) {
+    e.preventDefault();
+    canvasWrap.style.borderColor = '';
+    const type = e.dataTransfer.getData('activity-type');
+    if (type) {
+      const pos = dagScreenToCanvas(e.clientX, e.clientY);
+      dagAddNode(type, pos.x - DAG_NODE_WIDTH / 2, pos.y - DAG_NODE_HEIGHT / 2);
+    }
+  }
+
+  /**
+   * Render selection box during rubber-band selection.
+   */
+  function dagRenderSelectionBox() {
+    // Remove existing selection box
+    const existing = document.querySelector('.dag-selection-box');
+    if (existing) existing.remove();
+
+    if (!dagSelectionBox) return;
+
+    const x = Math.min(dagSelectionBox.startX, dagSelectionBox.endX);
+    const y = Math.min(dagSelectionBox.startY, dagSelectionBox.endY);
+    const width = Math.abs(dagSelectionBox.endX - dagSelectionBox.startX);
+    const height = Math.abs(dagSelectionBox.endY - dagSelectionBox.startY);
+
+    if (width < 5 && height < 5) return;
+
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rect.setAttribute('class', 'dag-selection-box');
+    rect.setAttribute('x', String(x));
+    rect.setAttribute('y', String(y));
+    rect.setAttribute('width', String(width));
+    rect.setAttribute('height', String(height));
+    dagCanvasEl.appendChild(rect);
+  }
+
+  /**
+   * Clear selection box.
+   */
+  function dagClearSelectionBox() {
+    const existing = document.querySelector('.dag-selection-box');
+    if (existing) existing.remove();
+  }
+
+  /**
+   * Finish rubber-band selection.
+   */
+  function dagFinishSelection() {
+    if (!dagSelectionBox) return;
+
+    const selX1 = Math.min(dagSelectionBox.startX, dagSelectionBox.endX);
+    const selY1 = Math.min(dagSelectionBox.startY, dagSelectionBox.endY);
+    const selX2 = Math.max(dagSelectionBox.startX, dagSelectionBox.endX);
+    const selY2 = Math.max(dagSelectionBox.startY, dagSelectionBox.endY);
+
+    // Convert selection bounds to canvas coordinates
+    const canvas1 = dagScreenToCanvas(selX1, selY1);
+    const canvas2 = dagScreenToCanvas(selX2, selY2);
+
+    dagSelectedNodes.clear();
+
+    for (const node of dagNodes.values()) {
+      const nodeX1 = node.position.x;
+      const nodeY1 = node.position.y;
+      const nodeX2 = nodeX1 + DAG_NODE_WIDTH;
+      const nodeY2 = nodeY1 + DAG_NODE_HEIGHT;
+
+      // Check if node intersects selection box
+      if (nodeX1 < canvas2.x && nodeX2 > canvas1.x &&
+          nodeY1 < canvas2.y && nodeY2 > canvas1.y) {
+        dagSelectedNodes.add(node.id);
+      }
+    }
+
+    dagRenderAll();
+  }
+
+  /**
+   * Auto-layout nodes in a hierarchical DAG structure.
+   */
+  function dagAutoLayout() {
+    if (dagNodes.size === 0) return;
+
+    dagSaveState();
+
+    // Find root nodes (no incoming edges)
+    const nodesWithIncoming = new Set();
+    for (const edge of dagEdges.values()) {
+      nodesWithIncoming.add(edge.target.nodeId);
+    }
+
+    const roots = [];
+    for (const node of dagNodes.values()) {
+      if (!nodesWithIncoming.has(node.id)) {
+        roots.push(node);
+      }
+    }
+
+    // If no roots found, use all nodes
+    if (roots.length === 0) {
+      roots.push(...dagNodes.values());
+    }
+
+    // BFS to assign layers
+    const layers = new Map();
+    const queue = [...roots];
+    for (const root of roots) {
+      layers.set(root.id, 0);
+    }
+
+    while (queue.length > 0) {
+      const node = queue.shift();
+      const currentLayer = layers.get(node.id);
+
+      // Find all outgoing edges
+      for (const edge of dagEdges.values()) {
+        if (edge.source.nodeId === node.id) {
+          const targetLayer = layers.get(edge.target.nodeId);
+          if (targetLayer === undefined || targetLayer <= currentLayer) {
+            layers.set(edge.target.nodeId, currentLayer + 1);
+            queue.push(dagNodes.get(edge.target.nodeId));
+          }
+        }
+      }
+    }
+
+    // Group nodes by layer
+    const layerGroups = new Map();
+    for (const [nodeId, layer] of layers) {
+      if (!layerGroups.has(layer)) {
+        layerGroups.set(layer, []);
+      }
+      layerGroups.get(layer).push(nodeId);
+    }
+
+    // Position nodes (left-to-right: layers along X, nodes stacked vertically)
+    const layerSpacing = 300;
+    const nodeSpacing = 30;
+
+    for (const [layer, nodeIds] of layerGroups) {
+      const totalHeight = nodeIds.length * DAG_NODE_HEIGHT + (nodeIds.length - 1) * nodeSpacing;
+      let startY = -totalHeight / 2;
+
+      for (const nodeId of nodeIds) {
+        const node = dagNodes.get(nodeId);
+        if (node) {
+          node.position.x = layer * layerSpacing;
+          node.position.y = startY;
+          startY += DAG_NODE_HEIGHT + nodeSpacing;
+        }
+      }
+    }
+
+    dagRenderAll();
+    dagFitToView();
+    showNotification('Auto-layout applied', 'success');
+  }
+
+  /**
+   * Clear all nodes and edges.
+   */
+  function dagClearAll() {
+    if (dagNodes.size === 0) return;
+    webviewConfirm('Remove all activities from the workflow?', () => {
+      dagSaveState();
+      dagNodes.clear();
+      dagEdges.clear();
+      dagSelectedNodes.clear();
+      dagSelectedEdge = null;
+      steps = [];
+      stepCounter = 1;
+      dagRenderAll();
+      dagUpdateMinimap();
+      dagUpdateEmptyState();
+      logLine('Cleared all steps', 'info');
+    }, 'Remove');
+  }
+
+  /**
+   * Delete selected nodes/edges.
+   */
+  function dagDeleteSelected() {
+    if (dagSelectedEdge) {
+      dagRemoveEdge(dagSelectedEdge);
+      return;
+    }
+
+    if (dagSelectedNodes.size > 0) {
+      for (const nodeId of dagSelectedNodes) {
+        dagRemoveNode(nodeId);
+      }
+      dagSelectedNodes.clear();
+      dagRenderAll();
+    }
+  }
+
+  /**
+   * Select all nodes.
+   */
+  function dagSelectAll() {
+    dagSelectedNodes.clear();
+    for (const node of dagNodes.keys()) {
+      dagSelectedNodes.add(node);
+    }
+    dagRenderAll();
+  }
+
   // ─── INIT ──────────────────────────────────────────────────────────────────
+
+  // Initialize DAG canvas
+  initDagCanvas();
+
+  // Add keyboard shortcuts for DAG editor
+  document.addEventListener('keydown', (e) => {
+    // Delete selected nodes/edges
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') {
+        return; // Don't delete when typing in input fields
+      }
+      dagDeleteSelected();
+      e.preventDefault();
+    }
+
+    // Select all (Ctrl+A)
+    if (e.key === 'a' && (e.ctrlKey || e.metaKey)) {
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') {
+        return; // Don't select all when typing in input fields
+      }
+      dagSelectAll();
+      e.preventDefault();
+    }
+
+    // Undo (Ctrl+Z)
+    if (e.key === 'z' && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') {
+        return;
+      }
+      dagUndo();
+      e.preventDefault();
+    }
+
+    // Redo (Ctrl+Shift+Z or Ctrl+Y)
+    if ((e.key === 'z' && (e.ctrlKey || e.metaKey) && e.shiftKey) ||
+        (e.key === 'y' && (e.ctrlKey || e.metaKey))) {
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') {
+        return;
+      }
+      dagRedo();
+      e.preventDefault();
+    }
+
+    // Fit to view (F)
+    if (e.key === 'f' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') {
+        return;
+      }
+      dagFitToView();
+      e.preventDefault();
+    }
+
+    // Auto layout (L)
+    if (e.key === 'l' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') {
+        return;
+      }
+      dagAutoLayout();
+      e.preventDefault();
+    }
+  });
 
   vscode.postMessage({ type: 'ready' });
   logLine('🚀 VizFlow Workflow Builder ready', 'info');

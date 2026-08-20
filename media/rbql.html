@@ -31,6 +31,20 @@
     <span class="column-preview" id="columnPreview"></span>
   </div>
 
+  <!-- ── Join Table (optional) ── -->
+  <div class="join-section" id="joinSection">
+    <div class="join-row">
+      <button type="button" class="btn-secondary" id="btnSelectJoin">
+        &#128279; Join Table
+      </button>
+      <span class="join-status" id="joinStatus" style="display:none;">
+        <span class="join-file-name" id="joinFileName"></span>
+        <span class="join-meta" id="joinMeta"></span>
+        <button type="button" class="button-link" id="btnClearJoin" title="Remove join file">&#10005;</button>
+      </span>
+    </div>
+  </div>
+
   <!-- ── Query Editor ── -->
   <div class="query-section">
     <div class="query-header">
@@ -42,13 +56,25 @@
         </label>
       </div>
     </div>
-    <textarea id="queryEditor" spellcheck="false" placeholder="SELECT * WHERE a1 == 'value' ORDER BY a2 DESC LIMIT 10">SELECT * LIMIT 10</textarea>
+    <div class="rbql-editor-container">
+      <textarea id="queryEditor" spellcheck="false" placeholder="SELECT * WHERE a1 == 'value' ORDER BY a2 DESC LIMIT 10">SELECT * LIMIT 10</textarea>
+      <div id="autocompletePopup" class="autocomplete-popup" style="display:none;"></div>
+    </div>
+  </div>
+
+  <!-- ── Query Templates ── -->
+  <div class="templates-section">
+    <div class="templates-header" id="templatesToggle">
+      <span class="toggle-icon">&#9654;</span> Query Templates
+    </div>
+    <div class="templates-list" id="templatesList" style="display:none;"></div>
   </div>
 
   <!-- ── Actions ── -->
   <div class="button-row">
     <button class="btn-primary" id="executeBtn">&#9654; Execute Query</button>
     <button class="btn-secondary" id="clearBtn">&#x2715; Clear</button>
+    <span class="shortcut-hint">Ctrl+Enter to run &middot; Tab for autocomplete</span>
   </div>
 
   <!-- ── Progress ── -->
@@ -133,6 +159,21 @@
     const exportSQL      = document.getElementById('exportSQL');
     const historyList    = document.getElementById('historyList');
     const historyToggle  = document.getElementById('historyToggle');
+    const autocompletePopup = document.getElementById('autocompletePopup');
+    const templatesToggle   = document.getElementById('templatesToggle');
+    const templatesList     = document.getElementById('templatesList');
+    const btnSelectJoin     = document.getElementById('btnSelectJoin');
+    const joinStatus        = document.getElementById('joinStatus');
+    const joinFileName      = document.getElementById('joinFileName');
+    const joinMeta          = document.getElementById('joinMeta');
+    const btnClearJoin      = document.getElementById('btnClearJoin');
+
+    // ── Autocomplete State ──────────────────────────────────────────────
+    let autocompleteItems = [];
+    let autocompleteIndex = -1;
+    let autocompleteVisible = false;
+    let autocompleteWordStart = -1;
+    let autocompleteWordEnd = -1;
 
     // ── Utilities ──────────────────────────────────────────────────────────────
     function showStatus(msg, type) {
@@ -143,6 +184,70 @@
 
     function hideStatus() {
       statusEl.style.display = 'none';
+    }
+
+    function showErrorWithDetails(message) {
+      // Try to extract line/column from error message
+      const lineMatch = message.match(/line\s+(\d+)/i);
+      const colMatch = message.match(/col(?:umn)?\s+(\d+)/i);
+      const posMatch = message.match(/position\s+(\d+)/i);
+      
+      let html = '<span class="error-icon">\u274C</span> ';
+      
+      if (lineMatch || colMatch || posMatch) {
+        // Build error with location info
+        html += '<span class="error-text">' + escapeHtml(message) + '</span>';
+        
+        if (lineMatch || posMatch) {
+          const lineNum = lineMatch ? parseInt(lineMatch[1]) : 1;
+          const colNum = colMatch ? parseInt(colMatch[1]) : (posMatch ? parseInt(posMatch[1]) : 0);
+          
+          html += '<div class="error-location">';
+          html += '<span class="error-loc-badge">Line ' + lineNum;
+          if (colNum) html += ', Col ' + colNum;
+          html += '</span>';
+          html += '</div>';
+          
+          // Try to underline the error position in the query
+          highlightErrorPosition(lineNum, colNum);
+        }
+      } else {
+        html += escapeHtml(message);
+      }
+      
+      statusEl.innerHTML = html;
+      statusEl.className = 'error';
+      statusEl.style.display = 'block';
+    }
+
+    function highlightErrorPosition(line, col) {
+      if (!line) return;
+      
+      const text = queryEditor.value;
+      const lines = text.split('\n');
+      
+      if (line < 1 || line > lines.length) return;
+      
+      // Calculate position
+      let pos = 0;
+      for (let i = 0; i < line - 1; i++) {
+        pos += lines[i].length + 1; // +1 for newline
+      }
+      
+      if (col && col > 0) {
+        pos += Math.min(col - 1, lines[line - 1].length);
+      }
+      
+      // Highlight the error region
+      const errorLen = Math.min(5, lines[line - 1].length);
+      queryEditor.setSelectionRange(pos, pos + errorLen);
+      queryEditor.focus();
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
     }
 
     function updateDatasetInfo(cols, rows) {
@@ -167,6 +272,158 @@
     function updateQueryMeta(query, backend, rows) {
       const timestamp = new Date().toLocaleTimeString();
       queryMeta.textContent = 'Executed at ' + timestamp + ' \u00b7 ' + backend + ' backend \u00b7 ' + rows + ' rows returned';
+    }
+
+    // ── Autocomplete ──────────────────────────────────────────────────
+    function getWordAtCursor() {
+      const text = queryEditor.value;
+      const pos = queryEditor.selectionStart;
+      // Find word boundaries (alphanumeric, underscore, or dot for a1.name style)
+      let start = pos;
+      while (start > 0 && /[\w.]/.test(text[start - 1])) start--;
+      let end = pos;
+      while (end < text.length && /[\w.]/.test(text[end])) end++;
+      return { word: text.substring(start, end), start, end };
+    }
+
+    function showAutocomplete() {
+      const { word, start, end } = getWordAtCursor();
+      if (!word || word.length < 1) {
+        hideAutocomplete();
+        return;
+      }
+
+      // Build suggestions from column references
+      const suggestions = [];
+      if (Array.isArray(columnMap)) {
+        columnMap.forEach(function(m) {
+          if (m.pos && m.pos.toLowerCase().includes(word.toLowerCase())) {
+            suggestions.push({ ref: m.pos, name: m.name || '', type: 'ref' });
+          }
+          if (m.name && m.name.toLowerCase().includes(word.toLowerCase())) {
+            // Only add if not duplicate
+            if (!suggestions.find(function(s) { return s.ref === m.pos; })) {
+              suggestions.push({ ref: m.pos, name: m.name, type: 'name' });
+            }
+          }
+        });
+      }
+      // Also add positional references
+      if (suggestions.length === 0 && Array.isArray(positional)) {
+        positional.forEach(function(p) {
+          if (p.toLowerCase().includes(word.toLowerCase())) {
+            suggestions.push({ ref: p, name: '', type: 'ref' });
+          }
+        });
+      }
+
+      if (suggestions.length === 0) {
+        hideAutocomplete();
+        return;
+      }
+
+      autocompleteItems = suggestions;
+      autocompleteWordStart = start;
+      autocompleteWordEnd = end;
+      autocompleteIndex = 0;
+      renderAutocompletePopup();
+    }
+
+    function renderAutocompletePopup() {
+      autocompletePopup.innerHTML = '';
+      autocompleteItems.forEach(function(item, i) {
+        var div = document.createElement('div');
+        div.className = 'autocomplete-item' + (i === autocompleteIndex ? ' selected' : '');
+        
+        var refSpan = document.createElement('span');
+        refSpan.className = 'col-ref';
+        refSpan.textContent = item.ref;
+        div.appendChild(refSpan);
+        
+        if (item.name) {
+          var nameSpan = document.createElement('span');
+          nameSpan.className = 'col-name';
+          nameSpan.textContent = item.name;
+          div.appendChild(nameSpan);
+        }
+        
+        var badge = document.createElement('span');
+        badge.className = 'col-badge';
+        badge.textContent = item.type === 'ref' ? 'pos' : 'col';
+        div.appendChild(badge);
+
+        div.addEventListener('mousedown', function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          insertAutocomplete(i);
+        });
+        
+        autocompletePopup.appendChild(div);
+      });
+
+      // Position popup below cursor
+      // Approximate position based on character width
+      const text = queryEditor.value.substring(0, autocompleteWordStart);
+      const lines = text.split('\n');
+      const lineIndex = lines.length - 1;
+      const colIndex = lines[lineIndex].length;
+      
+      const charWidth = 8.1; // approximate for 13.5px monospace
+      const lineHeight = 13.5 * 1.65; // font-size * line-height
+      const padLeft = 48; // textarea padding-left
+      const padTop = 14; // textarea padding-top
+      
+      const left = padLeft + colIndex * charWidth - queryEditor.scrollLeft;
+      const top = padTop + (lineIndex + 1) * lineHeight - queryEditor.scrollTop;
+      
+      autocompletePopup.style.left = Math.max(0, left) + 'px';
+      autocompletePopup.style.top = top + 'px';
+      autocompletePopup.style.display = 'block';
+      autocompleteVisible = true;
+    }
+
+    function insertAutocomplete(index) {
+      const item = autocompleteItems[index];
+      if (!item) return;
+      
+      const text = queryEditor.value;
+      const before = text.substring(0, autocompleteWordStart);
+      const after = text.substring(autocompleteWordEnd);
+      
+      queryEditor.value = before + item.ref + after;
+      const newPos = autocompleteWordStart + item.ref.length;
+      queryEditor.selectionStart = queryEditor.selectionEnd = newPos;
+      queryEditor.focus();
+      queryEditor.dispatchEvent(new Event('input'));
+      hideAutocomplete();
+    }
+
+    function hideAutocomplete() {
+      autocompletePopup.style.display = 'none';
+      autocompleteVisible = false;
+      autocompleteItems = [];
+      autocompleteIndex = -1;
+    }
+
+    function navigateAutocomplete(direction) {
+      if (!autocompleteVisible) return false;
+      
+      autocompleteIndex += direction;
+      if (autocompleteIndex < 0) autocompleteIndex = autocompleteItems.length - 1;
+      if (autocompleteIndex >= autocompleteItems.length) autocompleteIndex = 0;
+      
+      // Update selection visuals
+      const items = autocompletePopup.querySelectorAll('.autocomplete-item');
+      items.forEach(function(el, i) {
+        el.classList.toggle('selected', i === autocompleteIndex);
+      });
+      
+      // Scroll into view
+      if (items[autocompleteIndex]) {
+        items[autocompleteIndex].scrollIntoView({ block: 'nearest' });
+      }
+      
+      return true;
     }
 
     // ── Render Results ──────────────────────────────────────────────────────
@@ -321,6 +578,8 @@
           queryEditor.value = q;
           queryEditor.dispatchEvent(new Event('input'));
           queryEditor.focus();
+          // Place cursor at end of inserted text
+          queryEditor.setSelectionRange(q.length, q.length);
         });
         historyList.appendChild(div);
       });
@@ -331,7 +590,18 @@
 
     clearBtn.addEventListener('click', function() {
       queryEditor.value = '';
+      queryEditor.dispatchEvent(new Event('input'));
       queryEditor.focus();
+      queryEditor.setSelectionRange(0, 0);
+    });
+
+    // ── Join File ──────────────────────────────────────────────────────────────
+    btnSelectJoin.addEventListener('click', function() {
+      vscode.postMessage({ type: 'selectJoinFile' });
+    });
+
+    btnClearJoin.addEventListener('click', function() {
+      vscode.postMessage({ type: 'clearJoinFile' });
     });
 
     exportCSV.addEventListener('click', function() { exportResults('csv'); });
@@ -351,9 +621,97 @@
     });
 
     queryEditor.addEventListener('keydown', function(e) {
+      // Handle autocomplete navigation
+      if (autocompleteVisible) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          navigateAutocomplete(1);
+          return;
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          navigateAutocomplete(-1);
+          return;
+        }
+        if (e.key === 'Enter' || e.key === 'Tab') {
+          e.preventDefault();
+          insertAutocomplete(autocompleteIndex);
+          return;
+        }
+        if (e.key === 'Escape') {
+          hideAutocomplete();
+          return;
+        }
+      }
+
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         e.preventDefault();
         executeQuery();
+        return;
+      }
+      // Tab inserts 2 spaces instead of moving focus
+      if (e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        const start = queryEditor.selectionStart;
+        const end = queryEditor.selectionEnd;
+        const value = queryEditor.value;
+        queryEditor.value = value.substring(0, start) + '  ' + value.substring(end);
+        queryEditor.selectionStart = queryEditor.selectionEnd = start + 2;
+        queryEditor.dispatchEvent(new Event('input'));
+      }
+    });
+
+    queryEditor.addEventListener('input', function() {
+      // Debounce autocomplete to prevent layout thrashing
+      if (queryEditor._autocompleteTimer) {
+        clearTimeout(queryEditor._autocompleteTimer);
+      }
+      queryEditor._autocompleteTimer = setTimeout(function() {
+        var word = getWordAtCursor().word;
+        if (word && word.length >= 1) {
+          showAutocomplete();
+        } else {
+          hideAutocomplete();
+        }
+      }, 80);
+    });
+
+    // Hide autocomplete when clicking outside
+    document.addEventListener('click', function(e) {
+      if (!autocompletePopup.contains(e.target) && e.target !== queryEditor) {
+        hideAutocomplete();
+      }
+    });
+
+    // ── Templates Toggle ──────────────────────────────────────────────
+    templatesToggle.addEventListener('click', function() {
+      const icon = templatesToggle.querySelector('.toggle-icon');
+      if (templatesList.style.display === 'none') {
+        templatesList.style.display = 'grid';
+        icon.textContent = '\u25BC';
+      } else {
+        templatesList.style.display = 'none';
+        icon.textContent = '\u25BA';
+      }
+    });
+
+    // Template click handlers — use event delegation so they work
+    // with dynamically rendered template items.
+    templatesList.addEventListener('click', function(e) {
+      var item = e.target;
+      // Walk up to find the .template-item parent
+      while (item && item !== templatesList) {
+        if (item.classList && item.classList.contains('template-item')) {
+          var query = item.getAttribute('data-query');
+          if (query) {
+            queryEditor.value = query;
+            queryEditor.dispatchEvent(new Event('input'));
+            queryEditor.focus();
+            queryEditor.setSelectionRange(0, 0);
+          }
+          return;
+        }
+        item = item.parentNode;
       }
     });
 
@@ -390,7 +748,7 @@
           progressBar.style.display = 'none';
           executing = false;
           executeBtn.disabled = false;
-          showStatus('\u274C ' + data.message, 'error');
+          showErrorWithDetails(data.message);
           break;
 
         case 'exportDone': {
@@ -398,8 +756,50 @@
           showStatus('\u2705 Exported to: ' + fname, 'success');
           break;
         }
+
+        case 'joinFileLoaded': {
+          joinFileName.textContent = data.fileName;
+          joinMeta.textContent = data.columns.length + ' columns \u00B7 ' + data.rowCount + ' rows';
+          joinStatus.style.display = 'inline-flex';
+          btnSelectJoin.style.display = 'none';
+          // Merge join columns into autocomplete suggestions
+          if (Array.isArray(data.columnMap)) {
+            columnMap = columnMap.concat(data.columnMap);
+          }
+          showStatus('\u2705 Join file loaded: ' + data.fileName + ' \u2014 use b1, b2, ... for join columns', 'success');
+          break;
+        }
+
+        case 'joinFileCleared': {
+          joinStatus.style.display = 'none';
+          btnSelectJoin.style.display = '';
+          showStatus('Join file removed.', 'info');
+          break;
+        }
       }
     });
+  </script>
+  <script nonce="{{NONCE}}" src="{{WEBVIEW_TEMPLATES_URI}}"></script>
+  <script nonce="{{NONCE}}">
+    // ── Render templates from RBQL_TEMPLATES array ──────────────────────
+    (function() {
+      var list = document.getElementById('templatesList');
+      if (!list || typeof RBQL_TEMPLATES === 'undefined') return;
+      RBQL_TEMPLATES.forEach(function(t) {
+        var div = document.createElement('div');
+        div.className = 'template-item';
+        div.setAttribute('data-query', t.query);
+        var lbl = document.createElement('span');
+        lbl.className = 'template-label';
+        lbl.textContent = t.label;
+        var dsc = document.createElement('span');
+        dsc.className = 'template-desc';
+        dsc.textContent = t.desc;
+        div.appendChild(lbl);
+        div.appendChild(dsc);
+        list.appendChild(div);
+      });
+    })();
   </script>
   <script nonce="{{NONCE}}" src="{{WEBVIEW_SYNTAX_URI}}"></script>
 </body>

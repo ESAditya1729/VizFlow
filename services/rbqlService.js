@@ -7,6 +7,65 @@
 
 const rbql = require('rbql');
 
+// ── IN operator fix ──────────────────────────────────────────────────────────
+// RBQL v0.30 translates `IN (...)` to JavaScript's native `in` operator,
+// which checks property keys in objects — not values in arrays.  We
+// pre-process the query to replace `expr IN (...)` / `expr IN [...]` with a
+// call to a custom IN_LIST() function injected via user_init_code.
+
+const IN_LIST_FN = `
+function IN_LIST(val, lst) {
+  if (!Array.isArray(lst)) return false;
+  for (var i = 0; i < lst.length; i++) {
+    if (lst[i] == val) return true;
+  }
+  return false;
+}
+`;
+
+/**
+ * Replace `expr IN (...)` and `expr IN [...]` with `IN_LIST(expr, [...])`.
+ *
+ * The left-hand side can be an identifier (a1, column_name), a dotted
+ * reference (a1.field), or a function call (UPPER(a1)).  We match
+ * everything up to the `IN` keyword using a lookbehind-style approach:
+ * scan from the end of the match backwards to capture the expression.
+ *
+ * @param {string} query
+ * @returns {string}
+ */
+function preprocessInOperator(query) {
+    // Match: <something> IN ( ... ) or <something> IN [ ... ]
+    // The <something> is captured by looking at what precedes IN.
+    // We use a regex that matches:
+    //   1. A closing paren/bracket/identifier char followed by IN
+    //   2. Then the list literal (parenthesized or bracketed)
+    //
+    // Pattern explanation:
+    //   ([\w\.)]+)      – capture group 1: the LHS expression (identifier, dotted ref)
+    //   \s+IN\s+        – the IN keyword surrounded by whitespace
+    //   ([\(\[])        – capture group 2: opening delimiter ( or [
+    //   ([\s\S]*?)      – capture group 3: the list contents (non-greedy)
+    //   ([\)\]])        – capture group 4: closing delimiter ) or ]
+
+    return query.replace(
+        /([\w.]+)\s+IN\s+([\(\[])([\s\S]*?)([\)\]])/gi,
+        function (match, lhs, open, contents, close) {
+            // Normalise single-quoted strings in the list to double-quoted
+            // so the result is valid JS for the user_init_code context.
+            // e.g.  ('A', 'B') → ["A","B"]
+            const normalised = contents
+                .replace(/'([^']*)'/g, '"$1"')
+                .replace(/\s+/g, '');
+
+            // If the list is empty, return a false condition
+            if (!normalised) return 'false';
+
+            return 'IN_LIST(' + lhs + ', [' + normalised + '])';
+        }
+    );
+}
+
 /**
  * @typedef {{
  *   success: boolean,
@@ -33,11 +92,13 @@ const rbql = require('rbql');
  * @param {string} query - RBQL query string
  * @param {Object} [opts] - Query options
  * @param {boolean} [opts.hasHeader] - Whether CSV has header row (default: true)
+ * @param {import('../engine/dataset')} [opts.joinDataset] - Optional second dataset for JOINs
  * @returns {Promise<QueryResult>}
  */
 async function executeQuery(dataset, query, opts = {}) {
     const {
         hasHeader = true,
+        joinDataset = null,
     } = opts;
 
     const header = dataset.getColumns();
@@ -49,6 +110,17 @@ async function executeQuery(dataset, query, opts = {}) {
         header.map(col => (row[col] !== undefined && row[col] !== null ? String(row[col]) : ''))
     );
 
+    // Build join table if a join dataset was provided
+    let joinTable = null;
+    let joinColumnNames = null;
+    if (joinDataset) {
+        const joinHeader = joinDataset.getColumns();
+        joinTable = joinDataset.rows.map(row =>
+            joinHeader.map(col => (row[col] !== undefined && row[col] !== null ? String(row[col]) : ''))
+        );
+        joinColumnNames = hasHeader ? joinHeader : null;
+    }
+
     /** @type {any[][]} */
     const outputTable = [];
     /** @type {string[]} */
@@ -57,17 +129,20 @@ async function executeQuery(dataset, query, opts = {}) {
     const outputColumnNames = [];
 
     try {
+        // Pre-process query: replace IN (...) / IN [...] with IN_LIST()
+        const processedQuery = preprocessInOperator(query);
+
         await rbql.query_table(
-            query,
+            processedQuery,
             inputTable,
             outputTable,
             outputWarnings,
-            /* join_table        */ null,
+            /* join_table        */ joinTable,
             /* input_column_names*/ hasHeader ? header : null,
-            /* join_column_names */ null,
+            /* join_column_names */ joinColumnNames,
             /* output_col_names  */ outputColumnNames,
             /* normalize_col_names */ true,
-            /* user_init_code    */ ''
+            /* user_init_code    */ IN_LIST_FN
         );
 
         // outputColumnNames is populated by rbql when output_column_names arg is provided

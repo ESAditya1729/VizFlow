@@ -35,6 +35,13 @@
       "items": {
         "$ref": "#/definitions/activity"
       }
+    },
+    "edges": {
+      "type": "array",
+      "description": "Visual connections (arrows) between activities on the canvas. These define the DAG layout but do not affect execution order.",
+      "items": {
+        "$ref": "#/definitions/edge"
+      }
     }
   },
   "definitions": {
@@ -70,6 +77,67 @@
         },
         "defaultValue": {
           "description": "Applied when the value is not provided; may contain {{variable}} placeholders; coerced to the declared type."
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "source",
+        "target"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique edge identifier."
+        },
+        "source": {
+          "type": "object",
+          "required": [
+            "nodeId",
+            "port"
+          ],
+          "properties": {
+            "nodeId": {
+              "type": "string",
+              "description": "Source activity ID."
+            },
+            "port": {
+              "type": "string",
+              "enum": [
+                "input",
+                "output"
+              ],
+              "description": "Source port type."
+            }
+          }
+        },
+        "target": {
+          "type": "object",
+          "required": [
+            "nodeId",
+            "port"
+          ],
+          "properties": {
+            "nodeId": {
+              "type": "string",
+              "description": "Target activity ID."
+            },
+            "port": {
+              "type": "string",
+              "enum": [
+                "input",
+                "output"
+              ],
+              "description": "Target port type."
+            }
+          }
+        },
+        "label": {
+          "type": "string",
+          "description": "Optional label displayed on the edge."
         }
       }
     },
@@ -194,6 +262,14 @@
         "type": {
           "const": "readCsv"
         },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
+        },
         "config": {
           "type": "object",
           "additionalProperties": false,
@@ -258,6 +334,14 @@
         },
         "type": {
           "const": "readExcel"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
         },
         "config": {
           "type": "object",
@@ -330,6 +414,14 @@
         "type": {
           "const": "sampleData"
         },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
+        },
         "config": {
           "type": "object",
           "additionalProperties": false,
@@ -362,6 +454,14 @@
         },
         "type": {
           "const": "filter"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
         },
         "config": {
           "type": "object",
@@ -419,6 +519,14 @@
         },
         "type": {
           "const": "transform"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
         },
         "config": {
           "type": "object",
@@ -526,6 +634,14 @@
         "type": {
           "const": "removeDuplicates"
         },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
+        },
         "config": {
           "type": "object",
           "additionalProperties": false,
@@ -569,6 +685,14 @@
         },
         "type": {
           "const": "sort"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
         },
         "config": {
           "type": "object",
@@ -623,6 +747,14 @@
         "type": {
           "const": "selectColumns"
         },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
+        },
         "config": {
           "type": "object",
           "additionalProperties": false,
@@ -658,6 +790,14 @@
         },
         "type": {
           "const": "query"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
         },
         "config": {
           "type": "object",
@@ -699,6 +839,14 @@
         "type": {
           "const": "previewQuery"
         },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
+        },
         "config": {
           "type": "object",
           "additionalProperties": false,
@@ -735,6 +883,14 @@
         },
         "type": {
           "const": "columnStats"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
         },
         "config": {
           "type": "object",
@@ -776,6 +932,14 @@
         },
         "type": {
           "const": "aggregate"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
         },
         "config": {
           "type": "object",
@@ -833,6 +997,14 @@
         },
         "type": {
           "const": "groupBy"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
         },
         "config": {
           "type": "object",
@@ -903,6 +1075,14 @@
         "type": {
           "const": "dataProfile"
         },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
+        },
         "config": {
           "type": "object",
           "additionalProperties": false,
@@ -945,6 +1125,14 @@
         },
         "type": {
           "const": "writeCsv"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
         },
         "config": {
           "type": "object",
@@ -1030,6 +1218,14 @@
         "type": {
           "const": "writeJson"
         },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
+        },
         "config": {
           "type": "object",
           "additionalProperties": false,
@@ -1077,6 +1273,14 @@
         },
         "type": {
           "const": "exportMultiple"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
         },
         "config": {
           "type": "object",
@@ -1135,6 +1339,14 @@
         },
         "type": {
           "const": "writeText"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
         },
         "config": {
           "type": "object",
@@ -1228,6 +1440,14 @@
         "type": {
           "const": "appendText"
         },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
+        },
         "config": {
           "type": "object",
           "additionalProperties": false,
@@ -1316,6 +1536,14 @@
         "type": {
           "const": "multiTransform"
         },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
+        },
         "config": {
           "type": "object",
           "additionalProperties": false,
@@ -1379,6 +1607,14 @@
         },
         "type": {
           "const": "ifElse"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
         },
         "config": {
           "type": "object",
@@ -1453,6 +1689,14 @@
         "type": {
           "const": "forEach"
         },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
+        },
         "config": {
           "type": "object",
           "additionalProperties": false,
@@ -1508,6 +1752,14 @@
         },
         "type": {
           "const": "setVariable"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
         },
         "config": {
           "type": "object",
@@ -1581,6 +1833,14 @@
         "type": {
           "const": "wait"
         },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
+        },
         "config": {
           "type": "object",
           "additionalProperties": false,
@@ -1620,6 +1880,14 @@
         },
         "type": {
           "const": "callWorkflow"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
         },
         "config": {
           "type": "object",
@@ -1672,6 +1940,14 @@
         "type": {
           "const": "listFiles"
         },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
+        },
         "config": {
           "type": "object",
           "additionalProperties": false,
@@ -1719,6 +1995,14 @@
         },
         "type": {
           "const": "execPowerShell"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
         },
         "config": {
           "type": "object",
@@ -1781,6 +2065,14 @@
         "type": {
           "const": "forEachFile"
         },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
+        },
         "config": {
           "type": "object",
           "additionalProperties": false,
@@ -1840,6 +2132,14 @@
         "type": {
           "const": "readMongo"
         },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
+        },
         "config": {
           "type": "object",
           "additionalProperties": false,
@@ -1897,6 +2197,14 @@
         "type": {
           "const": "readSql"
         },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
+        },
         "config": {
           "type": "object",
           "additionalProperties": false,
@@ -1953,6 +2261,14 @@
         },
         "type": {
           "const": "mongoQuery"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
         },
         "config": {
           "type": "object",
@@ -2012,6 +2328,14 @@
         "type": {
           "const": "sqlQuery"
         },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
+        },
         "config": {
           "type": "object",
           "additionalProperties": false,
@@ -2052,6 +2376,14 @@
         },
         "type": {
           "const": "httpRequest"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
         },
         "config": {
           "type": "object",

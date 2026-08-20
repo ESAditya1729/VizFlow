@@ -97,9 +97,180 @@ body {
   font-size: 11px;
 }
 
+/* ── Join Section ──────────────────────────── */
+.join-section {
+  margin-bottom: 14px;
+}
+
+.join-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.join-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-editorWidget-background, #252526);
+  padding: 4px 10px;
+  border-radius: 4px;
+}
+
+.join-file-name {
+  font-weight: 600;
+  color: var(--vscode-foreground);
+}
+
+.join-meta {
+  opacity: 0.7;
+  font-size: 11px;
+}
+
+.button-link {
+  background: none;
+  border: none;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0 2px;
+  transition: color 0.15s ease;
+}
+
+.button-link:hover {
+  color: var(--vscode-errorForeground, #f44);
+}
+
 /* ── Query Section ──────────────────────────── */
 .query-section {
   margin-bottom: 14px;
+}
+
+.rbql-editor-container {
+  position: relative;
+  display: block;
+}
+
+/* ── Templates Section ──────────────────────── */
+.templates-section {
+  margin-bottom: 14px;
+}
+
+.templates-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--vscode-editorWidget-background, #252526);
+  border: 1px solid var(--vscode-input-border, #454545);
+  border-radius: 4px;
+}
+
+.templates-header:hover {
+  color: var(--vscode-foreground);
+  border-color: var(--vscode-focusBorder, #007fd4);
+}
+
+.templates-header .toggle-icon {
+  font-size: 10px;
+  display: inline-block;
+  transition: transform 0.2s ease;
+}
+
+.templates-list {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 6px;
+}
+
+.template-item {
+  padding: 6px 10px;
+  font-size: 11px;
+  background: var(--vscode-input-background, #1e1e1e);
+  border: 1px solid var(--vscode-input-border, #454545);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+}
+
+.template-item:hover {
+  border-color: var(--vscode-focusBorder, #007fd4);
+  background: var(--vscode-list-hoverBackground, #2a2d2e);
+  transform: translateY(-1px);
+}
+
+.template-item:active {
+  transform: translateY(0);
+}
+
+.template-label {
+  display: block;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+  margin-bottom: 2px;
+}
+
+.template-desc {
+  display: block;
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* ── Autocomplete Popup ──────────────────────── */
+.autocomplete-popup {
+  position: absolute;
+  z-index: 100;
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--vscode-editorSuggestWidget-background, #252526);
+  border: 1px solid var(--vscode-editorSuggestWidget-border, #454545);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', 'Courier New', monospace;
+  font-size: 13px;
+  min-width: 180px;
+  pointer-events: auto;
+  /* Promote to own compositor layer to avoid layout thrashing */
+  will-change: transform;
+}
+
+.autocomplete-item {
+  padding: 4px 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.autocomplete-item:hover,
+.autocomplete-item.selected {
+  background: var(--vscode-editorSuggestWidget-selectedBackground, #094771);
+}
+
+.autocomplete-item .col-ref {
+  color: var(--vscode-editor-foreground, #d4d4d4);
+}
+
+.autocomplete-item .col-name {
+  color: var(--vscode-descriptionForeground, #999);
+  font-size: 11px;
+}
+
+.autocomplete-item .col-badge {
+  font-size: 9px;
+  background: var(--vscode-badge-background, #4d4d4d);
+  color: var(--vscode-badge-foreground, #fff);
+  padding: 0px 5px;
+  border-radius: 3px;
+  margin-left: auto;
 }
 
 .query-header {
@@ -156,11 +327,12 @@ body {
   padding: 14px 14px 14px 48px;
   background: transparent;
   color: transparent;
-  caret-color: var(--vscode-editorCursor-foreground, #aeafad);
+  caret-color: var(--vscode-editorCursor-foreground, #fff);
   border: none;
   border-radius: 0;
   font-family: 'Cascadia Code', 'Fira Code', 'Consolas', 'Courier New', monospace;
   font-size: 13.5px;
+  font-variant-ligatures: none;
   line-height: 1.65;
   tab-size: 4;
   resize: vertical;
@@ -199,6 +371,12 @@ button {
   border-radius: 4px;
   cursor: pointer;
   font-weight: 500;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+button:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder, #007fd4);
+  outline-offset: 2px;
 }
 
 .btn-primary {
@@ -229,6 +407,13 @@ button {
   font-size: 11px;
 }
 
+.shortcut-hint {
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground);
+  margin-left: auto;
+  opacity: 0.7;
+}
+
 /* ── Progress ───────────────────────────────── */
 #progressBar {
   margin-bottom: 14px;
@@ -246,7 +431,7 @@ button {
   height: 100%;
   width: 0%;
   background: var(--vscode-progressBar-foreground, #007acc);
-  transition: width 0.3s ease;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .progress-label {
@@ -269,6 +454,32 @@ button {
   background: var(--vscode-inputValidation-errorBackground, #5a1d1d);
   border: 1px solid var(--vscode-inputValidation-errorBorder, #be1100);
   color: var(--vscode-inputValidation-errorForeground, #f48771);
+}
+
+#status.error .error-icon {
+  margin-right: 6px;
+}
+
+#status.error .error-text {
+  display: inline;
+}
+
+#status.error .error-location {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+#status.error .error-loc-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  background: var(--vscode-badge-background, #4d4d4d);
+  color: var(--vscode-badge-foreground, #fff);
+  padding: 2px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 #status.success {
@@ -362,6 +573,10 @@ button {
   white-space: nowrap;
 }
 
+#resultTable tbody tr {
+  transition: background 0.1s;
+}
+
 #resultTable tbody tr:hover td {
   background: var(--vscode-list-hoverBackground, #2a2d2e);
 }
@@ -421,6 +636,7 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition: border-color 0.15s, background 0.15s;
 }
 
 .history-item:hover {
@@ -499,7 +715,9 @@ button {
     padding: 14px 14px 14px 48px;
     font-family: 'Cascadia Code', 'Fira Code', 'Consolas', 'Courier New', monospace;
     font-size: 13.5px;
+    font-variant-ligatures: none;
     line-height: 1.65;
+    tab-size: 4;
     white-space: pre-wrap;
     word-wrap: break-word;
     overflow: hidden;
@@ -530,8 +748,6 @@ button {
 /* Keywords: SELECT, FROM, WHERE, etc. */
 .rbql-keyword {
     color: #c586c0;
-    font-weight: 700;
-    letter-spacing: 0.02em;
 }
 
 /* Functions: COUNT(), SUM(), AVG(), etc. */
@@ -552,7 +768,6 @@ button {
 /* Symbol operators: ==, !=, >=, +, -, *, /, % */
 .rbql-operator {
     color: #569cd6;
-    font-weight: 600;
 }
 
 /* Comments: // … and /* … */

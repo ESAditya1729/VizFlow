@@ -157,10 +157,18 @@ function initSyntaxHighlighting() {
     overlay.setAttribute('aria-hidden', 'true');
     wrapper.appendChild(overlay);
 
+    let rafId = null;
+
     function syncHighlight() {
-        overlay.innerHTML = highlighter.highlight(editor.value);
-        overlay.scrollTop  = editor.scrollTop;
-        overlay.scrollLeft = editor.scrollLeft;
+        // Use requestAnimationFrame to batch DOM updates and prevent
+        // layout thrashing that causes cursor flickering.
+        if (rafId !== null) return;
+        rafId = requestAnimationFrame(function() {
+            rafId = null;
+            overlay.innerHTML = highlighter.highlight(editor.value);
+            overlay.scrollTop  = editor.scrollTop;
+            overlay.scrollLeft = editor.scrollLeft;
+        });
     }
 
     editor.addEventListener('input',  syncHighlight);
@@ -169,8 +177,8 @@ function initSyntaxHighlighting() {
         overlay.scrollLeft = editor.scrollLeft;
     });
 
-    // Initial render
-    syncHighlight();
+    // Initial render (immediate, no rAF needed)
+    overlay.innerHTML = highlighter.highlight(editor.value);
 
     // Re-sync when the textarea is resized
     new ResizeObserver(syncHighlight).observe(editor);

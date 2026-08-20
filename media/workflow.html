@@ -31,32 +31,27 @@
 
     <!-- ═══ TOOLBAR ═══ -->
     <div class="toolbar">
-      <div class="toolbar-group">
+      <div class="toolbar-group toolbar-left">
+        <button class="btn-icon toolbar-toggle" id="btnTogglePalette" title="Toggle Activity Panel" aria-label="Toggle palette">☰</button>
         <input class="workflow-name" id="workflowName" type="text"
                placeholder="Untitled Workflow" value="My Workflow" maxlength="80"
                title="Workflow name" aria-label="Workflow name">
         <span class="workflow-status" id="workflowStatus" title="Workflow status">● Ready</span>
       </div>
       
-      <div class="toolbar-divider"></div>
-      
-      <div class="toolbar-group">
+      <div class="toolbar-group toolbar-center">
         <button class="btn-toolbar" id="btnNew" title="New Workflow (Ctrl+N)" aria-label="New workflow">📄 New</button>
         <button class="btn-toolbar" id="btnOpen" title="Open .vizflow (Ctrl+O)" aria-label="Open workflow">📂 Open</button>
         <button class="btn-toolbar" id="btnSave" title="Save (Ctrl+S)" aria-label="Save workflow">💾 Save</button>
-        <button class="btn-toolbar" id="btnSaveAs" title="Save As…" aria-label="Save workflow as">💾 Save As…</button>
-      </div>
-      
-      <div class="toolbar-divider"></div>
-      
-      <div class="toolbar-group">
+        <button class="btn-toolbar" id="btnSaveAs" title="Save As…" aria-label="Save workflow as">💾 As…</button>
+        
+        <span class="toolbar-divider"></span>
+        
         <button class="btn-toolbar" id="btnSchedule" title="Open this workflow in the Scheduler" aria-label="Schedule workflow">⏰ Schedule</button>
         <button class="btn-toolbar" id="btnExport" title="Export workflow as JSON" aria-label="Export workflow">📤 Export</button>
       </div>
       
-      <div class="toolbar-divider"></div>
-      
-      <div class="toolbar-group">
+      <div class="toolbar-group toolbar-right">
         <button class="btn-run" id="btnRun" title="Run Workflow (Ctrl+Enter)" aria-label="Run workflow">▶ Run</button>
         <button class="btn-stop" id="btnStop" title="Stop" style="display:none" aria-label="Stop workflow">⏹ Stop</button>
         <span class="run-timer" id="runTimer" style="display:none">⏱ 0s</span>
@@ -100,24 +95,76 @@
 
       <!-- Canvas -->
       <main class="canvas-wrap" id="canvasWrap" role="main" aria-label="Workflow canvas">
-        <div class="canvas-inner" id="canvasInner">
-          <!-- Empty State -->
-          <div class="canvas-empty visible" id="canvasEmpty">
-            <div class="canvas-empty-icon">⚡</div>
-            <div class="canvas-empty-title">Build Your Data Pipeline</div>
-            <div class="canvas-empty-sub">
-              Drag activities from the palette or click to add them.
-            </div>
-            <div class="canvas-empty-hint">
-              💡 Try: <strong>📥 Read CSV</strong> → <strong>📊 RBQL Query</strong> → <strong>💾 Write CSV</strong>
-            </div>
-            <div class="canvas-empty-shortcuts">
-              <kbd>Ctrl+N</kbd> New · <kbd>Ctrl+O</kbd> Open · <kbd>Ctrl+S</kbd> Save · <kbd>Ctrl+Enter</kbd> Run
-            </div>
+        <!-- SVG DAG Canvas -->
+        <svg class="dag-canvas" id="dagCanvas" xmlns="http://www.w3.org/2000/svg">
+          <!-- Grid pattern definition -->
+          <defs>
+            <pattern id="gridSmall" width="20" height="20" patternUnits="userSpaceOnUse">
+              <path d="M 20 0 L 0 0 0 20" fill="none" stroke="var(--vscode-panel-border, #454545)" stroke-width="0.5" opacity="0.3"/>
+            </pattern>
+            <pattern id="gridLarge" width="100" height="100" patternUnits="userSpaceOnUse">
+              <rect width="100" height="100" fill="url(#gridSmall)"/>
+              <path d="M 100 0 L 0 0 0 100" fill="none" stroke="var(--vscode-panel-border, #454545)" stroke-width="1" opacity="0.5"/>
+            </pattern>
+            <!-- Arrow marker for edges -->
+            <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="var(--vscode-foreground, #cccccc)"/>
+            </marker>
+            <!-- Highlighted arrow marker for selected edges -->
+            <marker id="arrowhead-selected" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="var(--vscode-focusBorder, #007fd4)"/>
+            </marker>
+            <!-- Clip path for node content -->
+            <clipPath id="dagNodeClip">
+              <rect width="200" height="80" rx="6" ry="6"/>
+            </clipPath>
+          </defs>
+          
+          <!-- Transform group for pan/zoom -->
+          <g id="dagTransform">
+            <!-- Grid background -->
+            <rect class="dag-grid" width="10000" height="10000" x="-5000" y="-5000" fill="url(#gridLarge)"/>
+            
+            <!-- Edges layer -->
+            <g id="dagEdges"></g>
+            
+            <!-- Nodes layer -->
+            <g id="dagNodes"></g>
+            
+            <!-- Temp connection line while dragging -->
+            <path id="dagTempConnection" class="dag-temp-connection" d="" style="display:none"/>
+          </g>
+        </svg>
+        
+        <!-- Empty State (shown when no nodes) -->
+        <div class="canvas-empty visible" id="canvasEmpty">
+          <div class="canvas-empty-icon">⚡</div>
+          <div class="canvas-empty-title">Build Your Data Pipeline</div>
+          <div class="canvas-empty-sub">
+            Drag activities from the palette or click to add them.
           </div>
-
-          <!-- Steps rendered here by JavaScript -->
-          <div id="activityList" role="list" aria-label="Workflow activities"></div>
+          <div class="canvas-empty-hint">
+            💡 Try: <strong>📥 Read CSV</strong> → <strong>📊 RBQL Query</strong> → <strong>💾 Write CSV</strong>
+          </div>
+          <div class="canvas-empty-shortcuts">
+            <kbd>Ctrl+N</kbd> New · <kbd>Ctrl+O</kbd> Open · <kbd>Ctrl+S</kbd> Save · <kbd>Ctrl+Enter</kbd> Run
+          </div>
+        </div>
+        
+        <!-- Minimap -->
+        <div class="dag-minimap" id="dagMinimap">
+          <svg id="dagMinimapSvg" xmlns="http://www.w3.org/2000/svg">
+            <g id="dagMinimapContent"></g>
+            <rect id="dagMinimapViewport" class="dag-minimap-viewport"/>
+          </svg>
+        </div>
+        
+        <!-- Zoom Controls -->
+        <div class="dag-zoom-controls">
+          <button class="dag-zoom-btn" id="dagZoomIn" title="Zoom In (+)" aria-label="Zoom in">+</button>
+          <span class="dag-zoom-level" id="dagZoomLevel">100%</span>
+          <button class="dag-zoom-btn" id="dagZoomOut" title="Zoom Out (-)" aria-label="Zoom out">-</button>
+          <button class="dag-zoom-btn" id="dagZoomFit" title="Fit to View (F)" aria-label="Fit to view">⊡</button>
         </div>
         
         <!-- Canvas context menu (hidden by default) -->
@@ -127,7 +174,32 @@
           <button class="context-item" data-action="selectAll" role="menuitem">🔲 Select All</button>
           <button class="context-item" data-action="clearAll" role="menuitem">🗑 Clear All</button>
         </div>
+        <!-- Node context menu (hidden by default) -->
+        <div class="canvas-context-menu" id="nodeContextMenu" style="display:none" role="menu">
+          <button class="context-item" data-action="editNotes" role="menuitem">📝 Edit Notes</button>
+          <button class="context-item" data-action="previewData" role="menuitem">👁 Preview Data</button>
+          <button class="context-item" data-action="renameNode" role="menuitem">✏️ Rename</button>
+          <button class="context-item" data-action="duplicateNode" role="menuitem">📋 Duplicate</button>
+          <button class="context-item" data-action="deleteNode" role="menuitem">🗑 Delete</button>
+        </div>
       </main>
+
+      <!-- ═══ CONFIG PANEL (right side) ═══ -->
+      <aside class="config-panel hidden" id="configPanel" role="complementary" aria-label="Activity configuration">
+        <div class="config-panel-header">
+          <div class="config-panel-title-row">
+            <span class="config-panel-icon" id="configPanelIcon"></span>
+            <span class="config-panel-title" id="configPanelTitle">Select an Activity</span>
+          </div>
+          <button class="btn-icon config-panel-close" id="configPanelClose" title="Close panel (Esc)" aria-label="Close config panel">✕</button>
+        </div>
+        <div class="config-panel-body" id="configPanelBody">
+          <div class="config-panel-empty">
+            <div class="config-panel-empty-icon">🖱️</div>
+            <div class="config-panel-empty-text">Double-click a node on the canvas to configure it.</div>
+          </div>
+        </div>
+      </aside>
     </div>
 
     <!-- ═══ LOG PANEL ═══ -->
