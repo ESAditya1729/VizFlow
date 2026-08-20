@@ -150,11 +150,11 @@ suite('Database Services Test Suite', () => {
             const saved = await cm.save({
                 name: 'Atlas',
                 type: 'mongodb',
-                connectionString: 'mongodb+srv://user:pw@cluster.mongodb.net/db'
+                connectionString: '' //mongodb+srv://<YourUsername>:<YourPassword>@cluster.mongodb.net/db
             });
             assert.ok(saved.id);
             const fetched = await cm.get(saved.id);
-            assert.strictEqual(fetched.connectionString, 'mongodb+srv://user:pw@cluster.mongodb.net/db');
+            assert.strictEqual(fetched.connectionString, ''); // the connection string is preserved
             assert.strictEqual(fetched.password, undefined);
         });
     });
