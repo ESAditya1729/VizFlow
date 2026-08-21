@@ -230,6 +230,14 @@ async function handleMessage(panel, message, context, initialOpenFilePath) {
             handleConnectionOptions(panel);
             break;
 
+        case 'loadXmlSample':
+            await handleLoadXmlSample(panel, message, context);
+            break;
+
+        case 'previewXmlMapping':
+            await handlePreviewXmlMapping(panel, message, context);
+            break;
+
         default:
             console.warn('[VizFlow] Unknown message type:', message.type);
     }
@@ -379,6 +387,50 @@ function handleConnectionOptions(panel) {
         type: 'connectionOptions',
         options: connections.map((name) => ({ value: name, label: name }))
     });
+}
+
+/**
+ * Resolves a config-relative path against the first workspace folder, same
+ * convention as handleRun's inline `resolvePath`.
+ */
+function resolveWorkspaceRoot(context) {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    return workspaceFolders && workspaceFolders.length > 0
+        ? workspaceFolders[0].uri.fsPath
+        : context.extensionPath;
+}
+
+/**
+ * Loads a sample XML file for the XML Visual Mapper's source-tree pane.
+ */
+async function handleLoadXmlSample(panel, message, context) {
+    const { stepId, field, filePath } = message;
+    try {
+        const xmlSampleService = require('../services/xmlSampleService');
+        const workspaceRoot = resolveWorkspaceRoot(context);
+        const { tree, declaration, truncated } = await xmlSampleService.loadXmlSample(filePath, workspaceRoot);
+        panel.webview.postMessage({ type: 'xmlSampleResult', stepId, field, tree, declaration, truncated });
+    } catch (error) {
+        console.error('[VizFlow] loadXmlSample error:', error.message || error);
+        panel.webview.postMessage({ type: 'xmlSampleResult', stepId, field, tree: null, error: error.message || String(error) });
+    }
+}
+
+/**
+ * Runs a mapping against the same sample file for the XML Visual Mapper's
+ * live preview pane.
+ */
+async function handlePreviewXmlMapping(panel, message, context) {
+    const { stepId, field, filePath, mapping, targetShape, mode, recordPath } = message;
+    try {
+        const xmlSampleService = require('../services/xmlSampleService');
+        const workspaceRoot = resolveWorkspaceRoot(context);
+        const result = await xmlSampleService.previewXmlMapping(filePath, workspaceRoot, { mapping, targetShape, mode, recordPath });
+        panel.webview.postMessage({ type: 'xmlMappingPreviewResult', stepId, field, ...result });
+    } catch (error) {
+        console.error('[VizFlow] previewXmlMapping error:', error.message || error);
+        panel.webview.postMessage({ type: 'xmlMappingPreviewResult', stepId, field, error: error.message || String(error) });
+    }
 }
 
 /**
@@ -702,6 +754,8 @@ async function handlePickFile(panel, stepId, field, activityType) {
                 'Text Files': ['txt'],
                 'All Files': ['*']
             };
+        } else if (/xml/.test(haystack)) {
+            filters = { 'XML Files': ['xml'], 'All Files': ['*'] };
         }
     }
 

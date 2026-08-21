@@ -295,6 +295,15 @@ rules above, then check the required fields for each `type` in the catalog.
 9. **Merged results / passthrough:** write/append activities return their input
    dataset unchanged; do not re-query them expecting a transformed output.
 10. **Regenerate docs after activity changes:** run `npm run gen:context`.
+11. **XML namespaces:** treated as a literal part of the tag/attribute name
+    (`ns:Order`), not resolved — see §15.
+12. **XML DTDs:** `<!DOCTYPE ...>` is skipped, never expanded — no external
+    entity resolution, so DTD-driven default attribute values etc. are not
+    applied.
+13. **`xmlTransform` is file→file:** it reads `inputFilePath` and writes
+    `outputFilePath` itself; like other output activities it passes its input
+    dataset through unchanged (or a small `{outputFilePath, fileSize}`
+    dataset when run standalone with no upstream input).
 
 ## 13. Prompt templates
 
@@ -359,3 +368,63 @@ step and what the final output is:
    or load the file in the Workflow Builder.
 5. If activities changed, run `npm run gen:context` so the catalog/schema stay
    in sync (a test enforces this).
+
+## 15. XML activities (`readXml` / `writeXml` / `xmlTransform`)
+
+> **Status:** functional in the engine, but marked "Coming soon" and disabled
+> in the Workflow Builder's activity palette pending a fuller release in v3
+> (visual mapper UX needs more polish). Do not suggest adding these via the
+> palette; a hand-authored `.vizflow` JSON using them still runs correctly.
+
+Three activities bridge XML with the tabular `Dataset` model used everywhere
+else, backed by a small dependency-free engine in `engine/xml/` (custom
+parser/serializer/path resolver — no XML library, no DTD/external-entity
+resolution, so XXE is not possible by construction).
+
+- **`readXml`** (Input): `filePath`, `mode` (`auto` | `visual`, default
+  `auto`), `recordPath` (auto mode — path to the repeating record element,
+  e.g. `Orders/Order`), `mapping` (visual mode), `encoding`. Produces a
+  `Dataset` — one row per record. Auto mode derives one column per direct
+  child element/attribute of the record (attribute columns are named `@name`).
+- **`writeXml`** (Output): `filePath`, `rootElement` (wrapping element name,
+  default `Root`), `mapping` (required — a single element mapping describing
+  how **one row** becomes one XML element), `overwrite`, `encoding`. Each
+  input row is bound against its own column values (reachable by either the
+  child-element path `ColumnName` or the attribute path `@ColumnName`) and
+  wrapped as a child of `rootElement`. Passes its input dataset through
+  unchanged, per the same convention as `writeCsv`/`writeText`.
+- **`xmlTransform`** (Transformation): `inputFilePath`, `outputFilePath`,
+  `mapping` (required — describes the full target tree, XSLT-like). Self
+  contained: reads its own input file, writes its own output file. Passes its
+  input dataset through unchanged (or a small `{outputFilePath, fileSize}`
+  dataset if run with no upstream dataset).
+
+### The `mapping` JSON schema (shared by all three, and by the Visual Mapper)
+
+```jsonc
+{
+  "kind": "element",                          // "element" | "attribute" | "text" (default "element")
+  "name": "Order",                            // omitted for kind:"text"
+  "loop": { "path": "Orders/Order", "as": "order" },  // optional: repeat once per match
+  "binding": { "path": "@id", "op": "upper", "opParams": [] }, // optional
+  "expression": "{{id}} - {{status}}",        // optional formula bar, {{name}} refs sibling fields / loop alias
+  "static": "N/A",                            // optional literal fallback
+  "condition": { "path": "Status", "operator": "!=", "value": "cancelled" },
+  "children": [ /* same shape, nested */ ]
+}
+```
+
+- Path syntax (`engine/xml/xmlPath.js`) is a tiny "path-lite", not real XPath:
+  `Name`, `Name[n]` (1-based), `@attr` (must be last segment), `.` (self).
+- `binding.op`/`opParams` reuse the existing Transform operation catalog
+  (`engine/expressions/operations.js`) as-is.
+- `condition.operator` reuses the same vocabulary as the `ifElse` control
+  activity: `== != > >= < <= contains startsWith endsWith isEmpty isNotEmpty
+  regex`.
+- `expression` runs through `engine/expressions/safeEval.js`: `{{token}}`
+  placeholders are interpolated first; the result is evaluated as arithmetic
+  only if it is provably restricted to `+ - * / % ( ) .` and digits — anything
+  else (e.g. `"1 - ok"`) is returned as the literal interpolated string, so
+  `{{id}}-{{status}}` concatenates rather than throwing.
+- Fields in a `children` array see earlier siblings' already-computed values
+  by name in their own `expression`, evaluated in declared order.

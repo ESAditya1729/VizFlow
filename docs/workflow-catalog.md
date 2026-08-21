@@ -13,11 +13,11 @@ Each activity below is a valid `type` for a `.vizflow` activity node:
 
 ## Index
 
-- **Input** (6): `listFiles`, `readCsv`, `readExcel`, `readMongo`, `readSql`, `sampleData`
-- **Transformation** (6): `filter`, `joinDatasets`, `removeDuplicates`, `selectColumns`, `sort`, `transform`
+- **Input** (7): `listFiles`, `readCsv`, `readExcel`, `readMongo`, `readSql`, `readXml`, `sampleData`
+- **Transformation** (7): `filter`, `joinDatasets`, `removeDuplicates`, `selectColumns`, `sort`, `transform`, `xmlTransform`
 - **Query** (4): `mongoQuery`, `previewQuery`, `query`, `sqlQuery`
 - **Analytics** (4): `aggregate`, `columnStats`, `dataProfile`, `groupBy`
-- **Output** (6): `appendText`, `exportMultiple`, `writeCsv`, `writeExcel`, `writeJson`, `writeText`
+- **Output** (7): `appendText`, `exportMultiple`, `writeCsv`, `writeExcel`, `writeJson`, `writeText`, `writeXml`
 - **Control** (8): `callWorkflow`, `execPowerShell`, `forEach`, `forEachFile`, `ifElse`, `multiTransform`, `setVariable`, `wait`
 - **Integration** (1): `httpRequest`
 
@@ -97,6 +97,22 @@ Reads rows from a MySQL or PostgreSQL table into a Dataset using a saved connect
 | `where` | text | no | — | Optional raw SQL WHERE clause without the WHERE keyword |
 | `orderBy` | string | no | — | Optional ORDER BY expression, e.g. "created_at DESC" |
 | `limit` | number | no | 1000 | Maximum rows to read (0 = up to 100,000) |
+
+### `readXml` — 📥 Read XML
+
+Reads an XML file into a Dataset, either by auto-flattening a repeating element or via a visual field mapping.
+
+| Config field | Type | Required | Default | Description |
+|--------------|------|----------|---------|-------------|
+| `filePath` | file | yes | — | Absolute path or workspace-relative path of the XML file |
+| `mode` | select | no | "auto" | Auto derives one column per child element/attribute of the record path; Visual uses a hand-built field mapping |
+| `recordPath` | string | no | — | Path to the repeating record element in Auto mode, e.g. "Orders/Order" |
+| `mapping` | xmlMapper | no | — | Visual field mapping used in Visual mode (built in the Visual Mapper editor) |
+| `encoding` | select | no | — | File encoding (default: UTF-8) |
+
+**`mode` options:** `auto`, `visual`
+
+**`encoding` options:** `utf8`, `ascii`, `latin1`
 
 ### `sampleData` — 🎲 Sample Data
 
@@ -186,6 +202,20 @@ Applies an expression operation to a column.
 | `asNewColumn` | boolean | no | — | If checked, creates a new column instead of replacing existing |
 
 **`opKey` options:** `upper`, `lower`, `titleCase`, `camelCase`, `snakeCase`, `kebabCase`, `trim`, `trimAll`, `clean`, `replace` (params: search, replace), `regexReplace` (params: pattern, replacement), `regexExtract` (params: pattern), `concat` (params: text1, text2, ...), `substring` (params: startIndex, endIndex (optional)), `len`, `countWords`, `reverse`, `padStart` (params: targetLength, padString), `padEnd` (params: targetLength, padString), `truncate` (params: maxLength, suffix (optional)), `slugify`, `extractNumber`, `add` (params: amount), `subtract` (params: amount), `multiply` (params: factor), `divide` (params: divisor), `power` (params: exponent), `sqrt`, `round`, `roundTo` (params: decimals), `ceil`, `floor`, `abs`, `clamp` (params: min, max), `sign`, `percentOf` (params: total), `increment` (params: step (optional)), `decrement` (params: step (optional)), `parseDate`, `formatDate` (params: format (YYYY-MM-DD, MM/DD/YYYY, etc.)), `extractDatePart` (params: part (year/month/day/hour/minute/second/weekday)), `addDays` (params: days), `dateDiff` (params: compareDate (optional), unit (days/hours/weeks/months/years)), `formatTime` (params: format (HH:mm, hh:mm A, etc.)), `coalesce` (params: fallbackValue), `isNull`, `isNumeric`, `isEmail`, `isPhone`, `isUrl`, `mask` (params: start, end, maskChar (optional)), `eq` (params: compareValue), `neq` (params: compareValue), `gt` (params: compareValue), `gte` (params: compareValue), `lt` (params: compareValue), `lte` (params: compareValue), `ifThen` (params: conditionValue, trueResult, falseResult), `switchCase` (params: case1,value1,case2,value2,...,default)
+
+### `xmlTransform` — 🔄 XML Transform
+
+Transforms one XML file into another XML file using a visual, XSLT-like tree mapping. Self-contained (reads its own input, writes its own output).
+
+| Config field | Type | Required | Default | Description |
+|--------------|------|----------|---------|-------------|
+| `inputFilePath` | file | yes | — | Absolute path or workspace-relative path of the source XML file |
+| `outputFilePath` | file | yes | — | Absolute path or workspace-relative path of the transformed XML file |
+| `mapping` | xmlMapper | yes | — | Visual tree mapping describing the target XML shape (built in the Visual Mapper editor) |
+| `overwrite` | boolean | no | — | Overwrite existing output file if it exists (default: true) |
+| `encoding` | select | no | — | File encoding for both input and output (default: UTF-8) |
+
+**`encoding` options:** `utf8`, `ascii`, `latin1`
 
 ## Query
 
@@ -404,6 +434,20 @@ Writes data to a plain text file with customizable formatting.
 **`delimiter` options:** `,`, `;`, `	`, `|`
 
 **`encoding` options:** `utf8`, `utf8-bom`, `ascii`, `latin1`
+
+### `writeXml` — 💾 Write XML
+
+Writes the current dataset to an XML file, using a visual mapping to shape each row into an element.
+
+| Config field | Type | Required | Default | Description |
+|--------------|------|----------|---------|-------------|
+| `filePath` | file | yes | — | Absolute path or workspace-relative path of the output XML file |
+| `rootElement` | string | no | "Root" | Name of the wrapping root element that contains one child per row |
+| `mapping` | xmlMapper | yes | — | Per-row element mapping used to build each row into an XML element (built in the Visual Mapper editor) |
+| `overwrite` | boolean | no | — | Overwrite existing file if it exists (default: true) |
+| `encoding` | select | no | — | File encoding (default: UTF-8) |
+
+**`encoding` options:** `utf8`, `ascii`, `latin1`
 
 ## Control
 

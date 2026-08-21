@@ -17,6 +17,7 @@ let controlActivities = [];
 let powerShellActivities = [];
 let databaseActivities = [];
 let httpActivities = [];
+let xmlActivities = [];
 
 // ─── Safe Module Loading ────────────────────────────────────────────────────
 try {
@@ -123,6 +124,26 @@ try {
     console.error('[VizFlow] Failed to load httpActivities:', error.message);
     httpActivities = [];
 }
+
+// ─── Load XML Activities ────────────────────────────────────────────────────
+try {
+    xmlActivities = require('./xmlActivities');
+    if (!Array.isArray(xmlActivities)) {
+        console.warn('[VizFlow] xmlActivities is not an array, wrapping...');
+        xmlActivities = Array.isArray(xmlActivities) ? xmlActivities : [xmlActivities];
+    }
+    console.log(`[VizFlow] Loaded ${xmlActivities.length} XML activities`);
+} catch (error) {
+    console.error('[VizFlow] Failed to load xmlActivities:', error.message);
+    xmlActivities = [];
+}
+
+// Merge XML activities into their existing categories by `category`, so
+// readXml/writeXml/xmlTransform show up alongside readCsv/writeCsv/transform
+// without a new top-level category or any change to activityRegistry.js.
+inputActivities = [...inputActivities, ...xmlActivities.filter(a => a.category === 'Input')];
+outputActivities = [...outputActivities, ...xmlActivities.filter(a => a.category === 'Output')];
+transformationActivities = [...transformationActivities, ...xmlActivities.filter(a => a.category === 'Transformation')];
 
 // ─── Category Registry ──────────────────────────────────────────────────────
 
@@ -492,7 +513,8 @@ module.exports = {
     powerShellActivities,  // New: PowerShell activities
     databaseActivities,    // New: Database activities
     httpActivities,        // New: HTTP / integration activities
-    
+    xmlActivities,         // New: XML activities
+
     // Enhanced exports
     ACTIVITY_CATEGORIES,
     getAllActivities,

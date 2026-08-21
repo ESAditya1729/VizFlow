@@ -19,6 +19,12 @@
   const MAX_LOG_ENTRIES = 500;
   const PROGRESS_ANIMATION_DURATION = 300;
 
+  // XML activities are built and functional under the hood, but the visual
+  // mapper UX needs more polish before release — hidden behind this flag
+  // until v3. Remove this constant (and its one use in buildPalette) to
+  // re-enable the palette entries; nothing else depends on it.
+  const COMING_SOON_TYPES = ['readXml', 'writeXml', 'xmlTransform'];
+
   // ─── CONFIRM DIALOG ────────────────────────────────────────────────────────
   // VS Code webviews block window.confirm(), so render a small modal instead.
 
@@ -638,10 +644,10 @@
       group.appendChild(label);
 
       for (const act of grouped[cat]) {
+        const comingSoon = COMING_SOON_TYPES.includes(act.type);
+
         const item = document.createElement('div');
-        item.className = 'palette-item';
-        item.draggable = true;
-        item.title = act.description;
+        item.className = comingSoon ? 'palette-item palette-item-disabled' : 'palette-item';
         item.dataset.type = act.type;
 
         const icon = document.createElement('div');
@@ -658,15 +664,27 @@
 
         item.appendChild(icon);
         item.appendChild(text);
-        item.addEventListener('dragstart', (e) => {
-          e.dataTransfer.setData('activity-type', act.type);
-          e.dataTransfer.effectAllowed = 'copy';
-          item.classList.add('dragging');
-        });
-        item.addEventListener('dragend', () => {
-          item.classList.remove('dragging');
-        });
-        item.addEventListener('click', () => addStep(act.type));
+
+        if (comingSoon) {
+          item.title = `${act.description || ''} — Coming soon`;
+          const badge = document.createElement('div');
+          badge.className = 'palette-item-badge';
+          badge.textContent = 'Coming soon';
+          item.appendChild(badge);
+          item.addEventListener('click', () => showNotification(`${act.displayName} is coming in a future release.`, 'info'));
+        } else {
+          item.title = act.description;
+          item.draggable = true;
+          item.addEventListener('dragstart', (e) => {
+            e.dataTransfer.setData('activity-type', act.type);
+            e.dataTransfer.effectAllowed = 'copy';
+            item.classList.add('dragging');
+          });
+          item.addEventListener('dragend', () => {
+            item.classList.remove('dragging');
+          });
+          item.addEventListener('click', () => addStep(act.type));
+        }
         group.appendChild(item);
       }
       paletteList.appendChild(group);
@@ -1360,6 +1378,20 @@
         rebuildKv();
         field.appendChild(kvContainer);
 
+      // ─── XML Visual Mapper (summary chip + Edit Mapping button) ────────────
+      } else if (req.type === 'xmlMapper') {
+        const mapperShape = act.type === 'readXml' ? 'rows' : 'tree';
+        const summary = document.createElement('div');
+        summary.className = 'xml-mapper-summary-chip';
+        summary.textContent = xmlMapperSummaryText(step.config[req.name], mapperShape);
+        field.appendChild(summary);
+
+        const editBtn = document.createElement('button');
+        editBtn.className = 'btn-add-action';
+        editBtn.textContent = '🗺️ Edit Mapping';
+        editBtn.addEventListener('click', () => openXmlMapperModal(step, req, act, mapperShape));
+        field.appendChild(editBtn);
+
       // ─── Other Fields ──────────────────────────────────────────────────────
       } else {
         const inp = document.createElement('input');
@@ -1379,6 +1411,7 @@
           req.type !== 'multiAction' && 
           req.type !== 'boolean' &&
           req.type !== 'text' &&
+          req.type !== 'xmlMapper' &&
           req.name !== 'params') {
         const hint = document.createElement('div');
         hint.className = 'config-hint';
@@ -2059,6 +2092,14 @@
       case 'runStopped':
         setRunning(false);
         logLine('Run stopped — no active run.', 'warn');
+        break;
+
+      case 'xmlSampleResult':
+        xmlMapperOnSampleResult(msg);
+        break;
+
+      case 'xmlMappingPreviewResult':
+        xmlMapperOnPreviewResult(msg);
         break;
 
       default:
@@ -3694,6 +3735,884 @@
       e.preventDefault();
     }
   });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // XML VISUAL MAPPER
+  // Renders inside a step's config panel for readXml/writeXml/xmlTransform's
+  // `mapping` (type: 'xmlMapper') field. Two shapes:
+  //   'rows' (readXml)  -> mapping = { loop, condition, children: [flat fields] }
+  //   'tree' (writeXml/xmlTransform) -> mapping = single recursive element node
+  // ═══════════════════════════════════════════════════════════════════════
+
+  let xmlMapperState = null;
+  const CONDITION_OPERATORS = ['==', '!=', '>', '>=', '<', '<=', 'contains', 'startsWith', 'endsWith', 'isEmpty', 'isNotEmpty', 'regex'];
+
+  function xmlMapperDefaultMapping(shape) {
+    return shape === 'rows'
+      ? { loop: { path: '', as: 'record' }, children: [] }
+      : { kind: 'element', name: 'Row', children: [] };
+  }
+
+  function xmlMapperCountFields(node, shape) {
+    if (!node) return 0;
+    if (shape === 'rows') return (node.children || []).length;
+    let count = 0;
+    const walk = (n) => {
+      if (!n) return;
+      count++;
+      for (const c of (n.children || [])) walk(c);
+    };
+    for (const c of (node.children || [])) walk(c);
+    return count;
+  }
+
+  function xmlMapperSummaryText(mapping, shape) {
+    if (!mapping || (shape === 'rows' ? !mapping.loop?.path : !mapping.name)) {
+      return '🗺️ No mapping configured yet';
+    }
+    const n = xmlMapperCountFields(mapping, shape);
+    return shape === 'rows'
+      ? `🗺️ ${n} field${n === 1 ? '' : 's'} mapped from "${mapping.loop.path}"`
+      : `🗺️ ${n} node${n === 1 ? '' : 's'} mapped, rooted at <${mapping.name}>`;
+  }
+
+  function xmlMapperSampleFilePath(step, act) {
+    if (act.type === 'readXml') return step.config.filePath || '';
+    if (act.type === 'xmlTransform') return step.config.inputFilePath || '';
+    return '';
+  }
+
+  // ─── path-lite helpers (mirrors engine/xml/xmlPath.js's grammar) ──────────
+
+  function xmlMapperJoinPath(base, seg) {
+    if (!seg || seg === '.') return base || '';
+    if (!base) return seg;
+    return base + '/' + seg;
+  }
+
+  function xmlMapperGeneralize(p) {
+    return (p || '')
+      .split('/')
+      .filter(Boolean)
+      .map(s => s.startsWith('@') ? s : s.replace(/\[\d+\]$/, ''))
+      .join('/');
+  }
+
+  // Strips the nearest-enclosing-context prefix from a dropped absolute path,
+  // so the stored mapping path is correctly relative per xmlMapper.js's
+  // context-propagation rules (relative to the nearest ancestor loop, or the
+  // document root if none). Falls back to the full generalized path when the
+  // context isn't a prefix of the dropped path (e.g. dragging across loops).
+  function xmlMapperRelativize(absolutePath, ctxPath) {
+    const absSegs = xmlMapperGeneralize(absolutePath).split('/').filter(Boolean);
+    const ctxSegs = xmlMapperGeneralize(ctxPath).split('/').filter(Boolean);
+    let i = 0;
+    while (i < ctxSegs.length && i < absSegs.length && absSegs[i] === ctxSegs[i]) i++;
+    if (i === ctxSegs.length) {
+      const rel = absSegs.slice(i);
+      return rel.length ? rel.join('/') : '.';
+    }
+    return absSegs.join('/');
+  }
+
+  // The context a node's OWN binding/condition/children resolve against:
+  // its post-loop context if it has a loop, otherwise its parent's context.
+  function xmlMapperOwnCtxPath(node, parentCtxPath) {
+    if (node && node.loop && node.loop.path) {
+      return xmlMapperGeneralize(xmlMapperJoinPath(parentCtxPath, node.loop.path));
+    }
+    return parentCtxPath || '';
+  }
+
+  function xmlMapperTextPreview(node) {
+    if (!node || !Array.isArray(node.children)) return '';
+    const text = node.children
+      .filter(c => c.type === 'text' || c.type === 'cdata')
+      .map(c => c.value)
+      .join('')
+      .trim();
+    if (!text) return '';
+    return text.length > 40 ? text.slice(0, 40) + '…' : text;
+  }
+
+  function xmlMapperOperationOptions() {
+    const transformAct = activities.find(a => a.type === 'transform');
+    const opReq = transformAct && (transformAct.configRequirements || []).find(r => r.name === 'opKey');
+    return (opReq && opReq.options) || [];
+  }
+
+  // ─── generic drag/type-able binding chip (reused by loop/binding/condition paths) ──
+
+  function xmlMapperCreateBindChip(getValue, setValue, ctxPath, placeholder, onCommit) {
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'config-input xml-mapper-bind-chip';
+    inp.placeholder = placeholder || 'path (drag or type)';
+    inp.value = getValue() || '';
+    inp.addEventListener('input', () => { setValue(inp.value); xmlMapperSchedulePreview(); });
+    if (onCommit) inp.addEventListener('blur', onCommit);
+    inp.addEventListener('dragover', (e) => { e.preventDefault(); inp.classList.add('drag-over'); });
+    inp.addEventListener('dragleave', () => inp.classList.remove('drag-over'));
+    inp.addEventListener('drop', (e) => {
+      e.preventDefault();
+      inp.classList.remove('drag-over');
+      const dropped = e.dataTransfer.getData('text/xml-mapper-path');
+      if (!dropped) return;
+      const rel = xmlMapperRelativize(dropped, ctxPath);
+      inp.value = rel;
+      setValue(rel);
+      xmlMapperSchedulePreview();
+      if (onCommit) onCommit();
+    });
+    return inp;
+  }
+
+  function xmlMapperBuildBindingRow(node, ctxPath) {
+    const wrap = document.createElement('span');
+    wrap.className = 'xml-mapper-binding-row';
+    if (!node.binding) node.binding = { path: '' };
+
+    const chip = xmlMapperCreateBindChip(
+      () => node.binding.path,
+      (v) => { node.binding.path = v; },
+      ctxPath,
+      'bind path (drag or type)'
+    );
+
+    const opSel = document.createElement('select');
+    opSel.className = 'config-select xml-mapper-op-select';
+    const noneOpt = document.createElement('option');
+    noneOpt.value = '';
+    noneOpt.textContent = '— no operation —';
+    opSel.appendChild(noneOpt);
+    for (const opt of xmlMapperOperationOptions()) {
+      const o = document.createElement('option');
+      o.value = opt.value;
+      o.textContent = opt.label || opt.value;
+      if (opt.value === node.binding.op) o.selected = true;
+      opSel.appendChild(o);
+    }
+
+    const paramsInp = document.createElement('input');
+    paramsInp.type = 'text';
+    paramsInp.className = 'config-input xml-mapper-op-params';
+    paramsInp.placeholder = 'params (comma-separated)';
+    paramsInp.value = Array.isArray(node.binding.opParams) ? node.binding.opParams.join(', ') : '';
+    paramsInp.style.display = node.binding.op ? '' : 'none';
+
+    opSel.addEventListener('change', () => {
+      node.binding.op = opSel.value;
+      paramsInp.style.display = opSel.value ? '' : 'none';
+      xmlMapperSchedulePreview();
+    });
+    paramsInp.addEventListener('input', () => {
+      node.binding.opParams = paramsInp.value.split(',').map(s => s.trim()).filter(s => s !== '');
+      xmlMapperSchedulePreview();
+    });
+
+    wrap.appendChild(chip);
+    wrap.appendChild(opSel);
+    wrap.appendChild(paramsInp);
+    return wrap;
+  }
+
+  function xmlMapperBuildExpressionToggle(node) {
+    const wrap = document.createElement('span');
+    wrap.className = 'xml-mapper-fx-wrap';
+    const toggleBtn = document.createElement('button');
+    toggleBtn.className = 'btn-icon xml-mapper-fx-toggle';
+    toggleBtn.textContent = 'ƒx';
+    toggleBtn.title = 'Formula (overrides the bind path/operation when set)';
+    const area = document.createElement('textarea');
+    area.className = 'config-textarea xml-mapper-fx-area';
+    area.placeholder = '{{alias}} - {{siblingFieldName}}';
+    area.value = node.expression || '';
+    area.style.display = node.expression ? '' : 'none';
+    toggleBtn.classList.toggle('active', !!node.expression);
+    toggleBtn.addEventListener('click', () => {
+      const show = area.style.display === 'none';
+      area.style.display = show ? '' : 'none';
+      toggleBtn.classList.toggle('active', show);
+      if (show) area.focus();
+    });
+    area.addEventListener('input', () => {
+      node.expression = area.value;
+      xmlMapperSchedulePreview();
+    });
+    wrap.appendChild(toggleBtn);
+    wrap.appendChild(area);
+    return wrap;
+  }
+
+  function xmlMapperBuildStaticInput(node) {
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'config-input xml-mapper-static-input';
+    inp.placeholder = 'static / fallback value';
+    inp.value = node.static !== undefined ? node.static : '';
+    inp.addEventListener('input', () => {
+      node.static = inp.value === '' ? undefined : inp.value;
+      xmlMapperSchedulePreview();
+    });
+    return inp;
+  }
+
+  function xmlMapperBuildConditionRow(cond, ctxPath) {
+    const wrap = document.createElement('span');
+    wrap.className = 'xml-mapper-condition-row';
+
+    const pathChip = xmlMapperCreateBindChip(
+      () => cond.path,
+      (v) => { cond.path = v; },
+      ctxPath,
+      'path (blank = element text)'
+    );
+
+    const opSel = document.createElement('select');
+    opSel.className = 'config-select';
+    for (const op of CONDITION_OPERATORS) {
+      const o = document.createElement('option');
+      o.value = op;
+      o.textContent = op;
+      if (op === cond.operator) o.selected = true;
+      opSel.appendChild(o);
+    }
+
+    const valInp = document.createElement('input');
+    valInp.type = 'text';
+    valInp.className = 'config-input';
+    valInp.placeholder = 'value';
+    valInp.value = cond.value ?? '';
+    valInp.style.display = (cond.operator === 'isEmpty' || cond.operator === 'isNotEmpty') ? 'none' : '';
+
+    opSel.addEventListener('change', () => {
+      cond.operator = opSel.value;
+      valInp.style.display = (opSel.value === 'isEmpty' || opSel.value === 'isNotEmpty') ? 'none' : '';
+      xmlMapperSchedulePreview();
+    });
+    valInp.addEventListener('input', () => {
+      cond.value = valInp.value;
+      xmlMapperSchedulePreview();
+    });
+
+    const caseLabel = document.createElement('label');
+    caseLabel.className = 'xml-mapper-case-label';
+    const caseChk = document.createElement('input');
+    caseChk.type = 'checkbox';
+    caseChk.checked = cond.caseSensitive !== false;
+    caseChk.addEventListener('change', () => {
+      cond.caseSensitive = caseChk.checked;
+      xmlMapperSchedulePreview();
+    });
+    caseLabel.appendChild(caseChk);
+    caseLabel.appendChild(document.createTextNode(' Aa'));
+
+    wrap.appendChild(pathChip);
+    wrap.appendChild(opSel);
+    wrap.appendChild(valInp);
+    wrap.appendChild(caseLabel);
+    return wrap;
+  }
+
+  function xmlMapperBuildConditionToggle(holder, ctxPath) {
+    const wrap = document.createElement('span');
+    wrap.className = 'xml-mapper-cond-wrap';
+    const toggleBtn = document.createElement('button');
+    toggleBtn.className = 'btn-icon xml-mapper-cond-toggle';
+    toggleBtn.textContent = '🔀';
+    toggleBtn.title = 'Condition (filter)';
+    const rowContainer = document.createElement('span');
+    rowContainer.className = 'xml-mapper-cond-row-container';
+
+    function renderRow() {
+      rowContainer.innerHTML = '';
+      if (!holder.condition) return;
+      rowContainer.appendChild(xmlMapperBuildConditionRow(holder.condition, ctxPath));
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'btn-icon';
+      removeBtn.textContent = '✕';
+      removeBtn.title = 'Remove condition';
+      removeBtn.addEventListener('click', () => {
+        holder.condition = undefined;
+        rowContainer.style.display = 'none';
+        toggleBtn.classList.remove('active');
+        xmlMapperSchedulePreview();
+      });
+      rowContainer.appendChild(removeBtn);
+    }
+
+    const hasCondition = !!holder.condition;
+    toggleBtn.classList.toggle('active', hasCondition);
+    rowContainer.style.display = hasCondition ? '' : 'none';
+    renderRow();
+
+    toggleBtn.addEventListener('click', () => {
+      const show = rowContainer.style.display === 'none';
+      if (show && !holder.condition) {
+        holder.condition = { path: '', operator: '==', value: '', caseSensitive: true };
+        renderRow();
+      }
+      rowContainer.style.display = show ? '' : 'none';
+      toggleBtn.classList.toggle('active', show);
+      xmlMapperSchedulePreview();
+    });
+
+    wrap.appendChild(toggleBtn);
+    wrap.appendChild(rowContainer);
+    return wrap;
+  }
+
+  function xmlMapperBuildLoopToggle(node, parentCtxPath) {
+    const wrap = document.createElement('span');
+    wrap.className = 'xml-mapper-loop-toggle-wrap';
+    const toggleBtn = document.createElement('button');
+    toggleBtn.className = 'btn-icon';
+    toggleBtn.textContent = '🔁';
+    toggleBtn.title = 'Repeat over (loop)';
+    const rowContainer = document.createElement('span');
+    rowContainer.className = 'xml-mapper-loop-row-container';
+
+    function renderRow() {
+      rowContainer.innerHTML = '';
+      if (!node.loop) return;
+      const chip = xmlMapperCreateBindChip(
+        () => node.loop.path,
+        (v) => { node.loop.path = v; },
+        parentCtxPath,
+        'repeat path',
+        () => xmlMapperRenderTarget()
+      );
+      const asInp = document.createElement('input');
+      asInp.type = 'text';
+      asInp.className = 'config-input xml-mapper-loop-as';
+      asInp.placeholder = 'as';
+      asInp.value = node.loop.as || '';
+      asInp.addEventListener('input', () => { node.loop.as = asInp.value; xmlMapperSchedulePreview(); });
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'btn-icon';
+      removeBtn.textContent = '✕';
+      removeBtn.title = 'Remove repeat';
+      removeBtn.addEventListener('click', () => {
+        node.loop = undefined;
+        xmlMapperRenderTarget();
+        xmlMapperSchedulePreview();
+      });
+      rowContainer.appendChild(chip);
+      rowContainer.appendChild(asInp);
+      rowContainer.appendChild(removeBtn);
+    }
+
+    const hasLoop = !!node.loop;
+    toggleBtn.classList.toggle('active', hasLoop);
+    rowContainer.style.display = hasLoop ? '' : 'none';
+    renderRow();
+
+    toggleBtn.addEventListener('click', () => {
+      const show = rowContainer.style.display === 'none';
+      if (show && !node.loop) {
+        node.loop = { path: '', as: '' };
+        renderRow();
+      }
+      rowContainer.style.display = show ? '' : 'none';
+      toggleBtn.classList.toggle('active', show);
+      xmlMapperSchedulePreview();
+    });
+
+    wrap.appendChild(toggleBtn);
+    wrap.appendChild(rowContainer);
+    return wrap;
+  }
+
+  // ─── source tree (sample XML, and read-only for tree-shape live preview) ──
+
+  function xmlMapperRenderSourceNode(node, container, basePath, depth, readOnly) {
+    if (!node || node.type !== 'element') return;
+    const row = document.createElement('div');
+    row.className = 'xml-tree-row';
+    row.style.paddingLeft = (depth * 14) + 'px';
+
+    const elementChildren = (node.children || []).filter(c => c.type === 'element');
+    const hasElementChildren = elementChildren.length > 0;
+
+    const toggle = document.createElement('span');
+    toggle.className = 'xml-tree-toggle';
+    toggle.textContent = hasElementChildren ? '▾' : '·';
+
+    const nameEl = document.createElement('span');
+    nameEl.className = 'xml-tree-name';
+    nameEl.textContent = node.name;
+    const path = xmlMapperJoinPath(basePath, node.name);
+
+    if (!readOnly) {
+      nameEl.draggable = true;
+      nameEl.title = 'Drag onto a binding field';
+      nameEl.dataset.xmlPath = path;
+      nameEl.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('text/xml-mapper-path', path);
+        e.dataTransfer.effectAllowed = 'copy';
+      });
+    }
+
+    row.appendChild(toggle);
+    row.appendChild(nameEl);
+
+    const textPreview = xmlMapperTextPreview(node);
+    if (textPreview) {
+      const val = document.createElement('span');
+      val.className = 'xml-tree-text-preview';
+      val.textContent = ' = "' + textPreview + '"';
+      nameEl.appendChild(val);
+    }
+
+    for (const attrName of Object.keys(node.attributes || {})) {
+      const chip = document.createElement('span');
+      chip.className = 'xml-tree-attr-chip';
+      chip.textContent = '@' + attrName + '="' + node.attributes[attrName] + '"';
+      const attrPath = xmlMapperJoinPath(path, '@' + attrName);
+      if (!readOnly) {
+        chip.draggable = true;
+        chip.title = 'Drag onto a binding field';
+        chip.dataset.xmlPath = attrPath;
+        chip.addEventListener('dragstart', (e) => {
+          e.dataTransfer.setData('text/xml-mapper-path', attrPath);
+          e.dataTransfer.effectAllowed = 'copy';
+        });
+      }
+      row.appendChild(chip);
+    }
+
+    container.appendChild(row);
+
+    if (hasElementChildren) {
+      const childWrap = document.createElement('div');
+      childWrap.className = 'xml-tree-children';
+      for (const child of elementChildren) {
+        xmlMapperRenderSourceNode(child, childWrap, path, depth + 1, readOnly);
+      }
+      container.appendChild(childWrap);
+      toggle.addEventListener('click', () => {
+        childWrap.classList.toggle('collapsed');
+        toggle.textContent = childWrap.classList.contains('collapsed') ? '▸' : '▾';
+      });
+    }
+  }
+
+  // ─── target: 'rows' shape (readXml) ────────────────────────────────────────
+
+  function xmlMapperBuildFieldRow(fieldNode, mapping, ctxPath) {
+    const row = document.createElement('div');
+    row.className = 'xml-mapper-field-row';
+
+    const nameInp = document.createElement('input');
+    nameInp.type = 'text';
+    nameInp.className = 'config-input xml-mapper-field-name';
+    nameInp.placeholder = 'Column name';
+    nameInp.value = fieldNode.name || '';
+    nameInp.addEventListener('input', () => { fieldNode.name = nameInp.value; xmlMapperSchedulePreview(); });
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'btn-icon btn-remove-action';
+    removeBtn.textContent = '−';
+    removeBtn.title = 'Remove field';
+    removeBtn.addEventListener('click', () => {
+      const idx = mapping.children.indexOf(fieldNode);
+      if (idx >= 0) mapping.children.splice(idx, 1);
+      xmlMapperRenderTarget();
+      xmlMapperSchedulePreview();
+    });
+
+    const topLine = document.createElement('div');
+    topLine.className = 'xml-mapper-field-topline';
+    topLine.appendChild(nameInp);
+    topLine.appendChild(xmlMapperBuildBindingRow(fieldNode, ctxPath));
+    topLine.appendChild(removeBtn);
+
+    const bottomLine = document.createElement('div');
+    bottomLine.className = 'xml-mapper-field-bottomline';
+    bottomLine.appendChild(xmlMapperBuildExpressionToggle(fieldNode));
+    bottomLine.appendChild(xmlMapperBuildStaticInput(fieldNode));
+    bottomLine.appendChild(xmlMapperBuildConditionToggle(fieldNode, ctxPath));
+
+    row.appendChild(topLine);
+    row.appendChild(bottomLine);
+    return row;
+  }
+
+  function xmlMapperRenderRowsShape(container) {
+    const mapping = xmlMapperState.mapping;
+    if (!mapping.loop) mapping.loop = { path: '', as: 'record' };
+    if (!Array.isArray(mapping.children)) mapping.children = [];
+
+    const loopSection = document.createElement('div');
+    loopSection.className = 'xml-mapper-section';
+    const loopTitle = document.createElement('div');
+    loopTitle.className = 'xml-mapper-section-title';
+    loopTitle.textContent = '🔁 Record loop';
+    loopSection.appendChild(loopTitle);
+
+    const loopRow = document.createElement('div');
+    loopRow.className = 'xml-mapper-loop-row';
+    loopRow.appendChild(xmlMapperCreateBindChip(
+      () => mapping.loop.path,
+      (v) => { mapping.loop.path = v; },
+      '',
+      'e.g. Orders/Order',
+      () => xmlMapperRenderTarget()
+    ));
+    const asInp = document.createElement('input');
+    asInp.type = 'text';
+    asInp.className = 'config-input xml-mapper-loop-as';
+    asInp.placeholder = 'alias (as)';
+    asInp.value = mapping.loop.as || '';
+    asInp.addEventListener('input', () => { mapping.loop.as = asInp.value; xmlMapperSchedulePreview(); });
+    loopRow.appendChild(asInp);
+    loopSection.appendChild(loopRow);
+
+    const ownCtx = xmlMapperGeneralize(mapping.loop.path || '');
+    loopSection.appendChild(xmlMapperBuildConditionToggle(mapping, ownCtx));
+    container.appendChild(loopSection);
+
+    const fieldsSection = document.createElement('div');
+    fieldsSection.className = 'xml-mapper-section';
+    const fieldsTitle = document.createElement('div');
+    fieldsTitle.className = 'xml-mapper-section-title';
+    fieldsTitle.textContent = 'Fields';
+    fieldsSection.appendChild(fieldsTitle);
+
+    const fieldsList = document.createElement('div');
+    fieldsList.className = 'xml-mapper-fields-list';
+    for (const fieldNode of mapping.children) {
+      fieldsList.appendChild(xmlMapperBuildFieldRow(fieldNode, mapping, ownCtx));
+    }
+    fieldsSection.appendChild(fieldsList);
+
+    const addBtn = document.createElement('button');
+    addBtn.className = 'btn-add-action';
+    addBtn.textContent = '+ Add Field';
+    addBtn.addEventListener('click', () => {
+      mapping.children.push({ name: 'field' + (mapping.children.length + 1), binding: { path: '' } });
+      xmlMapperRenderTarget();
+      xmlMapperSchedulePreview();
+    });
+    fieldsSection.appendChild(addBtn);
+    container.appendChild(fieldsSection);
+  }
+
+  // ─── target: 'tree' shape (writeXml / xmlTransform) ────────────────────────
+
+  function xmlMapperBuildTreeNodeEditor(node, parentChildrenArray, parentCtxPath, isRoot) {
+    const kind = node.kind || 'element';
+    const wrap = document.createElement('div');
+    wrap.className = 'xml-mapper-tree-node xml-mapper-tree-kind-' + kind;
+
+    const header = document.createElement('div');
+    header.className = 'xml-mapper-tree-node-header';
+
+    const kindBadge = document.createElement('span');
+    kindBadge.className = 'xml-mapper-kind-badge';
+    kindBadge.textContent = kind === 'element' ? '▤' : kind === 'attribute' ? '@' : '“”';
+    kindBadge.title = kind;
+    header.appendChild(kindBadge);
+
+    if (kind !== 'text') {
+      const nameInp = document.createElement('input');
+      nameInp.type = 'text';
+      nameInp.className = 'config-input xml-mapper-node-name';
+      nameInp.placeholder = kind === 'attribute' ? 'attr name' : 'element name';
+      nameInp.value = node.name || '';
+      nameInp.addEventListener('input', () => { node.name = nameInp.value; xmlMapperSchedulePreview(); });
+      header.appendChild(nameInp);
+    }
+
+    const ownCtx = xmlMapperOwnCtxPath(node, parentCtxPath);
+
+    if (kind === 'element') {
+      header.appendChild(xmlMapperBuildLoopToggle(node, parentCtxPath));
+    }
+
+    header.appendChild(xmlMapperBuildBindingRow(node, ownCtx));
+    header.appendChild(xmlMapperBuildExpressionToggle(node));
+    header.appendChild(xmlMapperBuildStaticInput(node));
+    header.appendChild(xmlMapperBuildConditionToggle(node, ownCtx));
+
+    if (kind === 'element') {
+      const addElBtn = document.createElement('button');
+      addElBtn.className = 'btn-icon';
+      addElBtn.textContent = '+▤';
+      addElBtn.title = 'Add child element';
+      addElBtn.addEventListener('click', () => {
+        if (!Array.isArray(node.children)) node.children = [];
+        node.children.push({ kind: 'element', name: 'Item', children: [] });
+        xmlMapperRenderTarget();
+        xmlMapperSchedulePreview();
+      });
+      const addAttrBtn = document.createElement('button');
+      addAttrBtn.className = 'btn-icon';
+      addAttrBtn.textContent = '+@';
+      addAttrBtn.title = 'Add attribute';
+      addAttrBtn.addEventListener('click', () => {
+        if (!Array.isArray(node.children)) node.children = [];
+        node.children.push({ kind: 'attribute', name: 'attr', binding: { path: '' } });
+        xmlMapperRenderTarget();
+        xmlMapperSchedulePreview();
+      });
+      const addTextBtn = document.createElement('button');
+      addTextBtn.className = 'btn-icon';
+      addTextBtn.textContent = '+“”';
+      addTextBtn.title = 'Add text child';
+      addTextBtn.addEventListener('click', () => {
+        if (!Array.isArray(node.children)) node.children = [];
+        node.children.push({ kind: 'text', binding: { path: '' } });
+        xmlMapperRenderTarget();
+        xmlMapperSchedulePreview();
+      });
+      header.appendChild(addElBtn);
+      header.appendChild(addAttrBtn);
+      header.appendChild(addTextBtn);
+    }
+
+    if (!isRoot) {
+      const delBtn = document.createElement('button');
+      delBtn.className = 'btn-icon btn-remove-action';
+      delBtn.textContent = '−';
+      delBtn.title = 'Remove node';
+      delBtn.addEventListener('click', () => {
+        const idx = parentChildrenArray.indexOf(node);
+        if (idx >= 0) parentChildrenArray.splice(idx, 1);
+        xmlMapperRenderTarget();
+        xmlMapperSchedulePreview();
+      });
+      header.appendChild(delBtn);
+    }
+
+    wrap.appendChild(header);
+
+    if (kind === 'element' && Array.isArray(node.children) && node.children.length > 0) {
+      const childrenWrap = document.createElement('div');
+      childrenWrap.className = 'xml-mapper-tree-children';
+      for (const child of node.children) {
+        childrenWrap.appendChild(xmlMapperBuildTreeNodeEditor(child, node.children, ownCtx, false));
+      }
+      wrap.appendChild(childrenWrap);
+    }
+
+    return wrap;
+  }
+
+  function xmlMapperRenderTreeShape(container) {
+    container.appendChild(xmlMapperBuildTreeNodeEditor(xmlMapperState.mapping, null, '', true));
+  }
+
+  function xmlMapperRenderTarget() {
+    const st = xmlMapperState;
+    if (!st) return;
+    st.targetPane.innerHTML = '<div class="xml-mapper-pane-title">Target</div>';
+    if (st.shape === 'rows') {
+      xmlMapperRenderRowsShape(st.targetPane);
+    } else {
+      xmlMapperRenderTreeShape(st.targetPane);
+    }
+  }
+
+  // ─── source loading + live preview (host round-trips) ─────────────────────
+
+  function xmlMapperLoadSource() {
+    const st = xmlMapperState;
+    st.sourcePane.innerHTML = '<div class="config-hint">Loading sample…</div>';
+
+    if (st.act.type === 'writeXml') {
+      st.sourcePane.innerHTML =
+        '<div class="xml-mapper-pane-title">Source</div>' +
+        '<div class="config-hint">Write XML maps each input row directly — there\'s no sample file to browse. ' +
+        'Type a column name into a binding field (e.g. <code>OrderId</code>), or <code>@ColumnName</code> to bind an attribute.</div>';
+      xmlMapperSchedulePreview();
+      return;
+    }
+
+    if (!st.sampleFilePath) {
+      st.sourcePane.innerHTML = '<div class="xml-mapper-pane-title">Source</div><div class="config-hint">Set a source file path in the step config above to load a sample tree.</div>';
+      xmlMapperSchedulePreview();
+      return;
+    }
+
+    vscode.postMessage({
+      type: 'loadXmlSample',
+      stepId: st.step.id,
+      field: st.req.name,
+      filePath: st.sampleFilePath
+    });
+  }
+
+  function xmlMapperOnSampleResult(msg) {
+    const st = xmlMapperState;
+    if (!st || !st.overlay.isConnected) return;
+    if (msg.stepId !== st.step.id || msg.field !== st.req.name) return;
+
+    if (msg.error) {
+      st.sourcePane.innerHTML = '<div class="xml-mapper-pane-title">Source</div><div class="error-banner"><span class="error-banner-icon">⚠</span>' + esc(msg.error) + '</div>';
+      return;
+    }
+
+    st.sourcePane.innerHTML = '<div class="xml-mapper-pane-title">Source' + (msg.truncated ? ' (truncated preview)' : '') + '</div>';
+    const tree = document.createElement('div');
+    tree.className = 'xml-tree-view';
+    if (msg.tree) xmlMapperRenderSourceNode(msg.tree, tree, '', 0, false);
+    st.sourcePane.appendChild(tree);
+    xmlMapperSchedulePreview();
+  }
+
+  function xmlMapperSchedulePreview() {
+    const st = xmlMapperState;
+    if (!st) return;
+    if (st.previewTimer) clearTimeout(st.previewTimer);
+    st.previewTimer = setTimeout(() => xmlMapperRunPreview(), 400);
+  }
+
+  function xmlMapperRunPreview() {
+    const st = xmlMapperState;
+    if (!st) return;
+
+    if (st.act.type === 'writeXml') {
+      st.previewSection.innerHTML = '<div class="config-hint">Live preview isn\'t available for Write XML (it maps dataset rows, not a sample file) — save and run the workflow to verify the output.</div>';
+      return;
+    }
+    if (!st.sampleFilePath) {
+      st.previewSection.innerHTML = '<div class="config-hint">Set a source file path above to see a live preview.</div>';
+      return;
+    }
+
+    st.previewSection.innerHTML = '<div class="config-hint">Computing preview…</div>';
+    vscode.postMessage({
+      type: 'previewXmlMapping',
+      stepId: st.step.id,
+      field: st.req.name,
+      filePath: st.sampleFilePath,
+      mapping: st.mapping,
+      targetShape: st.shape,
+      mode: 'visual'
+    });
+  }
+
+  function xmlMapperOnPreviewResult(msg) {
+    const st = xmlMapperState;
+    if (!st || !st.overlay.isConnected) return;
+    if (msg.stepId !== st.step.id || msg.field !== st.req.name) return;
+
+    if (msg.error) {
+      st.previewSection.innerHTML = '<div class="error-banner"><span class="error-banner-icon">⚠</span>' + esc(msg.error) + '</div>';
+      return;
+    }
+
+    if (st.shape === 'rows') {
+      const columns = msg.columns || [];
+      const rows = msg.rows || [];
+      let html = '<div class="xml-mapper-pane-title">Live Preview (' + (msg.totalRows || 0) + ' row(s))</div>';
+      html += '<div class="data-preview-container"><table class="data-preview-table"><thead><tr>';
+      for (const c of columns) html += '<th>' + esc(String(c)) + '</th>';
+      html += '</tr></thead><tbody>';
+      for (const row of rows) {
+        html += '<tr>';
+        for (const c of columns) {
+          const v = row[c];
+          html += '<td>' + (v === null || v === undefined || v === '' ? '<span class="null-value">empty</span>' : esc(String(v))) + '</td>';
+        }
+        html += '</tr>';
+      }
+      html += '</tbody></table></div>';
+      if (msg.truncated) html += '<div class="data-preview-more">Showing first ' + rows.length + ' of ' + msg.totalRows + ' row(s)</div>';
+      st.previewSection.innerHTML = html;
+    } else {
+      st.previewSection.innerHTML = '<div class="xml-mapper-pane-title">Live Preview' + (msg.truncated ? ' (truncated)' : '') + '</div>';
+      const treeWrap = document.createElement('div');
+      treeWrap.className = 'xml-tree-view xml-mapper-preview-tree';
+      if (msg.tree) xmlMapperRenderSourceNode(msg.tree, treeWrap, '', 0, true);
+      else treeWrap.innerHTML = '<div class="config-hint">(empty result)</div>';
+      st.previewSection.appendChild(treeWrap);
+    }
+  }
+
+  // ─── modal shell ────────────────────────────────────────────────────────
+
+  function closeXmlMapperModal() {
+    if (xmlMapperState && xmlMapperState.overlay) {
+      xmlMapperState.overlay.remove();
+    }
+    xmlMapperState = null;
+  }
+
+  function openXmlMapperModal(step, req, act, shape) {
+    closeXmlMapperModal();
+
+    const existing = step.config[req.name];
+    const mapping = existing && (shape === 'rows' ? existing.loop : existing.name)
+      ? JSON.parse(JSON.stringify(existing))
+      : xmlMapperDefaultMapping(shape);
+
+    const overlay = document.createElement('div');
+    overlay.className = 'params-modal-overlay xml-mapper-overlay';
+
+    const modal = document.createElement('div');
+    modal.className = 'params-modal xml-mapper-modal';
+
+    const header = document.createElement('div');
+    header.className = 'params-modal-header';
+    const title = document.createElement('span');
+    title.textContent = '🗺️ Visual XML Mapper — ' + (step.displayName || act.displayName || act.type);
+    const closeX = document.createElement('button');
+    closeX.className = 'btn-icon';
+    closeX.textContent = '✕';
+    closeX.title = 'Close without saving';
+    closeX.addEventListener('click', closeXmlMapperModal);
+    header.appendChild(title);
+    header.appendChild(closeX);
+
+    const body = document.createElement('div');
+    body.className = 'xml-mapper-body';
+    const sourcePane = document.createElement('div');
+    sourcePane.className = 'xml-mapper-pane xml-mapper-source-pane';
+    const targetPane = document.createElement('div');
+    targetPane.className = 'xml-mapper-pane xml-mapper-target-pane';
+    body.appendChild(sourcePane);
+    body.appendChild(targetPane);
+
+    const previewSection = document.createElement('div');
+    previewSection.className = 'xml-mapper-preview-section';
+
+    const footer = document.createElement('div');
+    footer.className = 'params-modal-footer';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn-secondary';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', closeXmlMapperModal);
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'btn-primary';
+    saveBtn.textContent = 'Save & Close';
+    saveBtn.addEventListener('click', () => {
+      step.config[req.name] = xmlMapperState.mapping;
+      closeXmlMapperModal();
+      openConfigPanel(step.id);
+      dagRenderAll();
+    });
+    footer.appendChild(cancelBtn);
+    footer.appendChild(saveBtn);
+
+    modal.appendChild(header);
+    modal.appendChild(body);
+    modal.appendChild(previewSection);
+    modal.appendChild(footer);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    xmlMapperState = {
+      step, req, act, shape, mapping,
+      overlay, sourcePane, targetPane, previewSection,
+      sampleFilePath: xmlMapperSampleFilePath(step, act),
+      previewTimer: null
+    };
+
+    xmlMapperRenderTarget();
+    xmlMapperLoadSource();
+  }
 
   vscode.postMessage({ type: 'ready' });
   logLine('🚀 VizFlow Workflow Builder ready', 'info');

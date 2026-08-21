@@ -154,6 +154,9 @@
           "$ref": "#/definitions/activity/sampleData"
         },
         {
+          "$ref": "#/definitions/activity/readXml"
+        },
+        {
           "$ref": "#/definitions/activity/filter"
         },
         {
@@ -170,6 +173,9 @@
         },
         {
           "$ref": "#/definitions/activity/joinDatasets"
+        },
+        {
+          "$ref": "#/definitions/activity/xmlTransform"
         },
         {
           "$ref": "#/definitions/activity/query"
@@ -206,6 +212,9 @@
         },
         {
           "$ref": "#/definitions/activity/writeExcel"
+        },
+        {
+          "$ref": "#/definitions/activity/writeXml"
         },
         {
           "$ref": "#/definitions/activity/multiTransform"
@@ -441,6 +450,71 @@
               "type": "string"
             }
           }
+        }
+      }
+    },
+    "activity/readXml": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "readXml"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "filePath": {
+              "description": "Absolute path or workspace-relative path of the XML file",
+              "type": "string"
+            },
+            "mode": {
+              "description": "Auto derives one column per child element/attribute of the record path; Visual uses a hand-built field mapping",
+              "type": "string",
+              "enum": [
+                "auto",
+                "visual"
+              ]
+            },
+            "recordPath": {
+              "description": "Path to the repeating record element in Auto mode, e.g. \"Orders/Order\"",
+              "type": "string"
+            },
+            "mapping": {
+              "description": "Visual field mapping used in Visual mode (built in the Visual Mapper editor)",
+              "type": "string"
+            },
+            "encoding": {
+              "description": "File encoding (default: UTF-8)",
+              "type": "string",
+              "enum": [
+                "utf8",
+                "ascii",
+                "latin1"
+              ]
+            }
+          },
+          "required": [
+            "filePath"
+          ]
         }
       }
     },
@@ -847,6 +921,69 @@
           "required": [
             "rightFilePath",
             "leftKey"
+          ]
+        }
+      }
+    },
+    "activity/xmlTransform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "xmlTransform"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "inputFilePath": {
+              "description": "Absolute path or workspace-relative path of the source XML file",
+              "type": "string"
+            },
+            "outputFilePath": {
+              "description": "Absolute path or workspace-relative path of the transformed XML file",
+              "type": "string"
+            },
+            "mapping": {
+              "description": "Visual tree mapping describing the target XML shape (built in the Visual Mapper editor)",
+              "type": "string"
+            },
+            "overwrite": {
+              "description": "Overwrite existing output file if it exists (default: true)",
+              "type": "boolean"
+            },
+            "encoding": {
+              "description": "File encoding for both input and output (default: UTF-8)",
+              "type": "string",
+              "enum": [
+                "utf8",
+                "ascii",
+                "latin1"
+              ]
+            }
+          },
+          "required": [
+            "inputFilePath",
+            "outputFilePath",
+            "mapping"
           ]
         }
       }
@@ -1655,6 +1792,68 @@
           },
           "required": [
             "filePath"
+          ]
+        }
+      }
+    },
+    "activity/writeXml": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "writeXml"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "filePath": {
+              "description": "Absolute path or workspace-relative path of the output XML file",
+              "type": "string"
+            },
+            "rootElement": {
+              "description": "Name of the wrapping root element that contains one child per row",
+              "type": "string"
+            },
+            "mapping": {
+              "description": "Per-row element mapping used to build each row into an XML element (built in the Visual Mapper editor)",
+              "type": "string"
+            },
+            "overwrite": {
+              "description": "Overwrite existing file if it exists (default: true)",
+              "type": "boolean"
+            },
+            "encoding": {
+              "description": "File encoding (default: UTF-8)",
+              "type": "string",
+              "enum": [
+                "utf8",
+                "ascii",
+                "latin1"
+              ]
+            }
+          },
+          "required": [
+            "filePath",
+            "mapping"
           ]
         }
       }

@@ -44,7 +44,7 @@ function validateConfigRequirements(configRequirements) {
     const ALLOWED_TYPES = [
         'string', 'number', 'boolean', 'array', 'object', 'select',
         'file', 'multiAction', 'text', 'date', 'time', 'color', 'keyValue',
-        'connection', 'columns'
+        'connection', 'columns', 'xmlMapper'
     ];
 
     const seenNames = new Set();
