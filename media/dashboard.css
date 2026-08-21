@@ -242,6 +242,16 @@ select:focus, input[type="text"]:focus {
 .type-badge.boolean  { background: rgba(255,193,7,0.18);  color: #ffe082; }
 .type-badge.mixed    { background: rgba(255,152,0,0.18);  color: #ffcc80; }
 
+.vscode-high-contrast .type-badge.numeric,
+.vscode-high-contrast .type-badge.text,
+.vscode-high-contrast .type-badge.date,
+.vscode-high-contrast .type-badge.boolean,
+.vscode-high-contrast .type-badge.mixed {
+  background: transparent;
+  color: var(--vscode-foreground, #ffffff);
+  border: 1px solid var(--vscode-contrastBorder, #ffffff);
+}
+
 /* Mini distribution bar */
 .mini-bar { width: 80px; height: 6px; background: var(--vscode-panel-border, #3c3c3c); border-radius: 3px; overflow: hidden; }
 .mini-bar-fill { height: 100%; background: var(--vscode-progressBar-background, #0e70c0); border-radius: 3px; transition: width 0.4s; }
@@ -251,6 +261,25 @@ select:focus, input[type="text"]:focus {
 .completeness-pct  { font-weight: 600; min-width: 34px; }
 .completeness-bar  { width: 50px; height: 5px; background: var(--vscode-panel-border, #3c3c3c); border-radius: 3px; overflow: hidden; }
 .completeness-fill { height: 100%; border-radius: 3px; transition: width 0.4s; }
+
+/* Completeness / quality score status colors (shared token set — see media/theme.css) */
+.completeness-pct.status-good,  .stat-card-sub.status-good  { color: var(--success, #4caf50); }
+.completeness-pct.status-fair,  .stat-card-sub.status-fair  { color: var(--warning, #ffc107); }
+.completeness-pct.status-poor,  .stat-card-sub.status-poor  { color: var(--error, #f44336); }
+.completeness-fill.status-good { background: var(--success, #4caf50); }
+.completeness-fill.status-fair { background: var(--warning, #ffc107); }
+.completeness-fill.status-poor { background: var(--error, #f44336); }
+.quality-ring-fg.status-good { stroke: var(--success, #4caf50); }
+.quality-ring-fg.status-fair { stroke: var(--warning, #ffc107); }
+.quality-ring-fg.status-poor { stroke: var(--error, #f44336); }
+
+/* Column-type swatches (type distribution bar + legend dots) */
+.type-swatch-numeric  { background: var(--info-light, #64b5f6); }
+.type-swatch-text     { background: #ce93d8; }
+.type-swatch-date     { background: #80cbc4; }
+.type-swatch-boolean  { background: var(--warning-light, #ffe082); }
+.type-swatch-mixed    { background: #ffcc80; }
+.type-swatch-default  { background: var(--vscode-descriptionForeground, #aaaaaa); }
 
 /* ── Two-column layout for Explorer + Details ─────────────── */
 .explorer-details-layout {
@@ -309,6 +338,14 @@ select:focus, input[type="text"]:focus {
 .issue-item.error { background: rgba(244,67,54,0.1);  border-color: #f44336; color: #ef9a9a; }
 .issue-item.info  { background: rgba(33,150,243,0.1); border-color: #2196f3; color: #90caf9; }
 
+.vscode-high-contrast .issue-item.warn,
+.vscode-high-contrast .issue-item.error,
+.vscode-high-contrast .issue-item.info {
+  background: transparent;
+  color: var(--vscode-foreground, #ffffff);
+  border-color: var(--vscode-contrastBorder, #ffffff);
+}
+
 .details-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 
 /* ── Insights Section ─────────────────────────────────────── */
@@ -332,6 +369,22 @@ select:focus, input[type="text"]:focus {
 .insight-severity.medium { background: rgba(255,193,7,0.18);   color: #ffe082; }
 .insight-severity.low    { background: rgba(76,175,80,0.18);   color: #a5d6a7; }
 .insight-severity.info   { background: rgba(33,150,243,0.18);  color: #90caf9; }
+
+.vscode-high-contrast .insight-severity.high,
+.vscode-high-contrast .insight-severity.medium,
+.vscode-high-contrast .insight-severity.low,
+.vscode-high-contrast .insight-severity.info {
+  background: transparent;
+  color: var(--vscode-foreground, #ffffff);
+  border: 1px solid var(--vscode-contrastBorder, #ffffff);
+}
+
+.vscode-high-contrast .insight-card.severity-high,
+.vscode-high-contrast .insight-card.severity-medium,
+.vscode-high-contrast .insight-card.severity-low,
+.vscode-high-contrast .insight-card.severity-info {
+  --insight-accent: var(--vscode-contrastBorder, #ffffff);
+}
 .insight-body   { font-size: 12px; color: var(--vscode-descriptionForeground, #858585); margin-bottom: 8px; line-height: 1.5; }
 .insight-actions { display: flex; flex-wrap: wrap; gap: 5px; }
 

@@ -5,22 +5,8 @@
    ============================================ */
 
 /* ── Base & Variables ─────────────────────── */
-:root {
-  --primary:       #007ACC;
-  --primary-light: #3794ff;
-  --success:       #2da680;
-  --warning:       #d4a72c;
-  --error:         #c75f8a;
-  --info:          #3a8fd4;
-  --space-sm:      8px;
-  --space-md:      12px;
-  --space-lg:      16px;
-  --space-xl:      24px;
-  --radius-sm:     4px;
-  --radius-md:     6px;
-  --radius-lg:     8px;
-  --font-mono:     var(--vscode-editor-font-family, 'Consolas', monospace);
-}
+/* Design tokens (--primary/--success/..., --space-*, --radius-*, --font-mono)
+   now live in the shared media/theme.css, loaded before this file. */
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -680,7 +666,7 @@ body.editing .preset-btn[data-preset="once"] { opacity: 0.4; pointer-events: non
 .toggle-slider {
   position: absolute;
   inset: 0;
-  background: #555;
+  background: var(--vscode-input-border, #555);
   border-radius: 20px;
   transition: 0.25s;
 }
@@ -691,12 +677,23 @@ body.editing .preset-btn[data-preset="once"] { opacity: 0.4; pointer-events: non
   width: 14px;
   left: 3px;
   bottom: 3px;
-  background: #fff;
+  background: var(--vscode-editor-background, #fff);
   border-radius: 50%;
   transition: 0.25s;
 }
 .toggle input:checked + .toggle-slider { background: var(--success, #2da680); }
 .toggle input:checked + .toggle-slider:before { transform: translateX(18px); }
+
+.vscode-high-contrast .toggle-slider {
+  background: transparent;
+  border: 1px solid var(--vscode-contrastBorder, #ffffff);
+}
+.vscode-high-contrast .toggle input:checked + .toggle-slider {
+  background: var(--vscode-contrastBorder, #ffffff);
+}
+.vscode-high-contrast .toggle-slider:before {
+  background: var(--vscode-foreground, #ffffff);
+}
 
 /* ── Responsive ──────────────────────────── */
 @media (max-width: 900px) {

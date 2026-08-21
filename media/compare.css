@@ -43,15 +43,7 @@ body {
   flex-direction: column;
 }
 
-.brand-name {
-  font-size: 18px;
-  font-weight: 700;
-  background: linear-gradient(135deg, #007ACC, #00BFFF);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  letter-spacing: -0.5px;
-}
+/* .brand-name gradient + theme overrides now live in the shared theme.css */
 
 .brand-tagline {
   font-size: 10px;
@@ -555,14 +547,55 @@ tbody tr:hover td {
 .brand-footer strong { opacity: 0.8; }
 
 /* ── Theme overrides ────────────────────────── */
-.vscode-light .brand-name {
-  background: linear-gradient(135deg, #005A9E, #007ACC);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+/* .brand-name gradient + theme overrides now live in the shared theme.css. */
+
+/* Common/Only-A/Only-B comparison result colors (file labels, summary cards,
+   profile titles, tab counts, type chips, value cells) are hardcoded hues
+   with no light-theme or high-contrast coverage below. Every element they
+   color is also labeled with text ("Common"/"Only in A"/"Only in B"), so
+   these overrides only need to keep the *color* legible per theme — the
+   non-color meaning already survives via the label. */
+.vscode-light .file-label-a,
+.vscode-light .card-match .card-value,
+.vscode-light .profile-card-a .profile-card-title,
+.vscode-light .val-common { color: #1a7a3c; }
+
+.vscode-light .file-label-b,
+.vscode-light .card-only-b .card-value,
+.vscode-light .profile-card-b .profile-card-title,
+.vscode-light .val-only-b { color: #1a5fb4; }
+
+.vscode-light .card-only-a .card-value,
+.vscode-light .val-only-a { color: #b3261e; }
+
+.vscode-light .tab-match  .tab-count { background: #d9f2e3; color: #1a7a3c; }
+.vscode-light .tab-only-a .tab-count { background: #fbdcd9; color: #b3261e; }
+.vscode-light .tab-only-b .tab-count { background: #d9e8fb; color: #1a5fb4; }
+
+.vscode-light .chip-common  { background: #d9f2e3; color: #1a7a3c; }
+.vscode-light .chip-only-a  { background: #fbdcd9; color: #b3261e; }
+.vscode-light .chip-only-b  { background: #d9e8fb; color: #1a5fb4; }
+
+.vscode-high-contrast .file-label-a,
+.vscode-high-contrast .card-match .card-value,
+.vscode-high-contrast .profile-card-a .profile-card-title,
+.vscode-high-contrast .val-common,
+.vscode-high-contrast .file-label-b,
+.vscode-high-contrast .card-only-b .card-value,
+.vscode-high-contrast .profile-card-b .profile-card-title,
+.vscode-high-contrast .val-only-b,
+.vscode-high-contrast .card-only-a .card-value,
+.vscode-high-contrast .val-only-a {
+  color: var(--vscode-foreground, #ffffff);
 }
 
-.vscode-high-contrast .brand-name {
-  background: none;
-  -webkit-text-fill-color: #ffffff;
+.vscode-high-contrast .tab-match  .tab-count,
+.vscode-high-contrast .tab-only-a .tab-count,
+.vscode-high-contrast .tab-only-b .tab-count,
+.vscode-high-contrast .chip-common,
+.vscode-high-contrast .chip-only-a,
+.vscode-high-contrast .chip-only-b {
+  background: transparent;
+  color: var(--vscode-foreground, #ffffff);
+  border: 1px solid var(--vscode-contrastBorder, #ffffff);
 }

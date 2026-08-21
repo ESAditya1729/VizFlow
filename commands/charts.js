@@ -73,6 +73,10 @@ module.exports = function chartsCommand(/** @type {vscode.ExtensionContext} */ c
             vscode.Uri.joinPath(context.extensionUri, 'media', 'charts.css')
         ).toString();
 
+        const themeUri = panel.webview.asWebviewUri(
+            vscode.Uri.joinPath(context.extensionUri, 'media', 'theme.css')
+        ).toString();
+
         const iconUri = panel.webview.asWebviewUri(
             vscode.Uri.joinPath(context.extensionUri, 'images', 'icon.png')
         ).toString();
@@ -81,6 +85,7 @@ module.exports = function chartsCommand(/** @type {vscode.ExtensionContext} */ c
 
         html = html
             .split('{{NONCE}}').join(nonce)
+            .replace('{{THEME_CSS_URI}}', themeUri)
             .replace('{{WEBVIEW_CSS_URI}}', cssUri)
             .replace('{{ICON_URI}}', iconUri)
             .split('{{VERSION}}').join(version);

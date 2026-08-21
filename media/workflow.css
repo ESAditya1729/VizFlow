@@ -3,42 +3,11 @@
    ============================================ */
 
 /* ── Base & Variables ───────────────────────── */
-:root {
-  --primary: #007ACC;
-  --primary-light: #3794ff;
-  --primary-dark: #005A9E;
-  --success: #2da680;
-  --success-light: #4cd9b0;
-  --warning: #d4a72c;
-  --warning-light: #f0c84d;
-  --error: #c75f8a;
-  --error-light: #e880a0;
-  --info: #3a8fd4;
-  --info-light: #6ab0e8;
-  
-  --space-xs: 4px;
-  --space-sm: 8px;
-  --space-md: 12px;
-  --space-lg: 16px;
-  --space-xl: 24px;
-  --space-2xl: 32px;
-  
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 12px;
-  
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.12);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.15);
-  --shadow-lg: 0 8px 24px rgba(0,0,0,0.2);
-  
-  --font-mono: var(--vscode-editor-font-family, 'Consolas', monospace);
-  --transition-fast: 0.15s;
-  --transition-med: 0.25s;
-  --transition-slow: 0.4s;
-}
+/* Design tokens (--primary/--success/..., --space-*, --radius-*, --shadow-*,
+   --transition-*) now live in the shared media/theme.css, loaded before this
+   file so every panel draws from one source of truth. */
 
-* { 
+* {
   box-sizing: border-box; 
   margin: 0; 
   padding: 0; 

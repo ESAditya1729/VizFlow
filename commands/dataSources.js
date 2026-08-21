@@ -101,6 +101,9 @@ module.exports = function dataSourcesCommand(context) {
         const cssUri = panel.webview.asWebviewUri(
             vscode.Uri.joinPath(context.extensionUri, 'media', 'datasources.css')
         );
+        const themeUri = panel.webview.asWebviewUri(
+            vscode.Uri.joinPath(context.extensionUri, 'media', 'theme.css')
+        );
         const jsUri = panel.webview.asWebviewUri(
             vscode.Uri.joinPath(context.extensionUri, 'media', 'datasources.js')
         );
@@ -115,6 +118,7 @@ module.exports = function dataSourcesCommand(context) {
 
         html = html
             .replace(/\{\{NONCE\}\}/g, nonce)
+            .replace(/\{\{THEME_CSS_URI\}\}/g, themeUri.toString())
             .replace(/\{\{WEBVIEW_CSS_URI\}\}/g, cssUri.toString())
             .replace(/\{\{WEBVIEW_JS_URI\}\}/g, jsUri.toString())
             .replace(/\{\{ICON_URI\}\}/g, iconUri.toString())

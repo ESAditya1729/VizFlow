@@ -6,6 +6,7 @@
         content="default-src 'none'; script-src 'nonce-{{NONCE}}'; style-src 'nonce-{{NONCE}}'; img-src vscode-resource: https: data:;">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>VizFlow — Data Sources</title>
+  <link nonce="{{NONCE}}" rel="stylesheet" href="{{THEME_CSS_URI}}">
   <link nonce="{{NONCE}}" rel="stylesheet" href="{{WEBVIEW_CSS_URI}}">
 </head>
 <body>
@@ -202,7 +203,7 @@
 </div>
 
 <!-- ══════════════════ TOASTS ══════════════════════ -->
-<div id="toast-container"></div>
+<div id="toast-container" role="status" aria-live="polite"></div>
 
 <script nonce="{{NONCE}}" src="{{WEBVIEW_JS_URI}}"></script>
 </body>

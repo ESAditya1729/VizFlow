@@ -6,6 +6,7 @@
         content="default-src 'none'; script-src 'nonce-{{NONCE}}'; style-src 'nonce-{{NONCE}}'; img-src vscode-resource: https: data:;">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>VizFlow — {{PAGE_TITLE}}</title>
+  <link nonce="{{NONCE}}" rel="stylesheet" href="{{THEME_CSS_URI}}">
   <link nonce="{{NONCE}}" rel="stylesheet" href="{{WEBVIEW_CSS_URI}}">
 </head>
 <body>
@@ -222,19 +223,19 @@ function pct(n, total) {
   if (!total) return '0%';
   return ((n / total) * 100).toFixed(1) + '%';
 }
-function completenessColor(pct) {
-  if (pct >= 95) return '#4caf50';
-  if (pct >= 70) return '#ffc107';
-  return '#f44336';
+function completenessStatus(pct) {
+  if (pct >= 95) return 'status-good';
+  if (pct >= 70) return 'status-fair';
+  return 'status-poor';
 }
-function qualityColor(score) {
-  if (score >= 80) return '#4caf50';
-  if (score >= 55) return '#ffc107';
-  return '#f44336';
+function qualityStatus(score) {
+  if (score >= 80) return 'status-good';
+  if (score >= 55) return 'status-fair';
+  return 'status-poor';
 }
-function typeColor(type) {
-  const map = { numeric:'#64b5f6', text:'#ce93d8', date:'#80cbc4', boolean:'#ffe082', mixed:'#ffcc80' };
-  return map[type] || '#aaaaaa';
+function typeSwatchClass(type) {
+  const known = ['numeric','text','date','boolean','mixed'];
+  return 'type-swatch-' + (known.includes(type) ? type : 'default');
 }
 
 // ── Section collapse/expand ───────────────────────────────────
@@ -281,20 +282,19 @@ function renderSummaryCards(d) {
       const r = 18;
       const circ = 2 * Math.PI * r;
       const offset = circ - (d.qualityScore / 100) * circ;
-      const color = qualityColor(d.qualityScore);
+      const qStatus = qualityStatus(d.qualityScore);
       el.innerHTML =
         '<div class="stat-card-label">' + esc(card.label) + '</div>' +
         '<div class="quality-score">' +
           '<svg class="quality-ring" viewBox="0 0 44 44">' +
             '<circle class="quality-ring-bg" cx="22" cy="22" r="'+r+'"/>' +
-            '<circle class="quality-ring-fg" cx="22" cy="22" r="'+r+'"' +
-              ' stroke="'+color+'"' +
+            '<circle class="quality-ring-fg '+qStatus+'" cx="22" cy="22" r="'+r+'"' +
               ' stroke-dasharray="'+circ+'"' +
               ' stroke-dashoffset="'+offset+'"/>' +
             '<text class="quality-ring-text" x="22" y="26" text-anchor="middle">'+d.qualityScore+'</text>' +
           '</svg>' +
           '<div><div style="font-size:22px;font-weight:700;">'+d.qualityScore+'<span style="font-size:14px;">/100</span></div>' +
-          '<div class="stat-card-sub" style="color:'+color+';">'+
+          '<div class="stat-card-sub '+qStatus+'">'+
             (d.qualityScore >= 80 ? 'Good' : d.qualityScore >= 55 ? 'Fair' : 'Poor') +
           '</div></div>' +
         '</div>';
@@ -316,15 +316,14 @@ function renderSummaryCards(d) {
   Object.entries(typeCounts).forEach(([type, count]) => {
     if (count === 0) return;
     const seg = document.createElement('div');
-    seg.className = 'type-bar-seg';
+    seg.className = 'type-bar-seg ' + typeSwatchClass(type);
     seg.style.width = pct(count, total);
-    seg.style.background = typeColor(type);
     seg.dataset.tooltip = typeLabels[type] + ': ' + count;
     typDistBar.appendChild(seg);
 
     const leg = document.createElement('div');
     leg.className = 'type-legend-item';
-    leg.innerHTML = '<div class="type-legend-dot" style="background:'+typeColor(type)+'"></div>' +
+    leg.innerHTML = '<div class="type-legend-dot '+typeSwatchClass(type)+'"></div>' +
       esc(typeLabels[type]) + ' (' + count + ')';
     typeDistLegend.appendChild(leg);
   });
@@ -371,6 +370,7 @@ function renderColumnTable() {
   cols.forEach(col => {
     const completePct = col.completeness != null ? col.completeness : ((totalRows - (col.nullCount||0)) / totalRows * 100);
     const colFill = completePct.toFixed(1);
+    const status = completenessStatus(completePct);
     const tr = document.createElement('tr');
     if (selectedCol === col.name) tr.classList.add('selected');
 
@@ -382,8 +382,8 @@ function renderColumnTable() {
       '<td>'+fmt(col.duplicateValues,0)+'</td>' +
       '<td>' +
         '<div class="completeness-cell">' +
-          '<span class="completeness-pct" style="color:'+completenessColor(completePct)+'">'+colFill+'%</span>' +
-          '<div class="completeness-bar"><div class="completeness-fill" style="width:'+colFill+'%;background:'+completenessColor(completePct)+'"></div></div>' +
+          '<span class="completeness-pct '+status+'">'+colFill+'%</span>' +
+          '<div class="completeness-bar"><div class="completeness-fill '+status+'" style="width:'+colFill+'%"></div></div>' +
         '</div>' +
       '</td>' +
       '<td>' +

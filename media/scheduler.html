@@ -7,6 +7,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>VizFlow — Scheduler</title>
 
+  <link nonce="{{NONCE}}" rel="stylesheet" href="{{THEME_CSS_URI}}">
   <link nonce="{{NONCE}}" rel="stylesheet" href="{{WEBVIEW_CSS_URI}}">
 </head>
 <body>
@@ -388,7 +389,7 @@
         <div class="form-actions">
           <button type="button" class="btn-run" id="addJobBtn">➕ Schedule Job</button>
           <button type="button" class="btn-sm" id="cancelEditBtn" style="display:none;">✕ Cancel Edit</button>
-          <div id="addStatus"></div>
+          <div id="addStatus" role="status" aria-live="polite"></div>
         </div>
 
       </div>
@@ -422,7 +423,7 @@
           <button type="button" class="btn-sm" id="onceCancel">Cancel</button>
           <button type="button" class="btn-sm success" id="onceConfirm">Schedule</button>
         </div>
-        <div id="onceStatus"></div>
+        <div id="onceStatus" role="status" aria-live="polite"></div>
       </div>
     </div>
 

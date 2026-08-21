@@ -72,6 +72,10 @@ module.exports = function compareCSVCommand(context) {
             vscode.Uri.joinPath(context.extensionUri, 'media', 'compare.css')
         ).toString();
 
+        const themeUri = panel.webview.asWebviewUri(
+            vscode.Uri.joinPath(context.extensionUri, 'media', 'theme.css')
+        ).toString();
+
         const iconUri = panel.webview.asWebviewUri(
             vscode.Uri.joinPath(context.extensionUri, 'images', 'icon.png')
         ).toString();
@@ -80,6 +84,7 @@ module.exports = function compareCSVCommand(context) {
 
         html = html
             .split('{{NONCE}}').join(nonce)
+            .replace('{{THEME_CSS_URI}}', themeUri)
             .replace('{{WEBVIEW_CSS_URI}}', cssUri)
             .replace('{{ICON_URI}}', iconUri)
             .replace('{{VERSION}}', version);

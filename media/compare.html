@@ -6,6 +6,7 @@
         content="default-src 'none'; script-src 'nonce-{{NONCE}}'; style-src 'nonce-{{NONCE}}'; img-src vscode-resource: https:;">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>VizFlow — Compare CSV Files</title>
+  <link nonce="{{NONCE}}" rel="stylesheet" href="{{THEME_CSS_URI}}">
   <link nonce="{{NONCE}}" rel="stylesheet" href="{{WEBVIEW_CSS_URI}}">
 </head>
 <body>
@@ -76,7 +77,7 @@
   </div>
 
   <!-- ── Status Banner ────────────────────────── -->
-  <div id="status"></div>
+  <div id="status" role="status" aria-live="polite"></div>
 
   <!-- ═══════════════ RESULTS ═══════════════════ -->
   <div id="results-section">
@@ -129,17 +130,17 @@
     <!-- Tabs + Table -->
     <div class="section-label">📋 Comparison Details</div>
 
-    <div class="tab-bar">
-      <button class="tab tab-all   active"   data-filter="all"    id="tabAll">
+    <div class="tab-bar" role="tablist">
+      <button class="tab tab-all   active"   data-filter="all"    id="tabAll" role="tab" aria-selected="true">
         All <span class="tab-count" id="tabCountAll">0</span>
       </button>
-      <button class="tab tab-match"          data-filter="common" id="tabMatch">
+      <button class="tab tab-match"          data-filter="common" id="tabMatch" role="tab" aria-selected="false">
         Common <span class="tab-count" id="tabCountMatch">0</span>
       </button>
-      <button class="tab tab-only-a"         data-filter="onlyA"  id="tabOnlyA">
+      <button class="tab tab-only-a"         data-filter="onlyA"  id="tabOnlyA" role="tab" aria-selected="false">
         Only in A <span class="tab-count" id="tabCountOnlyA">0</span>
       </button>
-      <button class="tab tab-only-b"         data-filter="onlyB"  id="tabOnlyB">
+      <button class="tab tab-only-b"         data-filter="onlyB"  id="tabOnlyB" role="tab" aria-selected="false">
         Only in B <span class="tab-count" id="tabCountOnlyB">0</span>
       </button>
     </div>
@@ -450,8 +451,9 @@
     // ── Tab clicks ─────────────────────────────────────────────────────────────────
     tabs.forEach(tab => {
       tab.addEventListener('click', () => {
-        tabs.forEach(t => t.classList.remove('active'));
+        tabs.forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected', 'false'); });
         tab.classList.add('active');
+        tab.setAttribute('aria-selected', 'true');
         activeFilter = tab.dataset.filter;
         renderTable();
       });

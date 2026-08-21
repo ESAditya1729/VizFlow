@@ -47,15 +47,7 @@ body {
   flex-direction: column;
 }
 
-.brand-name {
-  font-size: 18px;
-  font-weight: 700;
-  background: linear-gradient(135deg, #007ACC, #00BFFF);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  letter-spacing: -0.5px;
-}
+/* .brand-name gradient + theme overrides now live in the shared theme.css */
 
 .brand-tagline {
   font-size: 10px;
@@ -187,9 +179,21 @@ select optgroup {
 }
 
 .scope-selected {
-  background: #0e4f6e;
-  color: #7dd3fc;
-  border: 1px solid #38bdf8;
+  background: var(--info-bg, rgba(58, 143, 212, 0.18));
+  color: var(--info-light, #6ab0e8);
+  border: 1px solid var(--info, #3a8fd4);
+}
+
+.vscode-light .scope-selected {
+  background: rgba(58, 143, 212, 0.12);
+  color: var(--primary-dark, #005A9E);
+  border-color: var(--info, #3a8fd4);
+}
+
+.vscode-high-contrast .scope-selected {
+  background: transparent;
+  color: var(--vscode-foreground, #ffffff);
+  border: 1px solid var(--vscode-contrastBorder, var(--info, #3a8fd4));
 }
 
 /* ── Skipped Cells in Preview Table ─────────── */
@@ -554,14 +558,4 @@ tr:hover td {
 }
 
 /* ── Dark/Light Theme Tweaks ────────────────── */
-.vscode-light .brand-name {
-  background: linear-gradient(135deg, #005A9E, #007ACC);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.vscode-high-contrast .brand-name {
-  background: none;
-  -webkit-text-fill-color: #ffffff;
-}
+/* .brand-name light/high-contrast overrides now live in the shared theme.css */

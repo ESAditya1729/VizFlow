@@ -811,3 +811,17 @@ button:focus-visible {
 .vscode-light .rbql-operator {
     color: #0000ff;
 }
+
+/* ── High Contrast Theme Overrides ── */
+
+.vscode-high-contrast .rbql-keyword,
+.vscode-high-contrast .rbql-function,
+.vscode-high-contrast .rbql-string,
+.vscode-high-contrast .rbql-number,
+.vscode-high-contrast .rbql-operator,
+.vscode-high-contrast .rbql-comment {
+    color: var(--vscode-foreground, #ffffff);
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-decoration-color: var(--vscode-contrastActiveBorder, #ffffff);
+}

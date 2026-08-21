@@ -166,9 +166,17 @@ textarea { resize: vertical; min-height: 90px; font-family: var(--vscode-editor-
   background: var(--vscode-badge-background, #4d4d4d);
   color: var(--vscode-badge-foreground, #fff);
 }
-.status-badge.ok { background: #2da680; }
-.status-badge.err { background: #c75f5f; }
-.status-badge.warn { background: #c97c2a; }
+.status-badge.ok { background: var(--success, #2da680); }
+.status-badge.err { background: var(--error, #c75f5f); }
+.status-badge.warn { background: var(--warning, #c97c2a); }
+
+.vscode-high-contrast .status-badge.ok,
+.vscode-high-contrast .status-badge.err,
+.vscode-high-contrast .status-badge.warn {
+  background: transparent;
+  color: var(--vscode-foreground, #ffffff);
+  border: 1px solid var(--vscode-contrastBorder, #ffffff);
+}
 
 /* ── SRV DNS fix banner ────────────────────────────────── */
 .srv-fix {
@@ -178,23 +186,28 @@ textarea { resize: vertical; min-height: 90px; font-family: var(--vscode-editor-
   flex-wrap: wrap;
   margin: 8px 0;
   padding: 8px 12px;
-  border: 1px solid #c97c2a;
+  border: 1px solid var(--warning, #c97c2a);
   border-radius: 6px;
-  background: rgba(201, 124, 42, 0.12);
+  background: var(--warning-bg, rgba(201, 124, 42, 0.12));
   color: var(--vscode-foreground, #d4d4d4);
   font-size: 12px;
 }
 .srv-fix button {
   margin-left: auto;
   padding: 4px 10px;
-  border: 1px solid #c97c2a;
+  border: 1px solid var(--warning, #c97c2a);
   border-radius: 4px;
   background: transparent;
-  color: #e8a75c;
+  color: var(--warning-light, #e8a75c);
   cursor: pointer;
 }
-.srv-fix button:hover { background: rgba(201, 124, 42, 0.2); }
+.srv-fix button:hover { background: var(--warning-bg, rgba(201, 124, 42, 0.2)); }
 .srv-fix button:disabled { opacity: 0.5; cursor: default; }
+
+.vscode-high-contrast .srv-fix {
+  background: transparent;
+  border-color: var(--vscode-contrastBorder, #ffffff);
+}
 
 /* ── Panels ───────────────────────────────────────────── */
 .panel {
@@ -314,8 +327,8 @@ table.data-table { border-collapse: collapse; width: 100%; font-size: 12px; }
 .label-hint { font-weight: 400; font-style: italic; }
 .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 4px; }
 .form-status { font-size: 12px; min-height: 18px; }
-.form-status.ok { color: #2da680; }
-.form-status.err { color: #ef9a9a; }
+.form-status.ok { color: var(--success, #2da680); }
+.form-status.err { color: var(--error-light, #ef9a9a); }
 
 /* ── Confirm dialog ────────────────────────────────────── */
 #confirm-overlay {
@@ -344,8 +357,14 @@ table.data-table { border-collapse: collapse; width: 100%; font-size: 12px; }
 }
 .confirm-actions { display: flex; gap: 10px; justify-content: flex-end; }
 .confirm-actions button { pointer-events: auto; }
-.confirm-actions button.danger { background: #c75f5f; }
+.confirm-actions button.danger { background: var(--error, #c75f5f); }
 .confirm-actions button.danger:hover { background: #b04848; }
+
+.vscode-high-contrast .confirm-actions button.danger {
+  background: transparent;
+  color: var(--vscode-foreground, #ffffff);
+  border: 1px solid var(--vscode-contrastBorder, #ffffff);
+}
 
 /* ── Toasts ───────────────────────────────────────────── */
 #toast-container { position: fixed; bottom: 16px; right: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 40; }
@@ -358,6 +377,23 @@ table.data-table { border-collapse: collapse; width: 100%; font-size: 12px; }
   box-shadow: 0 4px 14px rgba(0,0,0,0.3);
   max-width: 340px;
 }
-.toast.ok { border-left: 3px solid #2da680; }
-.toast.err { border-left: 3px solid #c75f5f; }
-.toast.info { border-left: 3px solid #3794ff; }
+.toast.ok { border-left: 3px solid var(--success, #2da680); }
+.toast.err { border-left: 3px solid var(--error, #c75f5f); }
+.toast.info { border-left: 3px solid var(--info, #3794ff); }
+
+/* ── Responsive ───────────────────────────────────────── */
+@media (max-width: 900px) {
+  #main-layout { flex-direction: column; }
+  .sidebar { width: 100%; }
+  .sidebar-list { max-height: 260px; }
+}
+
+@media (max-width: 640px) {
+  .page-content { padding: 12px; }
+  .toolbar-select, .source-picker select { width: 100%; }
+  .form-row-2col { flex-direction: column; }
+  .filter-row { flex-wrap: wrap; }
+  .filter-row .filter-col,
+  .filter-row .filter-op { width: 100%; }
+  .modal { width: 92vw; }
+}

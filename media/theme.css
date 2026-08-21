@@ -1,0 +1,94 @@
+/* ============================================
+   VizFlow — Shared Design Tokens
+   Loaded before every panel's own stylesheet so
+   all 8 WebViews draw from one source of truth
+   for color, spacing, radius and motion. Panel
+   CSS may still override a token locally if a
+   specific panel truly needs to.
+   ============================================ */
+
+:root {
+  --primary:       #007ACC;
+  --primary-light: #3794ff;
+  --primary-dark:  #005A9E;
+  --success:       #2da680;
+  --success-light: #4cd9b0;
+  --success-bg:    rgba(45, 166, 128, 0.18);
+  --warning:       #d4a72c;
+  --warning-light: #f0c84d;
+  --warning-bg:    rgba(212, 167, 44, 0.18);
+  --error:         #c75f8a;
+  --error-light:   #e880a0;
+  --error-bg:      rgba(199, 95, 138, 0.18);
+  --info:          #3a8fd4;
+  --info-light:    #6ab0e8;
+  --info-bg:       rgba(58, 143, 212, 0.18);
+
+  --space-xs:  4px;
+  --space-sm:  8px;
+  --space-md:  12px;
+  --space-lg:  16px;
+  --space-xl:  24px;
+  --space-2xl: 32px;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.12);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.15);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.2);
+
+  --font-mono: var(--vscode-editor-font-family, 'Consolas', monospace);
+  --transition-fast: 0.15s;
+  --transition-med:  0.25s;
+  --transition-slow: 0.4s;
+}
+
+/* High-contrast themes: flatten tint backgrounds so semantic colors don't
+   rely on a low-alpha wash that can disappear against HC backgrounds —
+   panels pair this with a solid border/underline on the same element. */
+.vscode-high-contrast {
+  --success-bg: transparent;
+  --warning-bg: transparent;
+  --error-bg:   transparent;
+  --info-bg:    transparent;
+}
+
+/* ── Shared brand wordmark ─────────────────────────────────────────
+   Dedupes the gradient-text treatment previously copy-pasted into
+   transform.css and compare.css. */
+.brand-name {
+  font-size: 18px;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--primary), #00BFFF);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: -0.5px;
+}
+
+.vscode-light .brand-name {
+  background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.vscode-high-contrast .brand-name {
+  background: none;
+  -webkit-text-fill-color: var(--vscode-foreground, #ffffff);
+}
+
+/* ── Shared keyboard-focus ring ─────────────────────────────────────
+   Several panels never gave buttons a visible focus indicator for
+   keyboard users. This baseline applies everywhere; any panel rule
+   with a class selector (e.g. `.preset-btn:focus-visible`) still wins
+   on specificity if it wants a custom treatment. */
+button:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--vscode-focusBorder, #007fd4);
+  outline-offset: 2px;
+}

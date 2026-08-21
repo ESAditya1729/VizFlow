@@ -6,6 +6,7 @@
         content="default-src 'none'; script-src 'nonce-{{NONCE}}'; style-src 'nonce-{{NONCE}}'; img-src vscode-resource: https: data: blob:;">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>VizFlow — Chart Explorer</title>
+  <link nonce="{{NONCE}}" rel="stylesheet" href="{{THEME_CSS_URI}}">
   <link nonce="{{NONCE}}" rel="stylesheet" href="{{WEBVIEW_CSS_URI}}">
 </head>
 <body>
@@ -95,7 +96,7 @@
         <span style="font-weight:600;">Auto Insights</span>
         <span class="insights-badge" id="insights-count">0</span>
       </div>
-      <div class="insights-content" id="insights-content">
+      <div class="insights-content" id="insights-content" role="status" aria-live="polite">
         <div class="insights-empty">Rendered chart insights will appear here</div>
       </div>
     </div>

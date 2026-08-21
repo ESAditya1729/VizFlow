@@ -77,6 +77,10 @@ module.exports = function rbqlCommand(context) {
             vscode.Uri.joinPath(context.extensionUri, 'media', 'rbql.css')
         ).toString();
 
+        const themeUri = panel.webview.asWebviewUri(
+            vscode.Uri.joinPath(context.extensionUri, 'media', 'theme.css')
+        ).toString();
+
         const syntaxUri = panel.webview.asWebviewUri(
             vscode.Uri.joinPath(context.extensionUri, 'media', 'rbql-syntax.js')
         ).toString();
@@ -98,6 +102,7 @@ module.exports = function rbqlCommand(context) {
         html = html
             .split('{{NONCE}}').join(nonce)
             .replace('{{WEBVIEW_RESOURCE_ROOT}}', panel.webview.cspSource)
+            .replace('{{THEME_CSS_URI}}', themeUri)
             .replace('{{WEBVIEW_CSS_URI}}', cssUri)
             .replace('{{WEBVIEW_SYNTAX_URI}}', syntaxUri)
             .replace('{{WEBVIEW_TEMPLATES_URI}}', templatesUri)
