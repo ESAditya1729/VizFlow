@@ -40,10 +40,10 @@ module.exports = async function transformCommand() {
         // ── 3. Pick an operation (grouped by category) ───────────────────────
         /** @type {vscode.QuickPickItem[]} */
         const opItems = Object.entries(OPERATIONS).map(([key, op]) => ({
-            label: op.label,
+            label: op.description,
             description: op.category,
-            detail: op.params.length
-                ? `Parameters: ${op.params.map(p => p.name).join(', ')}`
+            detail: op.paramDefs.length
+                ? `Parameters: ${op.paramDefs.map(p => p.name).join(', ')}`
                 : 'No extra parameters needed',
             // stash the key so we can retrieve it after the pick
             _key: key,
@@ -67,13 +67,12 @@ module.exports = async function transformCommand() {
         /** @type {string[]} */
         const rawParams = [];
 
-        for (const param of op.params) {
-            // Optional params have "(optional)" in their placeholder
-            const isOptional = param.placeholder.includes('optional');
+        for (const param of op.paramDefs) {
+            const isOptional = param.required === false;
 
             const value = await vscode.window.showInputBox({
-                prompt: `${op.label} — ${param.name}`,
-                placeHolder: param.placeholder,
+                prompt: `${op.description} — ${param.label || param.name}`,
+                placeHolder: param.default !== undefined && param.default !== '' ? `e.g. ${param.default}` : (isOptional ? '(optional)' : '(required)'),
                 ignoreFocusOut: true,
             });
 
@@ -94,8 +93,8 @@ module.exports = async function transformCommand() {
         const previewRows = previewFirst(dataset.rows, selectedColumn, opKey, rawParams);
 
         output.clear();
-        output.writeHeader(`Transform Preview — ${op.label} on "${selectedColumn}"`);
-        output.writeSubHeader(`Operation: ${op.label}  |  Column: ${selectedColumn}  |  Params: [${rawParams.join(', ') || 'none'}]`);
+        output.writeHeader(`Transform Preview — ${op.description} on "${selectedColumn}"`);
+        output.writeSubHeader(`Operation: ${op.description}  |  Column: ${selectedColumn}  |  Params: [${rawParams.join(', ') || 'none'}]`);
         output.writeLine('First 5 rows:');
         output.writeLine('');
 
@@ -109,7 +108,7 @@ module.exports = async function transformCommand() {
 
         // ── 6. Ask whether to apply to all rows ──────────────────────────────
         const confirm = await vscode.window.showInformationMessage(
-            `Apply "${op.label}" to all ${dataset.getRowCount()} rows in "${selectedColumn}"?`,
+            `Apply "${op.description}" to all ${dataset.getRowCount()} rows in "${selectedColumn}"?`,
             { modal: false },
             'Apply to all rows',
             'Cancel'
@@ -123,7 +122,7 @@ module.exports = async function transformCommand() {
         const allResults = evaluate(dataset.rows, selectedColumn, opKey, rawParams);
 
         output.clear();
-        output.writeHeader(`Transform Result — ${op.label} on "${selectedColumn}"`);
+        output.writeHeader(`Transform Result — ${op.description} on "${selectedColumn}"`);
         output.writeSubHeader(`Rows processed: ${allResults.length}`);
         output.writeLine('');
 

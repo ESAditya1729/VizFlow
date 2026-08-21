@@ -1474,6 +1474,178 @@ suite('Workflow Engine Test Suite', () => {
         }
     });
 
+    test('writeExcel activity writes a readable .xlsx file with correct rows and sheet name', async function () {
+        this.timeout(10000);
+        const excelOutPath = path.join(testDir, 'write_excel_output.xlsx');
+        const workflowDef = {
+            name: 'Write Excel Workflow',
+            version: '1.0.0',
+            activities: [
+                {
+                    id: 'step_read',
+                    type: 'readCsv',
+                    config: { filePath: inputCsvPath }
+                },
+                {
+                    id: 'step_filter',
+                    type: 'filter',
+                    config: { column: 'age', operator: '>=', value: '25' }
+                },
+                {
+                    id: 'step_write',
+                    type: 'writeExcel',
+                    config: { filePath: excelOutPath, sheetName: 'Results' }
+                }
+            ]
+        };
+
+        const execution = await executeWorkflow(workflowDef);
+        assert.strictEqual(execution.success, true, `Execution failed: ${execution.error}`);
+        assert.ok(fs.existsSync(excelOutPath));
+
+        const workbook = XLSX.readFile(excelOutPath);
+        assert.deepStrictEqual(workbook.SheetNames, ['Results']);
+        const rows = XLSX.utils.sheet_to_json(workbook.Sheets['Results']);
+        // Eve (age 22) filtered out; Alice/Bob/Charlie/Bob(dup) remain = 4 rows
+        assert.strictEqual(rows.length, 4);
+        assert.strictEqual(rows[0].name, 'Alice');
+        assert.strictEqual(String(rows[0].age), '30');
+
+        await fs.promises.unlink(excelOutPath);
+    });
+
+    test('writeExcel activity respects overwrite=false and timestampSuffix', async () => {
+        const excelOutPath = path.join(testDir, 'write_excel_no_overwrite.xlsx');
+        await fs.promises.writeFile(excelOutPath, 'not a real workbook', 'utf8');
+
+        const workflowDef = {
+            name: 'Write Excel No Overwrite',
+            version: '1.0.0',
+            activities: [
+                { id: 'step_read', type: 'readCsv', config: { filePath: inputCsvPath } },
+                { id: 'step_write', type: 'writeExcel', config: { filePath: excelOutPath, overwrite: false } }
+            ]
+        };
+
+        const execution = await executeWorkflow(workflowDef);
+        assert.strictEqual(execution.success, false, 'Should fail when overwrite is disabled and file exists');
+
+        await fs.promises.unlink(excelOutPath);
+    });
+
+    test('joinDatasets activity performs inner, left, and full joins against a right-side CSV', async () => {
+        const rightCsvPath = path.join(testDir, 'join_right.csv');
+        await fs.promises.writeFile(rightCsvPath, [
+            'name,department',
+            'Alice,Engineering',
+            'Bob,Sales',
+            'Zoe,Marketing' // no match on the left side
+        ].join('\n'), 'utf8');
+
+        // Inner join: only left rows with a matching right row survive
+        const innerExecution = await executeWorkflow({
+            name: 'Join Inner',
+            version: '1.0.0',
+            activities: [
+                { id: 'step_read', type: 'readCsv', config: { filePath: inputCsvPath } },
+                {
+                    id: 'step_join',
+                    type: 'joinDatasets',
+                    config: { rightFilePath: rightCsvPath, leftKey: 'name', joinType: 'inner' }
+                }
+            ]
+        });
+        assert.strictEqual(innerExecution.success, true, `Execution failed: ${innerExecution.error}`);
+        const innerDataset = innerExecution.results['step_join'].dataset;
+        // Alice, Bob, Bob(dup) match; Charlie and Eve do not -> 3 rows
+        assert.strictEqual(innerDataset.getRowCount(), 3);
+        assert.ok(innerDataset.getColumns().includes('department'));
+        const aliceRow = innerDataset.rows.find(r => r.name === 'Alice');
+        assert.strictEqual(aliceRow.department, 'Engineering');
+
+        // Left join: unmatched left rows are kept with null right-side columns
+        const leftExecution = await executeWorkflow({
+            name: 'Join Left',
+            version: '1.0.0',
+            activities: [
+                { id: 'step_read', type: 'readCsv', config: { filePath: inputCsvPath } },
+                {
+                    id: 'step_join',
+                    type: 'joinDatasets',
+                    config: { rightFilePath: rightCsvPath, leftKey: 'name', joinType: 'left' }
+                }
+            ]
+        });
+        assert.strictEqual(leftExecution.success, true, `Execution failed: ${leftExecution.error}`);
+        const leftDataset = leftExecution.results['step_join'].dataset;
+        assert.strictEqual(leftDataset.getRowCount(), 5); // all left rows preserved
+        const charlieRow = leftDataset.rows.find(r => r.name === 'Charlie');
+        assert.strictEqual(charlieRow.department, null);
+
+        // Full outer join: unmatched rows from both sides are present
+        const fullExecution = await executeWorkflow({
+            name: 'Join Full',
+            version: '1.0.0',
+            activities: [
+                { id: 'step_read', type: 'readCsv', config: { filePath: inputCsvPath } },
+                {
+                    id: 'step_join',
+                    type: 'joinDatasets',
+                    config: { rightFilePath: rightCsvPath, leftKey: 'name', joinType: 'full' }
+                }
+            ]
+        });
+        assert.strictEqual(fullExecution.success, true, `Execution failed: ${fullExecution.error}`);
+        const fullDataset = fullExecution.results['step_join'].dataset;
+        assert.strictEqual(fullDataset.getRowCount(), 6); // 5 left rows + Zoe (unmatched right)
+        const zoeRow = fullDataset.rows.find(r => r.department === 'Marketing');
+        assert.ok(zoeRow, 'Unmatched right row (Zoe) should be present in a full join');
+        // leftKey === rightKey ("name"), so the shared join column carries the right value through
+        assert.strictEqual(zoeRow.name, 'Zoe');
+
+        await fs.promises.unlink(rightCsvPath);
+    });
+
+    test('joinDatasets activity reads a right-side JSON file and prefixes colliding column names', async () => {
+        const rightJsonPath = path.join(testDir, 'join_right.json');
+        await fs.promises.writeFile(rightJsonPath, JSON.stringify([
+            { name: 'Alice', age: 99, region: 'West' },
+            { name: 'Bob', age: 88, region: 'East' }
+        ]), 'utf8');
+
+        const execution = await executeWorkflow({
+            name: 'Join JSON Collision',
+            version: '1.0.0',
+            activities: [
+                { id: 'step_read', type: 'readCsv', config: { filePath: inputCsvPath } },
+                {
+                    id: 'step_join',
+                    type: 'joinDatasets',
+                    config: {
+                        rightFilePath: rightJsonPath,
+                        rightSourceType: 'json',
+                        leftKey: 'name',
+                        joinType: 'inner',
+                        columnPrefix: 'r_'
+                    }
+                }
+            ]
+        });
+        assert.strictEqual(execution.success, true, `Execution failed: ${execution.error}`);
+        const dataset = execution.results['step_join'].dataset;
+
+        // 'age' collides between left and right -> right's copy is prefixed 'r_age'
+        assert.ok(dataset.getColumns().includes('r_age'));
+        assert.ok(dataset.getColumns().includes('age'));
+        assert.ok(dataset.getColumns().includes('region'));
+        const aliceRow = dataset.rows.find(r => r.name === 'Alice');
+        assert.strictEqual(aliceRow.age, 30); // left age preserved
+        assert.strictEqual(aliceRow.r_age, 99); // right age prefixed
+        assert.strictEqual(aliceRow.region, 'West');
+
+        await fs.promises.unlink(rightJsonPath);
+    });
+
     test('AI context artifacts (catalog + schema) match the live activity registry', async () => {
         const gen = require('../scripts/generate-ai-context');
         const { activities } = gen.getActivities();

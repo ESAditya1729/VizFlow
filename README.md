@@ -32,7 +32,7 @@ VizFlow brings **data exploration** and **lightweight analytics** directly into 
 
 ### 📋 Dataset Profiling
 - Column types, null counts, distinct values, top values
-- Quick stats: sum, avg, min, max, count
+- Quick stats (sum, avg, min, max, count) via the **Dataset Summary Dashboard**, or as a repeatable pipeline step with the Workflow Builder's **Aggregate** / **Group By** activities
 
 ### 🔍 Data Quality Helpers
 - Find duplicates in your dataset
@@ -44,7 +44,9 @@ VizFlow brings **data exploration** and **lightweight analytics** directly into 
 - Apply & save with confidence
 
 ### ⚡ RBQL Query Console
-- Write SQL-like queries using `a1`, `a2` or header names
+- Write SQL-like queries using `a1`, `a2` or header names, with **syntax-highlighted keywords** as you type
+- **JOIN support** across two files, right in the query editor
+- **Pre-defined query templates** to get started fast (filter, sort, aggregate, join, and more)
 - History tracking for reproducible analysis
 - Progress indicators for long-running queries
 
@@ -94,13 +96,13 @@ VizFlow brings **data exploration** and **lightweight analytics** directly into 
 
 | Category | Command |
 |----------|---------|
-| **Aggregations** | Sum / Average / Min / Max / Count |
 | **Profiling & Quality** | Show Statistics, Find Duplicates, List Distinct Values |
 | **Transformation** | Transform Column (CLI), Transform Column (Visual) |
 | **Analysis** | Dataset Summary Dashboard, Interactive Charts |
 | **Comparison** | Compare CSV Files |
-| **RBQL** | Run RBQL Queries, Export Results |
-| **Scheduler** | Workflow Scheduler, Quick Schedule Workflow, Stop Running Job, Show Running Jobs |
+| **RBQL** | Run RBQL Queries (with syntax highlighting, JOINs, and templates), Export Results |
+| **Workflow Builder** | Aggregations (Sum / Average / Min / Max / Count) and Group By, as pipeline activities |
+| **Scheduler** | Workflow Scheduler (add, run, pause/resume, stop, and view history for jobs, all in one panel) |
 | **Data Sources** | External Data Sources (MongoDB / MySQL / PostgreSQL) |
 | **About** | View Extension Author Info |
 

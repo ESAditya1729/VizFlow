@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Added
+- **`writeExcel` activity** (Output): writes the current dataset to a local `.xlsx` file — sheet name, date formatting, overwrite, and timestamp-suffix options, mirroring `writeCsv`/`writeJson`.
+- **`joinDatasets` activity** (Transformation): joins the current pipeline dataset with a second CSV or JSON file on a key column (`inner` / `left` / `right` / `full`), with configurable column-name collision prefixing — a local VLOOKUP/Power-Query-style merge that needs no second pipeline branch.
+
+### Fixed
+- **Transform Column (Visual) operations dropdown**: the WebView's operation list and dynamic parameter fields were reading a stale data shape (`op.label` / `op.params`) from the operations catalogue, leaving the dropdown blank and parameter inputs broken for any operation with arguments. The WebView now consumes the same `description` / `paramDefs` shape as the CLI command.
+
+### Removed
+- **Standalone `Sum` / `Average` / `Min` / `Max` / `Count` commands**: removed from the Command Palette (`vizflow.sum`, `vizflow.average`, `vizflow.min`, `vizflow.max`, `vizflow.count`) as redundant with the Workflow Builder's **Aggregate** and **Group By** activities, which cover the same operations as a reusable, repeatable pipeline step. **Find Duplicate Values** and **Show Distinct Values** are unaffected and remain available.
+- **Standalone `Quick Schedule Workflow` / `Stop Running Job` / `Show Running Jobs` commands**: removed from the Command Palette (`vizflow.scheduler.quickSchedule`, `vizflow.scheduler.stopJob`, `vizflow.scheduler.showRunning`) — these were `QuickPick`-based shortcuts into functionality the **Workflow Scheduler** panel already covers in its Jobs tab (add, run now, pause/resume, stop, delete) and History tab. `VizFlow: Workflow Scheduler` is now the single entry point; the Workflow Builder's ⏰ Schedule button continues to open it pre-filled with the current file.
+
 ## [0.0.2] - 2026-08-24
 
 ### Added

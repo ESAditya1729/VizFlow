@@ -169,6 +169,9 @@
           "$ref": "#/definitions/activity/selectColumns"
         },
         {
+          "$ref": "#/definitions/activity/joinDatasets"
+        },
+        {
           "$ref": "#/definitions/activity/query"
         },
         {
@@ -200,6 +203,9 @@
         },
         {
           "$ref": "#/definitions/activity/appendText"
+        },
+        {
+          "$ref": "#/definitions/activity/writeExcel"
         },
         {
           "$ref": "#/definitions/activity/multiTransform"
@@ -770,6 +776,77 @@
           },
           "required": [
             "columns"
+          ]
+        }
+      }
+    },
+    "activity/joinDatasets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "joinDatasets"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "rightFilePath": {
+              "description": "Absolute or workspace-relative path to the CSV or JSON file to join against",
+              "type": "string"
+            },
+            "rightSourceType": {
+              "description": "Format of the right-side file (default: csv)",
+              "type": "string",
+              "enum": [
+                "csv",
+                "json"
+              ]
+            },
+            "leftKey": {
+              "description": "Column in the current dataset to match on",
+              "type": "string"
+            },
+            "rightKey": {
+              "description": "Column in the right dataset to match on (default: same name as Left Join Column)",
+              "type": "string"
+            },
+            "joinType": {
+              "description": "How to handle rows without a match (default: inner)",
+              "type": "string",
+              "enum": [
+                "inner",
+                "left",
+                "right",
+                "full"
+              ]
+            },
+            "columnPrefix": {
+              "description": "Prefix applied to right-dataset columns whose name collides with a left-dataset column (default: \"right_\")",
+              "type": "string"
+            }
+          },
+          "required": [
+            "rightFilePath",
+            "leftKey"
           ]
         }
       }
@@ -1515,6 +1592,69 @@
           "required": [
             "filePath",
             "content"
+          ]
+        }
+      }
+    },
+    "activity/writeExcel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "writeExcel"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "filePath": {
+              "description": "Absolute path or workspace-relative path of the output .xlsx file",
+              "type": "string"
+            },
+            "sheetName": {
+              "description": "Name of the worksheet to write (default: \"Sheet1\")",
+              "type": "string"
+            },
+            "dateFormat": {
+              "description": "Format applied to Date-valued cells (default: MM/DD/YYYY)",
+              "type": "string",
+              "enum": [
+                "MM/DD/YYYY",
+                "YYYY-MM-DD",
+                "DD/MM/YYYY",
+                "MM-DD-YYYY",
+                "DD-MM-YYYY"
+              ]
+            },
+            "overwrite": {
+              "description": "Overwrite existing file if it exists (default: true)",
+              "type": "boolean"
+            },
+            "timestampSuffix": {
+              "description": "Add timestamp to filename to avoid overwriting (default: false)",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "filePath"
           ]
         }
       }

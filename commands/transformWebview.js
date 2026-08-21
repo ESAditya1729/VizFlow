@@ -138,9 +138,9 @@ module.exports = function transformWebviewCommand(context) {
 function sendInit(webview, dataset) {
     const operations = Object.entries(OPERATIONS).map(([key, op]) => ({
         key,
-        label:    op.label,
+        label:    op.description,
         category: op.category,
-        params:   op.params,
+        params:   op.paramDefs,
     }));
 
     webview.postMessage({
@@ -230,7 +230,7 @@ function handlePreviewQueue(msg, panel, dataset) {
 
             previewCols.push({
                 column:   rule.column,
-                opLabel:  op ? op.label : rule.opKey,
+                opLabel:  op ? op.description : rule.opKey,
                 rowScope: rule.rowScope === 'selected'
                     ? `rows ${(rule.rowIndices || []).join(', ')}`
                     : 'all rows',
@@ -307,7 +307,7 @@ async function handleApplyQueue(msg, panel, dataset, sourceUri) {
             }
 
             const origHeader = `${rule.column} (original)`;
-            const resHeader  = `${rule.column} → ${op ? op.label : rule.opKey}`;
+            const resHeader  = `${rule.column} → ${op ? op.description : rule.opKey}`;
             const origWidth  = Math.max(origHeader.length, ...allResults.map(e => String(e.original).length));
             const resWidth   = Math.max(resHeader.length,  ...allResults.map(e => String(e.result).length));
 
@@ -316,7 +316,7 @@ async function handleApplyQueue(msg, panel, dataset, sourceUri) {
                 `  │ ${a.padEnd(origWidth)} │ ${b.padEnd(resWidth)} │`;
 
             output.writeSubHeader(
-                `Rule: ${op ? op.label : rule.opKey} on "${rule.column}" [scope: ${scopeLabel}]` +
+                `Rule: ${op ? op.description : rule.opKey} on "${rule.column}" [scope: ${scopeLabel}]` +
                 (rule.params.length ? ` [params: ${rule.params.join(', ')}]` : '')
             );
             output.writeLine(hr);

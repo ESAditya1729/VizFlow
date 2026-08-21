@@ -14,10 +14,10 @@ Each activity below is a valid `type` for a `.vizflow` activity node:
 ## Index
 
 - **Input** (6): `listFiles`, `readCsv`, `readExcel`, `readMongo`, `readSql`, `sampleData`
-- **Transformation** (5): `filter`, `removeDuplicates`, `selectColumns`, `sort`, `transform`
+- **Transformation** (6): `filter`, `joinDatasets`, `removeDuplicates`, `selectColumns`, `sort`, `transform`
 - **Query** (4): `mongoQuery`, `previewQuery`, `query`, `sqlQuery`
 - **Analytics** (4): `aggregate`, `columnStats`, `dataProfile`, `groupBy`
-- **Output** (5): `appendText`, `exportMultiple`, `writeCsv`, `writeJson`, `writeText`
+- **Output** (6): `appendText`, `exportMultiple`, `writeCsv`, `writeExcel`, `writeJson`, `writeText`
 - **Control** (8): `callWorkflow`, `execPowerShell`, `forEach`, `forEachFile`, `ifElse`, `multiTransform`, `setVariable`, `wait`
 - **Integration** (1): `httpRequest`
 
@@ -120,6 +120,23 @@ Filters rows based on a specified column condition.
 | `value` | string | no | — | Value to compare against (not required for null/empty operators) |
 
 **`operator` options:** `==`, `!=`, `>`, `>=`, `<`, `<=`, `contains`, `startsWith`, `endsWith`, `regex`, `isNull`, `isNotNull`, `isEmpty`, `isNotEmpty`
+
+### `joinDatasets` — 🔗 Join Datasets
+
+Joins the current dataset with a second dataset loaded from a CSV or JSON file, matching rows on a key column (like a lookup/VLOOKUP merge).
+
+| Config field | Type | Required | Default | Description |
+|--------------|------|----------|---------|-------------|
+| `rightFilePath` | file | yes | — | Absolute or workspace-relative path to the CSV or JSON file to join against |
+| `rightSourceType` | select | no | — | Format of the right-side file (default: csv) |
+| `leftKey` | string | yes | — | Column in the current dataset to match on |
+| `rightKey` | string | no | — | Column in the right dataset to match on (default: same name as Left Join Column) |
+| `joinType` | select | no | — | How to handle rows without a match (default: inner) |
+| `columnPrefix` | string | no | "right_" | Prefix applied to right-dataset columns whose name collides with a left-dataset column (default: "right_") |
+
+**`rightSourceType` options:** `csv`, `json`
+
+**`joinType` options:** `inner`, `left`, `right`, `full`
 
 ### `removeDuplicates` — 🧹 Remove Duplicates
 
@@ -335,6 +352,20 @@ Writes the current dataset to a local CSV file path.
 **`quoteChar` options:** `"`, `'`
 
 **`escapeChar` options:** `"`, `\`
+
+### `writeExcel` — 📗 Write Excel
+
+Writes the current dataset to a local Excel (.xlsx) file.
+
+| Config field | Type | Required | Default | Description |
+|--------------|------|----------|---------|-------------|
+| `filePath` | file | yes | — | Absolute path or workspace-relative path of the output .xlsx file |
+| `sheetName` | string | no | "Sheet1" | Name of the worksheet to write (default: "Sheet1") |
+| `dateFormat` | select | no | — | Format applied to Date-valued cells (default: MM/DD/YYYY) |
+| `overwrite` | boolean | no | — | Overwrite existing file if it exists (default: true) |
+| `timestampSuffix` | boolean | no | — | Add timestamp to filename to avoid overwriting (default: false) |
+
+**`dateFormat` options:** `MM/DD/YYYY`, `YYYY-MM-DD`, `DD/MM/YYYY`, `MM-DD-YYYY`, `DD-MM-YYYY`
 
 ### `writeJson` — 📝 Write JSON
 

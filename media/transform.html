@@ -271,16 +271,20 @@
         group.className = 'form-group';
 
         const lbl = document.createElement('label');
-        lbl.textContent = param.name;
+        lbl.textContent = param.label || param.name;
+
+        const placeholder = param.default !== undefined && param.default !== ''
+          ? 'e.g. ' + param.default
+          : (param.required === false ? '(optional)' : '(required)');
 
         const inp = document.createElement('input');
         inp.type = 'text';
-        inp.placeholder = param.placeholder;
+        inp.placeholder = placeholder;
         inp.id = 'param-' + param.name.replace(/\s/g, '-');
 
         const hint = document.createElement('p');
         hint.className = 'param-hint';
-        hint.textContent = param.placeholder;
+        hint.textContent = placeholder;
 
         group.appendChild(lbl);
         group.appendChild(inp);
@@ -305,7 +309,7 @@
       if (op && op.params.length > 0) {
         const inputs = Array.from(paramsSection.querySelectorAll('input[type="text"]'));
         for (let i = 0; i < op.params.length; i++) {
-          const isOptional = op.params[i].placeholder.includes('optional');
+          const isOptional = op.params[i].required === false;
           if (!isOptional && (!inputs[i] || inputs[i].value.trim() === '')) {
             showStatus(`⚠️ Parameter "${op.params[i].name}" is required.`, 'error');
             return;

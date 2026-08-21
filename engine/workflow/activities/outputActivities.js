@@ -9,6 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 const Papa = require('papaparse');
+const XLSX = require('xlsx');
 const templateService = require('../../../services/templateService');
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -1058,6 +1059,133 @@ outputActivities.push({
                 contentFormat: format,
                 contentSource: content,
                 fileExisted: fileExists
+            });
+        }
+
+        return inputDataset;
+    }
+});
+
+// ─── 6. Write Excel Activity ─────────────────────────────────────────────────
+outputActivities.push({
+    type: 'writeExcel',
+    displayName: '📗 Write Excel',
+    description: 'Writes the current dataset to a local Excel (.xlsx) file.',
+    category: 'Output',
+    configRequirements: [
+        {
+            name: 'filePath',
+            label: 'Excel File Path',
+            type: 'file',
+            required: true,
+            description: 'Absolute path or workspace-relative path of the output .xlsx file'
+        },
+        {
+            name: 'sheetName',
+            label: 'Sheet Name',
+            type: 'string',
+            required: false,
+            defaultValue: 'Sheet1',
+            description: 'Name of the worksheet to write (default: "Sheet1")'
+        },
+        {
+            name: 'dateFormat',
+            label: 'Date Format',
+            type: 'select',
+            required: false,
+            options: [
+                { label: 'MM/DD/YYYY', value: 'MM/DD/YYYY' },
+                { label: 'YYYY-MM-DD', value: 'YYYY-MM-DD' },
+                { label: 'DD/MM/YYYY', value: 'DD/MM/YYYY' },
+                { label: 'MM-DD-YYYY', value: 'MM-DD-YYYY' },
+                { label: 'DD-MM-YYYY', value: 'DD-MM-YYYY' }
+            ],
+            description: 'Format applied to Date-valued cells (default: MM/DD/YYYY)'
+        },
+        {
+            name: 'overwrite',
+            label: 'Overwrite Existing',
+            type: 'boolean',
+            required: false,
+            description: 'Overwrite existing file if it exists (default: true)'
+        },
+        {
+            name: 'timestampSuffix',
+            label: 'Add Timestamp Suffix',
+            type: 'boolean',
+            required: false,
+            description: 'Add timestamp to filename to avoid overwriting (default: false)'
+        }
+    ],
+    async execute(config, context, inputDataset) {
+        if (!inputDataset) {
+            throw new Error('Write Excel activity: Input dataset is required');
+        }
+
+        const {
+            filePath,
+            sheetName = 'Sheet1',
+            dateFormat = 'MM/DD/YYYY',
+            overwrite = true,
+            timestampSuffix = false
+        } = config;
+
+        validateConfig({ filePath }, ['filePath'], 'Write Excel');
+
+        // Resolve file path
+        let resolvedPath = context.resolvePath ? context.resolvePath(filePath) : filePath;
+
+        if (timestampSuffix) {
+            const parsed = path.parse(resolvedPath);
+            resolvedPath = path.join(
+                parsed.dir,
+                generateTimestampedFilename(parsed.name, parsed.ext.substring(1) || 'xlsx')
+            );
+        }
+
+        // Check if file is writable
+        const checkResult = await checkFileWritable(resolvedPath, { overwrite });
+        if (!checkResult.writable) {
+            throw new Error(`Write Excel: ${checkResult.error}`);
+        }
+
+        // Ensure directory exists
+        const dir = path.dirname(resolvedPath);
+        await ensureDirectory(dir);
+
+        const columns = inputDataset.getColumns();
+        const formatMap = {
+            'MM/DD/YYYY': (d) => `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}/${d.getFullYear()}`,
+            'YYYY-MM-DD': (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+            'DD/MM/YYYY': (d) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`,
+            'MM-DD-YYYY': (d) => `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}-${d.getFullYear()}`,
+            'DD-MM-YYYY': (d) => `${String(d.getDate()).padStart(2, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}`
+        };
+        const formatDate = formatMap[dateFormat] || formatMap['MM/DD/YYYY'];
+
+        const rows = inputDataset.rows.map(row => {
+            const outRow = {};
+            for (const col of columns) {
+                const value = row[col];
+                outRow[col] = value instanceof Date ? formatDate(value) : value;
+            }
+            return outRow;
+        });
+
+        const worksheet = XLSX.utils.json_to_sheet(rows, { header: columns });
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, sheetName.substring(0, 31) || 'Sheet1');
+        XLSX.writeFile(workbook, resolvedPath);
+
+        if (context && context.setActivityStats) {
+            const stats = await fs.promises.stat(resolvedPath);
+            context.setActivityStats({
+                inputRowCount: inputDataset.getRowCount(),
+                outputRowCount: inputDataset.getRowCount(),
+                filePath: resolvedPath,
+                fileSize: stats.size,
+                sheetName: sheetName,
+                columns: columns.length
             });
         }
 

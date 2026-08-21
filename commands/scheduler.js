@@ -123,17 +123,6 @@ module.exports = function schedulerCommand(context) {
         await openPanel(workflowPath);
     }
 
-    async function showRunning() {
-        ensureScheduler();
-        const running = scheduler.getRunningJobs();
-        if (running.length === 0) {
-            vscode.window.showInformationMessage('VizFlow Scheduler: No jobs currently running.');
-            return;
-        }
-        const items = running.map(j => `${j.jobName}  (started ${new Date(j.startTime).toLocaleTimeString()})`);
-        await vscode.window.showQuickPick(items, { title: 'Running Scheduler Jobs', canPickMany: false });
-    }
-
     // ── Panel creation ───────────────────────────────────────────────────────
 
     async function openPanel(prefilledWorkflow) {
@@ -304,23 +293,11 @@ module.exports = function schedulerCommand(context) {
     // ── Main entry point ─────────────────────────────────────────────────────
 
     return async function (commandType, uri) {
+        // 'quickSchedule' is not a standalone Command Palette entry — it's used
+        // internally by the Workflow Builder's ⏰ Schedule button to open this
+        // panel pre-filled with the current workflow file (see
+        // extension.js's workflowBuilderCommand.setSchedulerOpener).
         if (commandType === 'quickSchedule') { await quickSchedule(uri); return; }
-        if (commandType === 'showRunning') { await showRunning(); return; }
-        if (commandType === 'stopJob') {
-            ensureScheduler();
-            const running = scheduler.getRunningJobs();
-            if (running.length === 0) {
-                vscode.window.showInformationMessage('VizFlow Scheduler: No jobs currently running.');
-                return;
-            }
-            const items = running.map(j => ({ label: j.jobName, description: j.jobId }));
-            const pick = await vscode.window.showQuickPick(items, { title: 'Stop a Running Job' });
-            if (pick) {
-                try { scheduler.stopJob(pick.description); }
-                catch (err) { vscode.window.showErrorMessage(`VizFlow Scheduler: ${err.message}`); }
-            }
-            return;
-        }
         await openPanel(null);
     };
 };

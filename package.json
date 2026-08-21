@@ -30,11 +30,6 @@
   "activationEvents": [
     "onLanguage:csv",
     "onLanguage:tsv",
-    "onCommand:vizflow.sum",
-    "onCommand:vizflow.average",
-    "onCommand:vizflow.min",
-    "onCommand:vizflow.max",
-    "onCommand:vizflow.count",
     "onCommand:vizflow.duplicates",
     "onCommand:vizflow.statistics",
     "onCommand:vizflow.distinctValues",
@@ -48,34 +43,11 @@
     "onCommand:vizflow.workflowBuilder",
     "onCommand:vizflow.openWorkflow",
     "onCommand:vizflow.scheduler",
-    "onCommand:vizflow.scheduler.quickSchedule",
-    "onCommand:vizflow.scheduler.stopJob",
-    "onCommand:vizflow.scheduler.showRunning",
     "onCommand:vizflow.dataSources"
   ],
   "main": "./extension.js",
   "contributes": {
     "commands": [
-      {
-        "command": "vizflow.sum",
-        "title": "VizFlow: Sum Column"
-      },
-      {
-        "command": "vizflow.average",
-        "title": "VizFlow: Average Column"
-      },
-      {
-        "command": "vizflow.min",
-        "title": "VizFlow: Minimum Value"
-      },
-      {
-        "command": "vizflow.max",
-        "title": "VizFlow: Maximum Value"
-      },
-      {
-        "command": "vizflow.count",
-        "title": "VizFlow: Count Values"
-      },
       {
         "command": "vizflow.duplicates",
         "title": "VizFlow: Find Duplicate Values"
@@ -127,18 +99,6 @@
       {
         "command": "vizflow.scheduler",
         "title": "VizFlow: Workflow Scheduler"
-      },
-      {
-        "command": "vizflow.scheduler.quickSchedule",
-        "title": "VizFlow: Quick Schedule Workflow"
-      },
-      {
-        "command": "vizflow.scheduler.stopJob",
-        "title": "VizFlow: Stop Running Job"
-      },
-      {
-        "command": "vizflow.scheduler.showRunning",
-        "title": "VizFlow: Show Running Jobs"
       },
       {
         "command": "vizflow.dataSources",

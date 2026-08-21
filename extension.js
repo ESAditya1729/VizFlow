@@ -1,8 +1,5 @@
 const vscode = require('vscode');
 const path = require('path');
-const sumCommand = require('./commands/sum');
-const averageCommand = require('./commands/average');
-const aggregate = require('./commands/aggregate');
 const duplicateCommand = require('./commands/duplicate');
 const statsCommand = require('./commands/statistics');
 const distinctValuesCommand = require('./commands/distinctValues');
@@ -52,34 +49,7 @@ function activate(context) {
     // ─── Create scheduler command instance ────────────────────────────
     const scheduler = schedulerCommand(context);
 
-    // ─── Create wrapper functions for scheduler sub-commands ──────────
-    const quickSchedule = (uri) => scheduler('quickSchedule', uri);
-    const showRunning = () => scheduler('showRunning');
-    const stopJob = () => scheduler('stopJob');
-
     context.subscriptions.push(
-
-        // ─── Analytics Commands ────────────────────────────────────────
-        vscode.commands.registerCommand(
-            'vizflow.sum',
-            sumCommand
-        ),
-        vscode.commands.registerCommand(
-            'vizflow.average',
-            averageCommand
-        ),
-        vscode.commands.registerCommand(
-            'vizflow.min',
-            () => aggregate("min")
-        ),
-        vscode.commands.registerCommand(
-            'vizflow.max',
-            () => aggregate("max")
-        ),
-        vscode.commands.registerCommand(
-            'vizflow.count',
-            () => aggregate("count")
-        ),
 
         // ─── Data Quality Commands ─────────────────────────────────────
         vscode.commands.registerCommand(
@@ -128,21 +98,14 @@ function activate(context) {
         ),
 
         // ─── Scheduler Commands ────────────────────────────────────────
+        // Quick Schedule / Stop Job / Show Running were removed as standalone
+        // Command Palette entries — the Scheduler webview's Jobs tab already
+        // covers adding, running, pausing, stopping, and viewing running jobs.
+        // The `quickSchedule` codepath itself is still used internally by the
+        // Workflow Builder's ⏰ Schedule button (see setSchedulerOpener below).
         vscode.commands.registerCommand(
             'vizflow.scheduler',
             scheduler
-        ),
-        vscode.commands.registerCommand(
-            'vizflow.scheduler.quickSchedule',
-            quickSchedule
-        ),
-        vscode.commands.registerCommand(
-            'vizflow.scheduler.stopJob',
-            stopJob
-        ),
-        vscode.commands.registerCommand(
-            'vizflow.scheduler.showRunning',
-            showRunning
         )
 
     );

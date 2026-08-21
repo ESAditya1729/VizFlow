@@ -6,7 +6,9 @@
 
 'use strict';
 
+const fs = require('fs');
 const Dataset = require('../../dataset');
+const csvParser = require('../../../services/csvParser');
 
 // ─── Helper Functions ───────────────────────────────────────────────────────
 
@@ -767,6 +769,190 @@ transformationActivities.push({
                 selectedColumns: finalColumns.length,
                 totalColumns: allColumns.length,
                 columnsDropped: allColumns.length - finalColumns.length
+            });
+        }
+
+        return outputDataset;
+    }
+});
+
+// ─── 6. Join Datasets Activity ───────────────────────────────────────────────
+transformationActivities.push({
+    type: 'joinDatasets',
+    displayName: '🔗 Join Datasets',
+    description: 'Joins the current dataset with a second dataset loaded from a CSV or JSON file, matching rows on a key column (like a lookup/VLOOKUP merge).',
+    category: 'Transformation',
+    configRequirements: [
+        {
+            name: 'rightFilePath',
+            label: 'Right Dataset File',
+            type: 'file',
+            required: true,
+            description: 'Absolute or workspace-relative path to the CSV or JSON file to join against'
+        },
+        {
+            name: 'rightSourceType',
+            label: 'Right Source Type',
+            type: 'select',
+            required: false,
+            options: [
+                { label: 'CSV', value: 'csv' },
+                { label: 'JSON', value: 'json' }
+            ],
+            description: 'Format of the right-side file (default: csv)'
+        },
+        {
+            name: 'leftKey',
+            label: 'Left Join Column',
+            type: 'string',
+            required: true,
+            description: 'Column in the current dataset to match on'
+        },
+        {
+            name: 'rightKey',
+            label: 'Right Join Column',
+            type: 'string',
+            required: false,
+            description: 'Column in the right dataset to match on (default: same name as Left Join Column)'
+        },
+        {
+            name: 'joinType',
+            label: 'Join Type',
+            type: 'select',
+            required: false,
+            options: [
+                { label: 'Inner Join', value: 'inner' },
+                { label: 'Left Join', value: 'left' },
+                { label: 'Right Join', value: 'right' },
+                { label: 'Full Outer Join', value: 'full' }
+            ],
+            description: 'How to handle rows without a match (default: inner)'
+        },
+        {
+            name: 'columnPrefix',
+            label: 'Right Column Prefix',
+            type: 'string',
+            required: false,
+            defaultValue: 'right_',
+            description: 'Prefix applied to right-dataset columns whose name collides with a left-dataset column (default: "right_")'
+        }
+    ],
+    async execute(config, context, inputDataset) {
+        if (!inputDataset) {
+            throw new Error('JoinDatasets activity: Input dataset is required');
+        }
+
+        const {
+            rightFilePath,
+            rightSourceType = 'csv',
+            leftKey,
+            joinType = 'inner',
+            columnPrefix = 'right_'
+        } = config;
+        const rightKey = config.rightKey || leftKey;
+
+        validateConfig({ rightFilePath, leftKey }, ['rightFilePath', 'leftKey'], 'JoinDatasets');
+
+        // Load the right-side dataset from disk
+        const resolvedRightPath = context.resolvePath ? context.resolvePath(rightFilePath) : rightFilePath;
+        let rightDataset;
+        if (rightSourceType === 'json') {
+            const raw = await fs.promises.readFile(resolvedRightPath, 'utf8');
+            const parsed = JSON.parse(raw);
+            const rightRows = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.data) ? parsed.data : []);
+            const rightColumns = rightRows.length > 0 ? Object.keys(rightRows[0]) : [];
+            rightDataset = new Dataset(rightRows, rightColumns);
+        } else {
+            const raw = await fs.promises.readFile(resolvedRightPath, 'utf8');
+            rightDataset = csvParser.parse(raw);
+        }
+
+        const leftColumn = validateColumn(inputDataset, leftKey, 'JoinDatasets');
+        const rightColumn = validateColumn(rightDataset, rightKey, 'JoinDatasets');
+
+        const leftColumns = inputDataset.getColumns();
+        const rightColumns = rightDataset.getColumns();
+
+        // Map right columns to their (possibly prefixed) output name
+        const rightColumnMap = new Map();
+        for (const col of rightColumns) {
+            if (col === rightColumn && leftColumn === rightColumn) {
+                continue; // shared join key, only emitted once
+            }
+            const outName = leftColumns.includes(col) ? `${columnPrefix}${col}` : col;
+            rightColumnMap.set(col, outName);
+        }
+
+        const outputColumns = [...leftColumns, ...rightColumnMap.values()];
+
+        // Index right rows by join key for O(1) lookups
+        const rightIndex = new Map();
+        for (const row of rightDataset.rows) {
+            const key = row[rightColumn];
+            const bucket = rightIndex.get(key);
+            if (bucket) {
+                bucket.push(row);
+            } else {
+                rightIndex.set(key, [row]);
+            }
+        }
+
+        function mergeRow(leftRow, rightRow) {
+            const merged = leftRow ? { ...leftRow } : {};
+            if (!leftRow) {
+                for (const col of leftColumns) merged[col] = null;
+            }
+            for (const [rightCol, outName] of rightColumnMap.entries()) {
+                merged[outName] = rightRow ? rightRow[rightCol] : null;
+            }
+            if (rightRow && leftColumn === rightColumn) {
+                merged[leftColumn] = leftRow ? leftRow[leftColumn] : rightRow[rightColumn];
+            }
+            return merged;
+        }
+
+        const outputRows = [];
+        const matchedRightRows = new Set();
+        let matchedCount = 0;
+        let unmatchedLeft = 0;
+
+        for (const leftRow of inputDataset.rows) {
+            const matches = rightIndex.get(leftRow[leftColumn]) || [];
+            if (matches.length > 0) {
+                matchedCount += 1;
+                for (const rightRow of matches) {
+                    outputRows.push(mergeRow(leftRow, rightRow));
+                    matchedRightRows.add(rightRow);
+                }
+            } else {
+                unmatchedLeft += 1;
+                if (joinType === 'left' || joinType === 'full') {
+                    outputRows.push(mergeRow(leftRow, null));
+                }
+            }
+        }
+
+        let unmatchedRight = 0;
+        if (joinType === 'right' || joinType === 'full') {
+            for (const rightRow of rightDataset.rows) {
+                if (!matchedRightRows.has(rightRow)) {
+                    unmatchedRight += 1;
+                    outputRows.push(mergeRow(null, rightRow));
+                }
+            }
+        }
+
+        const outputDataset = new Dataset(outputRows, outputColumns);
+
+        if (context && context.setActivityStats) {
+            context.setActivityStats({
+                inputRowCount: inputDataset.getRowCount(),
+                rightRowCount: rightDataset.getRowCount(),
+                outputRowCount: outputDataset.getRowCount(),
+                matchedRows: matchedCount,
+                unmatchedLeft,
+                unmatchedRight,
+                joinType
             });
         }
 

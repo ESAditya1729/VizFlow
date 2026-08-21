@@ -76,11 +76,11 @@ writeCsv → writes to disk, passes Dataset through
 | Category | Purpose | Activities |
 |----------|---------|------------|
 | **Input** | Bring data into the pipeline | `readCsv`, `readExcel`, `readMongo`, `readSql`, `sampleData`, `listFiles` |
-| **Transformation** | Reshape, clean, reorder data | `filter`, `transform`, `selectColumns`, `sort`, `removeDuplicates` |
+| **Transformation** | Reshape, clean, reorder data | `filter`, `transform`, `selectColumns`, `sort`, `removeDuplicates`, `joinDatasets` |
 | **Query** | SQL-like queries on data | `query` (RBQL), `previewQuery`, `columnStats` |
 | **Analytics** | Aggregate and profile data | `aggregate`, `groupBy`, `dataProfile` |
 | **Integration** | Connect to external services | `httpRequest` |
-| **Output** | Write data to files | `writeCsv`, `writeJson`, `writeText`, `appendText`, `exportMultiple` |
+| **Output** | Write data to files | `writeCsv`, `writeJson`, `writeExcel`, `writeText`, `appendText`, `exportMultiple` |
 | **Control** | Branching, loops, variables | `ifElse`, `forEach`, `setVariable`, `wait`, `multiTransform`, `callWorkflow` |
 | **Database** | Direct database queries | `readMongo`, `readSql`, `mongoQuery`, `sqlQuery` |
 | **PowerShell** | Run scripts, iterate files | `execPowerShell`, `forEachFile` |
@@ -162,6 +162,15 @@ Sort by one or more columns.
 Deduplicate based on specified columns.
 - **columns** (required): Columns to check for uniqueness (comma-separated).
 
+#### `joinDatasets` — Join Datasets
+Join the current dataset with a second dataset loaded from a CSV or JSON file, matching rows on a key column — like a VLOOKUP or Power Query merge. No second pipeline branch needed: the right side is read directly from disk.
+- **rightFilePath** (required): Path to the CSV/JSON file to join against.
+- **rightSourceType**: `csv` or `json` (default: `csv`).
+- **leftKey** (required): Column in the current dataset to match on.
+- **rightKey**: Column in the right dataset to match on (default: same as `leftKey`).
+- **joinType**: `inner`, `left`, `right`, or `full` (default: `inner`).
+- **columnPrefix**: Prefix applied to right-side columns whose name collides with a left-side column (default: `right_`).
+
 ---
 
 ### Query Activities
@@ -217,8 +226,15 @@ Full dataset profiling: column types, nulls, distinct values, top values, histog
 
 #### `writeJson` — Write JSON
 - **filePath** (required): Output path.
-- **indent**: JSON indentation spaces (default: `2`).
-- **arrayFormat**: `rows` (array of objects) or `columns` (columnar format).
+- **format**: `pretty` (indented) or `compact` (minified) (default: `pretty`).
+- **overwrite**: Overwrite existing file (default: `true`).
+
+#### `writeExcel` — Write Excel
+- **filePath** (required): Output `.xlsx` path.
+- **sheetName**: Worksheet name (default: `Sheet1`).
+- **dateFormat**: Format applied to Date-valued cells — `MM/DD/YYYY`, `YYYY-MM-DD`, etc. (default: `MM/DD/YYYY`).
+- **overwrite**: Overwrite existing file (default: `true`).
+- **timestampSuffix**: Append a timestamp to the filename to avoid overwriting (default: `false`).
 
 #### `writeText` — Write Text File
 - **filePath** (required): Output path.
@@ -526,13 +542,11 @@ From the Data Sources panel:
 
 VizFlow includes a built-in cron scheduler that runs `.vizflow` workflows on a schedule.
 
-### Quick Schedule
+### Scheduler Panel
 
-`Ctrl+Shift+P` → `VizFlow: Quick Schedule Workflow` — pick a file and a cron expression.
+`Ctrl+Shift+P` → `VizFlow: Workflow Scheduler` — one panel for everything: add a job (pick a file, set a cron or one-time schedule), and manage existing jobs (run now, pause/resume, stop, delete, view history) from the Jobs and History tabs.
 
-### Full Scheduler Panel
-
-`Ctrl+Shift+P` → `VizFlow: Workflow Scheduler` — manage all scheduled jobs.
+You can also jump here pre-filled with the current file via the Workflow Builder's ⏰ **Schedule** toolbar button.
 
 ### Schedule Types
 
