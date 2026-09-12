@@ -11,6 +11,7 @@ const path = require('path');
 const Papa = require('papaparse');
 const XLSX = require('xlsx');
 const templateService = require('../../../services/templateService');
+const { validateConfig, ensureDirectory, checkFileWritable, generateTimestampedFilename } = require('./shared');
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 const DEFAULT_ENCODING = 'utf8';
@@ -19,96 +20,6 @@ const DEFAULT_QUOTE_CHAR = '"';
 const MAX_FILE_SIZE_WARNING = 100 * 1024 * 1024; // 100MB
 
 // ─── Helper Functions ───────────────────────────────────────────────────────
-
-/**
- * Ensure directory exists, create if not
- * @param {string} dirPath - Directory path
- * @returns {Promise<void>}
- */
-async function ensureDirectory(dirPath) {
-    if (!dirPath) return;
-    try {
-        await fs.promises.access(dirPath, fs.constants.F_OK);
-    } catch (error) {
-        if (error.code === 'ENOENT') {
-            await fs.promises.mkdir(dirPath, { recursive: true });
-        } else {
-            throw error;
-        }
-    }
-}
-
-/**
- * Check if file is writable
- * @param {string} filePath - File path
- * @param {Object} options - Check options
- * @param {boolean} options.overwrite - Allow overwrite (default: true)
- * @param {number} options.maxSize - Maximum file size in bytes
- * @returns {Promise<{ writable: boolean, error?: string, warning?: string }>}
- */
-async function checkFileWritable(filePath, options = {}) {
-    const { overwrite = true, maxSize = MAX_FILE_SIZE_WARNING } = options;
-    
-    try {
-        await fs.promises.access(filePath, fs.constants.F_OK);
-        // File exists
-        if (!overwrite) {
-            return { writable: false, error: `File "${path.basename(filePath)}" already exists and overwrite is disabled` };
-        }
-        
-        // Check file size
-        const stats = await fs.promises.stat(filePath);
-        if (stats.size > maxSize) {
-            return { 
-                writable: true, 
-                warning: `File size (${(stats.size / 1024 / 1024).toFixed(2)}MB) exceeds recommended limit` 
-            };
-        }
-        
-        return { writable: true };
-    } catch (error) {
-        if (error.code === 'ENOENT') {
-            // File doesn't exist, check parent directory
-            const dir = path.dirname(filePath);
-            try {
-                await fs.promises.access(dir, fs.constants.W_OK);
-                return { writable: true };
-            } catch {
-                return { writable: false, error: `Directory "${dir}" is not writable` };
-            }
-        }
-        return { writable: false, error: `Cannot access file: ${error.message}` };
-    }
-}
-
-/**
- * Generate filename with timestamp
- * @param {string} baseName - Base filename without extension
- * @param {string} extension - File extension (e.g., 'csv')
- * @returns {string} Filename with timestamp
- */
-function generateTimestampedFilename(baseName, extension) {
-    const timestamp = new Date().toISOString()
-        .replace(/[:.]/g, '-')
-        .replace('T', '_')
-        .slice(0, 19);
-    return `${baseName}_${timestamp}.${extension}`;
-}
-
-/**
- * Validate config with required fields
- * @param {Object} config - Configuration object
- * @param {Array} required - Array of required field names
- * @param {string} activityName - Activity name for error messages
- * @throws {Error} If required field is missing
- */
-function validateConfig(config, required, activityName) {
-    for (const field of required) {
-        if (config[field] === undefined || config[field] === null || config[field] === '') {
-            throw new Error(`${activityName}: "${field}" is required`);
-        }
-    }
-}
 
 /**
  * Format data based on type for text output

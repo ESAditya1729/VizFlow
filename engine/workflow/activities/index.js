@@ -18,6 +18,7 @@ let powerShellActivities = [];
 let databaseActivities = [];
 let httpActivities = [];
 let xmlActivities = [];
+let fsActivities = [];
 
 // ─── Safe Module Loading ────────────────────────────────────────────────────
 try {
@@ -138,12 +139,30 @@ try {
     xmlActivities = [];
 }
 
+// ─── Load Filesystem Activities ─────────────────────────────────────────────
+try {
+    fsActivities = require('./fsActivities');
+    if (!Array.isArray(fsActivities)) {
+        console.warn('[VizFlow] fsActivities is not an array, wrapping...');
+        fsActivities = Array.isArray(fsActivities) ? fsActivities : [fsActivities];
+    }
+    console.log(`[VizFlow] Loaded ${fsActivities.length} filesystem activities`);
+} catch (error) {
+    console.error('[VizFlow] Failed to load fsActivities:', error.message);
+    fsActivities = [];
+}
+
 // Merge XML activities into their existing categories by `category`, so
 // readXml/writeXml/xmlTransform show up alongside readCsv/writeCsv/transform
 // without a new top-level category or any change to activityRegistry.js.
 inputActivities = [...inputActivities, ...xmlActivities.filter(a => a.category === 'Input')];
 outputActivities = [...outputActivities, ...xmlActivities.filter(a => a.category === 'Output')];
 transformationActivities = [...transformationActivities, ...xmlActivities.filter(a => a.category === 'Transformation')];
+
+// Merge filesystem activities into their categories the same way (listFiles
+// is an Input-category activity, independent of PowerShell).
+inputActivities = [...inputActivities, ...fsActivities.filter(a => a.category === 'Input')];
+controlActivities = [...controlActivities, ...fsActivities.filter(a => a.category === 'Control')];
 
 // ─── Category Registry ──────────────────────────────────────────────────────
 
@@ -514,6 +533,7 @@ module.exports = {
     databaseActivities,    // New: Database activities
     httpActivities,        // New: HTTP / integration activities
     xmlActivities,         // New: XML activities
+    fsActivities,          // New: platform-independent filesystem activities
 
     // Enhanced exports
     ACTIVITY_CATEGORIES,

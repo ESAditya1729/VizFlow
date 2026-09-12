@@ -9,81 +9,9 @@
 const fs = require('fs');
 const Dataset = require('../../dataset');
 const csvParser = require('../../../services/csvParser');
+const { validateConfig, findColumnFuzzy, isNumeric, validateColumn } = require('./shared');
 
 // ─── Helper Functions ───────────────────────────────────────────────────────
-
-/**
- * Find column by name with fuzzy matching (non-recursive version)
- * @param {Array<string>} columns - Array of column names
- * @param {string} targetName - Target column name to find
- * @returns {string|null} Found column name or null
- */
-function findColumnFuzzy(columns, targetName) {
-    if (!columns || !targetName || columns.length === 0) return null;
-    
-    const targetLower = targetName.toLowerCase().trim();
-    
-    // 1. Exact match (case insensitive)
-    for (const col of columns) {
-        if (col.toLowerCase() === targetLower) {
-            return col;
-        }
-    }
-    
-    // 2. Trim and normalize match (handle extra spaces)
-    const normalizedTarget = targetLower.replace(/\s+/g, ' ');
-    for (const col of columns) {
-        const normalizedCol = col.toLowerCase().trim().replace(/\s+/g, ' ');
-        if (normalizedCol === normalizedTarget) {
-            return col;
-        }
-    }
-    
-    // 3. Contains match (for partial matches)
-    for (const col of columns) {
-        const colLower = col.toLowerCase().trim();
-        if (colLower.includes(targetLower) || targetLower.includes(colLower)) {
-            return col;
-        }
-    }
-    
-    // 4. Replace underscores with spaces
-    const withSpaces = targetLower.replace(/_/g, ' ');
-    if (withSpaces !== targetLower) {
-        for (const col of columns) {
-            if (col.toLowerCase().trim().replace(/\s+/g, ' ') === withSpaces.replace(/\s+/g, ' ')) {
-                return col;
-            }
-        }
-    }
-    
-    // 5. Replace spaces with underscores
-    const withUnderscores = targetLower.replace(/ /g, '_');
-    if (withUnderscores !== targetLower) {
-        for (const col of columns) {
-            if (col.toLowerCase() === withUnderscores) {
-                return col;
-            }
-        }
-    }
-    
-    // 6. Remove common prefixes/suffixes
-    const cleanTarget = targetLower.replace(/^(date|column|field|value)_?/i, '').trim();
-    if (cleanTarget !== targetLower && cleanTarget.length > 0) {
-        for (const col of columns) {
-            const colLower = col.toLowerCase().trim();
-            const cleanCol = colLower.replace(/^(date|column|field|value)_?/i, '').trim();
-            if (cleanCol === cleanTarget) {
-                return col;
-            }
-            if (colLower.includes(cleanTarget) || cleanTarget.includes(colLower)) {
-                return col;
-            }
-        }
-    }
-    
-    return null;
-}
 
 /**
  * Normalize parameter values for transform activity
@@ -122,65 +50,6 @@ function normalizeParams(input, opKey) {
     }
     
     return [];
-}
-
-/**
- * Validate required configuration
- * @param {Object} config - Activity configuration
- * @param {Array} required - Array of required field names
- * @param {string} activityName - Activity name for error messages
- * @throws {Error} If required field is missing
- */
-function validateConfig(config, required, activityName) {
-    for (const field of required) {
-        if (config[field] === undefined || config[field] === null || config[field] === '') {
-            throw new Error(`${activityName}: "${field}" is required`);
-        }
-    }
-}
-
-/**
- * Validate column exists in dataset with fuzzy matching
- * @param {Dataset} dataset - Input dataset
- * @param {string} column - Column name to validate
- * @param {string} activityName - Activity name for error messages
- * @returns {string} The actual column name found (or original if not found)
- * @throws {Error} If column not found
- */
-function validateColumn(dataset, column, activityName) {
-    const columns = dataset.getColumns();
-    
-    // Try exact match first
-    if (columns.includes(column)) {
-        return column;
-    }
-    
-    // Try fuzzy match
-    const foundColumn = findColumnFuzzy(columns, column);
-    if (foundColumn) {
-        console.log(`[VizFlow] Column "${column}" mapped to "${foundColumn}"`);
-        return foundColumn;
-    }
-    
-    // If still not found, throw with available columns
-    const availableColumns = columns.map(c => `"${c}"`).join(', ');
-    throw new Error(`${activityName}: Column "${column}" not found. Available columns: ${availableColumns}`);
-}
-
-/**
- * Check if a value is numeric
- * @param {*} value - Value to check
- * @returns {boolean} True if value is numeric
- */
-function isNumeric(value) {
-    if (value === null || value === undefined) return false;
-    if (typeof value === 'number') return !isNaN(value);
-    if (typeof value === 'string') {
-        const trimmed = value.trim();
-        if (trimmed === '') return false;
-        return !isNaN(trimmed) && !isNaN(parseFloat(trimmed));
-    }
-    return false;
 }
 
 // ─── Activity Definitions ──────────────────────────────────────────────────
@@ -953,6 +822,606 @@ transformationActivities.push({
                 unmatchedLeft,
                 unmatchedRight,
                 joinType
+            });
+        }
+
+        return outputDataset;
+    }
+});
+
+// ─── 7. Pivot Activity ───────────────────────────────────────────────────────
+transformationActivities.push({
+    type: 'pivot',
+    displayName: '🔃 Pivot Table',
+    description: 'Reshapes the dataset: rows are grouped by one or more id columns and the distinct values of a pivot column become new columns, aggregated over a value column.',
+    category: 'Transformation',
+    configRequirements: [
+        {
+            name: 'idColumns',
+            label: 'ID Columns',
+            type: 'string',
+            required: true,
+            description: 'Comma-separated columns that define each output row (the group key)'
+        },
+        {
+            name: 'pivotColumn',
+            label: 'Pivot Column',
+            type: 'string',
+            required: true,
+            description: 'Distinct values of this column become new columns'
+        },
+        {
+            name: 'valueColumn',
+            label: 'Value Column',
+            type: 'string',
+            required: true,
+            description: 'The column whose values are aggregated into each pivoted cell'
+        },
+        {
+            name: 'aggregation',
+            label: 'Aggregation',
+            type: 'select',
+            required: false,
+            defaultValue: 'sum',
+            options: [
+                { label: 'Sum', value: 'sum' },
+                { label: 'Average', value: 'avg' },
+                { label: 'Count', value: 'count' },
+                { label: 'Minimum', value: 'min' },
+                { label: 'Maximum', value: 'max' },
+                { label: 'First Value', value: 'first' }
+            ],
+            description: 'How values are aggregated per pivoted cell (default: sum)'
+        },
+        {
+            name: 'valuePrefix',
+            label: 'Value Column Prefix',
+            type: 'string',
+            required: false,
+            description: 'Optional prefix added to each generated pivoted column name'
+        },
+        {
+            name: 'maxPivotValues',
+            label: 'Max Pivot Values',
+            type: 'number',
+            required: false,
+            defaultValue: 200,
+            description: 'Maximum number of distinct pivot values allowed (guards against column explosion, default: 200)'
+        }
+    ],
+    async execute(config, context, inputDataset) {
+        if (!inputDataset) {
+            throw new Error('Pivot activity: Input dataset is required');
+        }
+
+        const { aggregation = 'sum', valuePrefix = '', maxPivotValues = 200 } = config;
+        validateConfig(config, ['idColumns', 'pivotColumn', 'valueColumn'], 'Pivot');
+
+        const idColumnNames = config.idColumns.split(',').map(c => c.trim()).filter(c => c.length > 0);
+        if (idColumnNames.length === 0) {
+            throw new Error('Pivot activity: No valid id columns specified');
+        }
+
+        const idColumns = idColumnNames.map(c => validateColumn(inputDataset, c, 'Pivot'));
+        const pivotColumn = validateColumn(inputDataset, config.pivotColumn, 'Pivot');
+        const valueColumn = validateColumn(inputDataset, config.valueColumn, 'Pivot');
+
+        // Collect distinct pivot values in first-seen order (capped to avoid column explosion).
+        const pivotValues = [];
+        const pivotIndex = new Map();
+        for (const row of inputDataset.rows) {
+            const raw = row[pivotColumn];
+            const key = raw === null || raw === undefined ? '' : String(raw);
+            if (!pivotIndex.has(key)) {
+                pivotIndex.set(key, pivotValues.length);
+                pivotValues.push(key);
+            }
+        }
+        if (pivotValues.length > maxPivotValues) {
+            throw new Error(`Pivot: column "${pivotColumn}" has ${pivotValues.length} distinct values exceeding the maximum (${maxPivotValues}). Increase "maxPivotValues" or filter the data first.`);
+        }
+
+        // Group rows by composite id key.
+        const groups = new Map();
+        for (const row of inputDataset.rows) {
+            const groupKey = JSON.stringify(idColumns.map(c => row[c]));
+            let group = groups.get(groupKey);
+            if (!group) {
+                group = { idValues: idColumns.map(c => row[c]), cells: [] };
+                groups.set(groupKey, group);
+            }
+            const rawPivot = row[pivotColumn];
+            group.cells.push({
+                pivotKey: rawPivot === null || rawPivot === undefined ? '' : String(rawPivot),
+                value: row[valueColumn]
+            });
+        }
+
+        function aggregateValues(cellValues, agg) {
+            if (cellValues.length === 0) return null;
+            switch (agg) {
+                case 'count':
+                    return cellValues.filter(v => v !== null && v !== undefined).length;
+                case 'min':
+                case 'max': {
+                    const nums = cellValues.filter(v => isNumeric(v)).map(v => parseFloat(v));
+                    if (nums.length === 0) return null;
+                    return agg === 'min' ? Math.min(...nums) : Math.max(...nums);
+                }
+                case 'avg': {
+                    const nums = cellValues.filter(v => isNumeric(v)).map(v => parseFloat(v));
+                    if (nums.length === 0) return null;
+                    return nums.reduce((a, b) => a + b, 0) / nums.length;
+                }
+                case 'first':
+                    for (const v of cellValues) {
+                        if (v !== null && v !== undefined && v !== '') return v;
+                    }
+                    return null;
+                case 'sum':
+                default: {
+                    const nums = cellValues.filter(v => isNumeric(v)).map(v => parseFloat(v));
+                    if (nums.length === 0) return null;
+                    return nums.reduce((a, b) => a + b, 0);
+                }
+            }
+        }
+
+        const pivotedColumnNames = pivotValues.map(pv => `${valuePrefix}${pv}`);
+        const outputColumns = [...idColumns, ...pivotedColumnNames];
+        const outputRows = [];
+
+        for (const group of groups.values()) {
+            const byPivot = new Map();
+            for (const cell of group.cells) {
+                let bucket = byPivot.get(cell.pivotKey);
+                if (!bucket) {
+                    bucket = [];
+                    byPivot.set(cell.pivotKey, bucket);
+                }
+                bucket.push(cell.value);
+            }
+            const row = {};
+            idColumns.forEach((col, i) => { row[col] = group.idValues[i]; });
+            pivotValues.forEach((pv, i) => {
+                row[pivotedColumnNames[i]] = byPivot.has(pv) ? aggregateValues(byPivot.get(pv), aggregation) : null;
+            });
+            outputRows.push(row);
+        }
+
+        const outputDataset = new Dataset(outputRows, outputColumns);
+
+        if (context && context.setActivityStats) {
+            context.setActivityStats({
+                inputRowCount: inputDataset.getRowCount(),
+                outputRowCount: outputDataset.getRowCount(),
+                pivotColumn,
+                valueColumn,
+                aggregation,
+                distinctPivotValues: pivotValues.length
+            });
+        }
+
+        return outputDataset;
+    }
+});
+
+// ─── 8. Merge Columns Activity ─────────────────────────────────────────────────
+transformationActivities.push({
+    type: 'mergeColumns',
+    displayName: '🔀 Merge Columns',
+    description: 'Combines several columns into a single column, joined by a delimiter.',
+    category: 'Transformation',
+    configRequirements: [
+        {
+            name: 'columns',
+            label: 'Columns',
+            type: 'string',
+            required: true,
+            description: 'Comma-separated list of column names to merge'
+        },
+        {
+            name: 'targetColumn',
+            label: 'Target Column',
+            type: 'string',
+            required: true,
+            description: 'Name of the merged output column'
+        },
+        {
+            name: 'delimiter',
+            label: 'Delimiter',
+            type: 'string',
+            required: false,
+            defaultValue: ' ',
+            description: 'String placed between the merged values (default: single space)'
+        },
+        {
+            name: 'dropOriginals',
+            label: 'Drop Originals',
+            type: 'boolean',
+            required: false,
+            defaultValue: true,
+            description: 'Remove the source columns from the output (default: true)'
+        }
+    ],
+    async execute(config, context, inputDataset) {
+        if (!inputDataset) {
+            throw new Error('MergeColumns activity: Input dataset is required');
+        }
+
+        const { targetColumn, delimiter = ' ', dropOriginals = true } = config;
+        validateConfig(config, ['columns', 'targetColumn'], 'MergeColumns');
+
+        const requestedColumns = config.columns.split(',').map(c => c.trim()).filter(c => c.length > 0);
+        if (requestedColumns.length === 0) {
+            throw new Error('MergeColumns activity: No valid source columns specified');
+        }
+        const actualColumns = requestedColumns.map(c => validateColumn(inputDataset, c, 'MergeColumns'));
+
+        const allColumns = inputDataset.getColumns();
+        const outputColumns = dropOriginals
+            ? [...allColumns.filter(c => !actualColumns.includes(c)), targetColumn]
+            : [...allColumns, targetColumn];
+        const finalColumns = [...new Set(outputColumns)];
+
+        const outputRows = inputDataset.rows.map(row => {
+            const newRow = {};
+            for (const col of finalColumns) {
+                newRow[col] = row[col];
+            }
+            const parts = actualColumns.map(c => {
+                const v = row[c];
+                return v === null || v === undefined ? '' : String(v);
+            });
+            newRow[targetColumn] = parts.join(delimiter);
+            return newRow;
+        });
+
+        const outputDataset = new Dataset(outputRows, finalColumns);
+
+        if (context && context.setActivityStats) {
+            context.setActivityStats({
+                inputRowCount: inputDataset.getRowCount(),
+                outputRowCount: outputDataset.getRowCount(),
+                mergedColumns: actualColumns.length,
+                targetColumn,
+                dropOriginals
+            });
+        }
+
+        return outputDataset;
+    }
+});
+
+// ─── 9. Fuzzy Deduplicate Activity ────────────────────────────────────────────
+function levenshteinDistance(a, b) {
+    if (a === b) return 0;
+    if (a.length === 0) return b.length;
+    if (b.length === 0) return a.length;
+
+    const dp = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+    for (let j = 1; j <= b.length; j++) dp[0][j] = j;
+    for (let i = 1; i <= a.length; i++) {
+        for (let j = 1; j <= b.length; j++) {
+            dp[i][j] = Math.min(
+                dp[i - 1][j] + 1,
+                dp[i][j - 1] + 1,
+                dp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+            );
+        }
+    }
+    return dp[a.length][b.length];
+}
+
+/**
+ * Similarity ratio in [0, 1] based on Levenshtein distance.
+ * @param {string} a
+ * @param {string} b
+ * @returns {number} 1 = identical, 0 = completely different
+ */
+function similarityRatio(a, b) {
+    const maxLen = Math.max(a.length, b.length);
+    if (maxLen === 0) return 1;
+    return 1 - levenshteinDistance(a, b) / maxLen;
+}
+
+transformationActivities.push({
+    type: 'fuzzyDeduplicate',
+    displayName: '🔍 Fuzzy Deduplicate',
+    description: 'Groups near-duplicate rows by string similarity across one or more columns and marks each cluster, optionally removing the duplicates within it.',
+    category: 'Transformation',
+    configRequirements: [
+        {
+            name: 'columns',
+            label: 'Columns',
+            type: 'string',
+            required: true,
+            description: 'Comma-separated columns compared when scoring each row'
+        },
+        {
+            name: 'threshold',
+            label: 'Similarity Threshold',
+            type: 'number',
+            required: false,
+            defaultValue: 0.8,
+            description: 'Minimum similarity (0–1) for a row to join an existing cluster (default: 0.8)'
+        },
+        {
+            name: 'caseSensitive',
+            label: 'Case Sensitive',
+            type: 'boolean',
+            required: false,
+            defaultValue: false,
+            description: 'Treat values case-sensitively when comparing (default: false)'
+        },
+        {
+            name: 'mode',
+            label: 'Mode',
+            type: 'select',
+            required: false,
+            defaultValue: 'annotate',
+            options: [
+                { label: 'Annotate Clusters', value: 'annotate' },
+                { label: 'Remove Duplicates', value: 'removeDuplicates' }
+            ],
+            description: '"annotate" marks clusters with extra columns; "removeDuplicates" keeps only the representative of each cluster (default: annotate)'
+        },
+        {
+            name: 'includeSimilarity',
+            label: 'Include Similarity Column',
+            type: 'boolean',
+            required: false,
+            defaultValue: false,
+            description: 'When annotating, also add a __similarity column with each duplicate’s score against its representative'
+        }
+    ],
+    async execute(config, context, inputDataset) {
+        if (!inputDataset) {
+            throw new Error('FuzzyDeduplicate activity: Input dataset is required');
+        }
+
+        const { threshold = 0.8, caseSensitive = false, mode = 'annotate', includeSimilarity = false } = config;
+        validateConfig(config, ['columns'], 'FuzzyDeduplicate');
+
+        const requestedColumns = config.columns.split(',').map(c => c.trim()).filter(c => c.length > 0);
+        if (requestedColumns.length === 0) {
+            throw new Error('FuzzyDeduplicate activity: No valid source columns specified');
+        }
+        const actualColumns = requestedColumns.map(c => validateColumn(inputDataset, c, 'FuzzyDeduplicate'));
+
+        function normalizedParts(row) {
+            return actualColumns.map(c => {
+                const v = row[c];
+                const s = v === null || v === undefined ? '' : String(v);
+                return caseSensitive ? s : s.toLowerCase();
+            });
+        }
+        function partsRatio(a, b) {
+            let total = 0;
+            for (let i = 0; i < actualColumns.length; i++) {
+                total += similarityRatio(a[i], b[i]);
+            }
+            return actualColumns.length > 0 ? total / actualColumns.length : 0;
+        }
+
+        // Greedy clustering: each row is compared against the representative of
+        // every cluster seen so far and joins the best match above the threshold.
+        const representatives = [];
+        const assignments = [];
+        for (let i = 0; i < inputDataset.rows.length; i++) {
+            const parts = normalizedParts(inputDataset.rows[i]);
+            let bestRep = -1;
+            let bestSim = 0;
+            for (let r = 0; r < representatives.length; r++) {
+                const sim = partsRatio(parts, representatives[r].parts);
+                if (sim > bestSim) {
+                    bestSim = sim;
+                    bestRep = r;
+                }
+            }
+            if (bestRep !== -1 && bestSim >= threshold) {
+                assignments.push({
+                    cluster: representatives[bestRep].cluster,
+                    repRow: representatives[bestRep].sourceRow,
+                    similarity: bestSim
+                });
+            } else {
+                const cluster = representatives.length + 1;
+                representatives.push({ parts, sourceRow: i, cluster });
+                assignments.push({ cluster, repRow: i, similarity: null });
+            }
+        }
+
+        const baseColumns = inputDataset.getColumns();
+        const annotationColumns = ['__match_group', '__duplicate_of'];
+        if (includeSimilarity) annotationColumns.push('__similarity');
+
+        const outputRows = [];
+        for (let i = 0; i < inputDataset.rows.length; i++) {
+            const assign = assignments[i];
+            const isRepresentative = assign.repRow === i;
+            if (mode === 'removeDuplicates' && !isRepresentative) continue;
+
+            const out = { ...inputDataset.rows[i] };
+            if (mode === 'annotate') {
+                out.__match_group = assign.cluster;
+                out.__duplicate_of = isRepresentative ? '' : assign.repRow + 1;
+                if (includeSimilarity) {
+                    out.__similarity = isRepresentative || assign.similarity === null
+                        ? ''
+                        : Math.round(assign.similarity * 1000) / 1000;
+                }
+            }
+            outputRows.push(out);
+        }
+
+        const outputColumns = mode === 'annotate'
+            ? [...baseColumns, ...annotationColumns]
+            : baseColumns;
+        const outputDataset = new Dataset(outputRows, outputColumns);
+
+        if (context && context.setActivityStats) {
+            const clustersFound = representatives.filter(r =>
+                assignments.some(a => a.cluster === r.cluster && a.repRow !== r.sourceRow)
+            ).length;
+            context.setActivityStats({
+                inputRowCount: inputDataset.getRowCount(),
+                outputRowCount: outputDataset.getRowCount(),
+                clustersFound,
+                duplicatesFlagged: inputDataset.getRowCount() - representatives.length,
+                threshold,
+                mode
+            });
+        }
+
+        return outputDataset;
+    }
+});
+
+// ─── 10. JSON Transform Activity ──────────────────────────────────────────────
+/**
+ * Flatten a parsed JSON value into a flat object of columns. Nested objects are
+ * spread recursively as `parent.child`; arrays are stored as JSON strings.
+ * @param {*} obj - Parsed JSON value
+ * @param {string} prefix - Optional column name prefix
+ * @returns {Object} Flattened column -> value map
+ */
+function flattenJsonToColumns(obj, prefix) {
+    const out = {};
+    const visit = (value, path) => {
+        if (value === null || value === undefined) {
+            out[path] = null;
+            return;
+        }
+        if (Array.isArray(value)) {
+            out[path] = JSON.stringify(value);
+            return;
+        }
+        if (typeof value === 'object') {
+            for (const [k, v] of Object.entries(value)) {
+                const childPath = path === undefined
+                    ? (prefix ? `${prefix}${k}` : k)
+                    : `${path}.${k}`;
+                if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+                    visit(v, childPath);
+                } else {
+                    out[childPath] = Array.isArray(v) ? JSON.stringify(v) : v;
+                }
+            }
+            return;
+        }
+        out[path] = value;
+    };
+    visit(obj, undefined);
+    return out;
+}
+
+transformationActivities.push({
+    type: 'jsonTransform',
+    displayName: '🧩 JSON Transform',
+    description: 'Parses a JSON-string column and spreads nested object fields into new flattened columns. Nested arrays are kept as JSON string values.',
+    category: 'Transformation',
+    configRequirements: [
+        {
+            name: 'column',
+            label: 'Column Name',
+            type: 'string',
+            required: true,
+            description: 'The column containing JSON strings to parse and flatten'
+        },
+        {
+            name: 'prefix',
+            label: 'Generated Column Prefix',
+            type: 'string',
+            required: false,
+            description: 'Optional prefix added to every generated column name'
+        },
+        {
+            name: 'skipErrors',
+            label: 'Skip Invalid Rows',
+            type: 'boolean',
+            required: false,
+            defaultValue: false,
+            description: 'When enabled, rows with invalid/non-object JSON are passed through unchanged instead of failing the workflow (default: false)'
+        }
+    ],
+    async execute(config, context, inputDataset) {
+        if (!inputDataset) {
+            throw new Error('JSON Transform activity: Input dataset is required');
+        }
+
+        const { prefix = '', skipErrors = false } = config;
+        validateConfig(config, ['column'], 'JSON Transform');
+
+        const sourceColumn = validateColumn(inputDataset, config.column, 'JSON Transform');
+        const baseColumns = inputDataset.getColumns();
+
+        const generatedColumns = [];
+        const generatedIndex = new Map();
+        function registerGenerated(name) {
+            if (!generatedIndex.has(name)) {
+                generatedIndex.set(name, generatedColumns.length);
+                generatedColumns.push(name);
+            }
+        }
+
+        const outputRows = [];
+        let skippedRows = 0;
+        for (let i = 0; i < inputDataset.rows.length; i++) {
+            const original = inputDataset.rows[i];
+            const out = { ...original };
+            const raw = original[sourceColumn];
+            if (raw === null || raw === undefined || (typeof raw === 'string' && raw.trim() === '')) {
+                outputRows.push(out);
+                continue;
+            }
+
+            let parsed = raw;
+            if (typeof raw === 'string') {
+                try {
+                    parsed = JSON.parse(raw.trim());
+                } catch (err) {
+                    if (skipErrors) {
+                        skippedRows++;
+                        outputRows.push(out);
+                        continue;
+                    }
+                    throw new Error(`JSON Transform: row ${i + 1} in column "${sourceColumn}" is not valid JSON: ${err.message}`);
+                }
+            }
+            if (parsed === null || typeof parsed !== 'object') {
+                if (skipErrors) {
+                    skippedRows++;
+                    outputRows.push(out);
+                    continue;
+                }
+                throw new Error(`JSON Transform: row ${i + 1} in column "${sourceColumn}" must contain a JSON object or array`);
+            }
+
+            const flattened = flattenJsonToColumns(parsed, prefix);
+            for (const key of Object.keys(flattened)) {
+                registerGenerated(key);
+                out[key] = flattened[key];
+            }
+            outputRows.push(out);
+        }
+
+        const outputColumns = [...baseColumns];
+        for (const col of generatedColumns) {
+            if (!outputColumns.includes(col)) {
+                outputColumns.push(col);
+            }
+        }
+
+        const outputDataset = new Dataset(outputRows, outputColumns);
+
+        if (context && context.setActivityStats) {
+            context.setActivityStats({
+                inputRowCount: inputDataset.getRowCount(),
+                outputRowCount: outputDataset.getRowCount(),
+                parsedColumn: sourceColumn,
+                columnsAdded: outputColumns.filter(c => !baseColumns.includes(c)).length,
+                skippedRows
             });
         }
 

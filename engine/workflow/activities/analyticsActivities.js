@@ -7,27 +7,13 @@
 'use strict';
 
 const Dataset = require('../../dataset');
+const { validateConfig, isNumeric, validateColumn } = require('./shared');
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 const VALID_AGGREGATIONS = ['sum', 'average', 'mean', 'min', 'max', 'count', 'distinct', 'median', 'stdDev', 'variance'];
 const VALID_GROUP_OPERATIONS = ['sum', 'average', 'mean', 'min', 'max', 'count', 'median', 'stdDev', 'first', 'last'];
 
 // ─── Helper Functions ───────────────────────────────────────────────────────
-
-/**
- * Validate config with required fields
- * @param {Object} config - Configuration object
- * @param {Array} required - Array of required field names
- * @param {string} activityName - Activity name for error messages
- * @throws {Error} If required field is missing
- */
-function validateConfig(config, required, activityName) {
-    for (const field of required) {
-        if (config[field] === undefined || config[field] === null || config[field] === '') {
-            throw new Error(`${activityName}: "${field}" is required`);
-        }
-    }
-}
 
 /**
  * Compute median of numeric values
@@ -600,6 +586,234 @@ analyticsActivities.push({
                 columnsProfiled: profileRows.length,
                 totalColumns: allColumns.length,
                 includeStats: includeStats
+            });
+        }
+
+        return outputDataset;
+    }
+});
+
+// ─── 4. Validate Data Activity ───────────────────────────────────────────────
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Parse the `rules` config (JSON string or array) into a rule array.
+ * @param {string|Array} raw
+ * @returns {Array<Object>}
+ */
+function parseValidationRules(raw) {
+    let rules = raw;
+    if (typeof raw === 'string') {
+        const trimmed = raw.trim();
+        if (!trimmed) throw new Error('ValidateData: "rules" is required');
+        try {
+            rules = JSON.parse(trimmed);
+        } catch (err) {
+            throw new Error(`ValidateData: "rules" must be valid JSON — ${err.message}`);
+        }
+    }
+    if (!Array.isArray(rules)) {
+        throw new Error('ValidateData: "rules" must be a JSON array of rule objects');
+    }
+    return rules;
+}
+
+/**
+ * Evaluate a single non-unique check against a value, returning an error
+ * message or null when the value passes.
+ * @param {*} value
+ * @param {Object} rule - { check, value?, pattern? }
+ * @returns {string|null}
+ */
+function checkValidationValue(value, rule) {
+    const { check } = rule;
+    const hasValue = value !== null && value !== undefined;
+
+    switch (check) {
+        case 'notNull':
+            return hasValue ? null : 'Value is null/undefined';
+        case 'notEmpty': {
+            if (!hasValue) return 'Value is null/undefined';
+            if (String(value).trim() === '') return 'Value is empty';
+            return null;
+        }
+        case 'numeric':
+            if (!hasValue) return 'Value is missing';
+            if (!isNumeric(value)) return `"${String(value)}" is not numeric`;
+            return null;
+        case 'integer': {
+            if (!hasValue) return 'Value is missing';
+            const n = Number(value);
+            if (!Number.isFinite(n) || !Number.isInteger(n)) return `"${String(value)}" is not an integer`;
+            return null;
+        }
+        case 'email': {
+            if (!hasValue) return 'Value is missing';
+            if (!EMAIL_REGEX.test(String(value).trim())) return `"${String(value)}" is not a valid email`;
+            return null;
+        }
+        case 'pattern': {
+            if (!hasValue) return 'Value is missing';
+            const pattern = rule.pattern !== undefined ? rule.pattern : rule.value;
+            if (pattern === undefined || pattern === null || String(pattern).trim() === '') {
+                return 'pattern check requires a pattern';
+            }
+            try {
+                const re = new RegExp(String(pattern));
+                if (!re.test(String(value))) return `"${String(value)}" does not match pattern /${pattern}/`;
+            } catch (err) {
+                return `Invalid pattern /${pattern}/: ${err.message}`;
+            }
+            return null;
+        }
+        case 'min': {
+            if (!hasValue) return 'Value is missing';
+            if (!isNumeric(value)) return `"${String(value)}" is not numeric`;
+            const n = parseFloat(value);
+            const min = parseFloat(rule.value);
+            if (isNaN(min)) return 'min check requires a numeric value';
+            if (n < min) return `${n} is below the minimum ${min}`;
+            return null;
+        }
+        case 'max': {
+            if (!hasValue) return 'Value is missing';
+            if (!isNumeric(value)) return `"${String(value)}" is not numeric`;
+            const n = parseFloat(value);
+            const max = parseFloat(rule.value);
+            if (isNaN(max)) return 'max check requires a numeric value';
+            if (n > max) return `${n} exceeds the maximum ${max}`;
+            return null;
+        }
+        case 'in': {
+            if (!hasValue) return 'Value is missing';
+            let allowed = rule.value;
+            if (typeof allowed === 'string') {
+                allowed = allowed.split(',').map(v => v.trim());
+            }
+            if (!Array.isArray(allowed)) return 'in check requires a value list';
+            const found = allowed.some(v => Number(v) === v && isNumeric(value)
+                ? parseFloat(value) === v
+                : String(v) === String(value));
+            if (!found) return `"${String(value)}" is not in the allowed list`;
+            return null;
+        }
+        case 'unique':
+            return null; // handled separately (two-pass)
+        default:
+            return `unsupported check "${check}"`;
+    }
+}
+
+analyticsActivities.push({
+    type: 'validateData',
+    displayName: '✅ Validate Data',
+    description: 'Runs data-quality rules (non-null, numeric, email, pattern, min/max, allowed values, uniqueness) against the dataset and annotates every row with its validation status. Blanks, junk, and repeated emails across this column are precisely the patterns these checks catch.',
+    category: 'Analytics',
+    configRequirements: [
+        {
+            name: 'rules',
+            label: 'Rules (JSON)',
+            type: 'text',
+            required: true,
+            description: 'JSON array of rule objects: {"column", "check", "value?", "pattern?", "message?"}. Checks: notNull, notEmpty, numeric, integer, email, pattern, min, max, in, unique.',
+            placeholder: '[{ "column": "email", "check": "email" }, { "column": "amount", "check": "min", "value": 0 }]'
+        },
+        {
+            name: 'mode',
+            label: 'Mode',
+            type: 'select',
+            required: false,
+            defaultValue: 'annotate',
+            options: [
+                { label: 'Annotate Rows', value: 'annotate' },
+                { label: 'Filter Invalid Rows', value: 'filterInvalid' }
+            ],
+            description: '"annotate" keeps every row and adds __validation_status / __validation_errors; "filterInvalid" removes failed rows (default: annotate)'
+        }
+    ],
+    async execute(config, context, inputDataset) {
+        if (!inputDataset) {
+            throw new Error('ValidateData activity: Input dataset is required');
+        }
+
+        const { mode = 'annotate' } = config;
+        validateConfig(config, ['rules'], 'ValidateData');
+
+        const rules = parseValidationRules(config.rules);
+        if (rules.length === 0) throw new Error('ValidateData: at least one rule is required');
+
+        // Resolve rule columns once (with fuzzy matching).
+        const resolvedRules = rules.map((rule, idx) => {
+            if (!rule || typeof rule !== 'object' || !rule.check) {
+                throw new Error(`ValidateData: rule #${idx + 1} is missing a "check"`);
+            }
+            const columnName = rule.column === undefined || rule.column === null
+                ? null
+                : validateColumn(inputDataset, rule.column, 'ValidateData');
+            return { ...rule, columnName };
+        });
+
+        const baseColumns = inputDataset.getColumns();
+        const annotationColumns = ['__validation_status', '__validation_errors'];
+        const ruleTallies = resolvedRules.map(() => ({ passed: 0, failed: 0 }));
+        const seenCounts = resolvedRules.map(() => new Map());
+
+        const outputRows = [];
+        let rowsInvalid = 0;
+
+        for (let i = 0; i < inputDataset.rows.length; i++) {
+            const row = inputDataset.rows[i];
+            const errors = [];
+
+            for (let r = 0; r < resolvedRules.length; r++) {
+                const rule = resolvedRules[r];
+                let failMessage = null;
+
+                if (rule.check === 'unique') {
+                    const raw = row[rule.columnName];
+                    const key = raw === null || raw === undefined ? '___null___' : String(raw);
+                    const count = (seenCounts[r].get(key) || 0) + 1;
+                    seenCounts[r].set(key, count);
+                    if (count > 1) failMessage = 'Value is duplicated';
+                } else {
+                    failMessage = checkValidationValue(row[rule.columnName], rule);
+                }
+
+                if (failMessage) {
+                    ruleTallies[r].failed++;
+                    errors.push(rule.message || `${rule.columnName}: ${failMessage}`);
+                } else {
+                    ruleTallies[r].passed++;
+                }
+            }
+
+            const status = errors.length === 0 ? 'valid' : 'invalid';
+            if (status === 'invalid') rowsInvalid++;
+            if (mode === 'filterInvalid' && status === 'invalid') continue;
+
+            const out = { ...row };
+            if (mode === 'annotate') {
+                out.__validation_status = status;
+                out.__validation_errors = errors.join('; ');
+            }
+            outputRows.push(out);
+        }
+
+        const outputColumns = mode === 'annotate' ? [...baseColumns, ...annotationColumns] : baseColumns;
+        const outputDataset = new Dataset(outputRows, outputColumns);
+
+        if (context && context.setActivityStats) {
+            context.setActivityStats({
+                inputRowCount: inputDataset.getRowCount(),
+                outputRowCount: outputDataset.getRowCount(),
+                rowsInvalid,
+                mode,
+                rules: resolvedRules.map((rule, r) => ({
+                    column: rule.columnName,
+                    check: rule.check,
+                    passed: ruleTallies[r].passed,
+                    failed: ruleTallies[r].failed
+                }))
             });
         }
 

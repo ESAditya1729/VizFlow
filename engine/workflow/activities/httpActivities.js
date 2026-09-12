@@ -12,17 +12,9 @@
 'use strict';
 
 const Dataset = require('../../dataset');
+const { validateConfig } = require('./shared');
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function validateConfig(config, required, activityName) {
-    for (const field of required) {
-        const value = config[field];
-        if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) {
-            throw new Error(`${activityName}: "${field}" is required`);
-        }
-    }
-}
 
 /**
  * Resolve a dotted path inside an object (same semantics as templateService).
@@ -324,6 +316,204 @@ httpActivities.push({
                 statusText: response.statusText,
                 url: url,
                 headers: response.headers || {}
+            });
+        }
+
+        return new Dataset(rows, columns);
+    }
+});
+
+// ─── SOAP Request ────────────────────────────────────────────────────────────
+
+/**
+ * Wrap a body XML fragment into a SOAP envelope (1.1 or 1.2).
+ * @param {Object} cfg - { body, soapVersion, namespace, operation }
+ * @returns {string} Full SOAP envelope
+ */
+function buildSoapEnvelope(cfg) {
+    const isSoap12 = String(cfg.soapVersion || 'soap11').trim().toLowerCase() === 'soap12';
+    const envelopeNs = isSoap12
+        ? 'http://www.w3.org/2003/05/soap-envelope'
+        : 'http://schemas.xmlsoap.org/soap/envelope/';
+
+    let body = String(cfg.body || '').trim();
+    body = body.replace(/^\s*<\?xml[^>]*\?>\s*/, '');
+
+    let inner = body;
+    const operation = cfg.operation ? String(cfg.operation).trim() : '';
+    if (operation) {
+        const namespace = cfg.namespace ? ` xmlns="${String(cfg.namespace).trim()}"` : '';
+        inner = `<${operation}${namespace}>${body}</${operation}>`;
+    }
+
+    return '<?xml version="1.0" encoding="utf-8"?>' +
+        `<soapenv:Envelope xmlns:soapenv="${envelopeNs}">` +
+        '<soapenv:Header/>' +
+        `<soapenv:Body>${inner}</soapenv:Body>` +
+        '</soapenv:Envelope>';
+}
+
+httpActivities.push({
+    type: 'soapRequest',
+    displayName: '🫧 SOAP Request',
+    description: 'Calls a SOAP web service by wrapping an XML body in a SOAP envelope and returns the raw XML response as a dataset row. {{variable}} interpolation is supported in URL, body, auth and headers.',
+    category: 'Integration',
+    configRequirements: [
+        {
+            name: 'url',
+            label: 'URL',
+            type: 'string',
+            required: true,
+            description: 'SOAP endpoint URL — {{variable}} interpolation supported',
+            placeholder: 'https://api.example.com/soap/service'
+        },
+        {
+            name: 'body',
+            label: 'Body XML',
+            type: 'text',
+            required: true,
+            description: 'XML that goes inside <soapenv:Body> (the operation/method content). An XML declaration is stripped automatically. {{variable}} interpolation supported.',
+            placeholder: '<GetQuote><symbol>{{symbol}}</symbol></GetQuote>'
+        },
+        {
+            name: 'operation',
+            label: 'Operation',
+            type: 'string',
+            required: false,
+            description: 'Optional wrapper element for the body, e.g. "GetQuote". When set, the body is wrapped in <Operation xmlns="...">…</Operation>'
+        },
+        {
+            name: 'namespace',
+            label: 'Namespace',
+            type: 'string',
+            required: false,
+            description: 'Optional xmlns for the operation wrapper element'
+        },
+        {
+            name: 'soapAction',
+            label: 'SOAPAction',
+            type: 'string',
+            required: false,
+            description: 'SOAPAction header (SOAP 1.1) or action parameter in the Content-Type (SOAP 1.2). Some SOAP 1.1 endpoints require it.'
+        },
+        {
+            name: 'soapVersion',
+            label: 'SOAP Version',
+            type: 'select',
+            required: false,
+            defaultValue: 'soap11',
+            options: [
+                { label: 'SOAP 1.1', value: 'soap11' },
+                { label: 'SOAP 1.2', value: 'soap12' }
+            ],
+            description: 'SOAP envelope namespace and content type (default: SOAP 1.1)'
+        },
+        {
+            name: 'authType',
+            label: 'Auth Type',
+            type: 'select',
+            required: false,
+            defaultValue: 'none',
+            options: [
+                { label: 'None', value: 'none' },
+                { label: 'Basic Auth', value: 'basic' },
+                { label: 'Bearer Token', value: 'bearer' }
+            ],
+            description: 'HTTP authentication to attach (default: none)'
+        },
+        {
+            name: 'username',
+            label: 'Username',
+            type: 'string',
+            required: false,
+            description: 'Username for basic auth — {{variable}} interpolation supported'
+        },
+        {
+            name: 'password',
+            label: 'Password',
+            type: 'string',
+            required: false,
+            description: 'Password for basic auth — {{variable}} interpolation supported'
+        },
+        {
+            name: 'bearerToken',
+            label: 'Bearer Token',
+            type: 'string',
+            required: false,
+            description: 'Token for bearer auth — {{variable}} interpolation supported'
+        },
+        {
+            name: 'timeout',
+            label: 'Timeout (seconds)',
+            type: 'number',
+            required: false,
+            defaultValue: 30,
+            description: 'Request timeout in seconds'
+        }
+    ],
+    async execute(config, context, _inputDataset) {
+        validateConfig(config, ['url', 'body'], 'SOAP Request');
+        const axios = require('axios');
+
+        const url = String(config.url).trim();
+        const timeoutSec = parseInt(config.timeout, 10) > 0 ? parseInt(config.timeout, 10) : 30;
+        const soapVersion = String(config.soapVersion || 'soap11').trim().toLowerCase() === 'soap12' ? 'soap12' : 'soap11';
+        const soapAction = config.soapAction ? String(config.soapAction).trim() : '';
+
+        const envelope = buildSoapEnvelope(config);
+
+        const headers = soapVersion === 'soap12'
+            ? { 'Content-Type': `application/soap+xml; charset=utf-8${soapAction ? `; action="${soapAction}"` : ''}` }
+            : { 'Content-Type': 'text/xml; charset=utf-8' };
+        if (soapVersion === 'soap11' && soapAction) headers['SOAPAction'] = soapAction;
+
+        const authType = String(config.authType || 'none').trim().toLowerCase();
+        if (authType === 'basic') {
+            const username = String(config.username || '');
+            const password = String(config.password || '');
+            headers.Authorization = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
+        } else if (authType === 'bearer') {
+            headers.Authorization = `Bearer ${String(config.bearerToken || '')}`;
+        }
+
+        let response;
+        try {
+            response = await axios({
+                method: 'POST',
+                url,
+                headers,
+                data: envelope,
+                timeout: timeoutSec * 1000,
+                maxRedirects: 5,
+                validateStatus: (status) => status >= 200 && status < 400,
+                responseType: 'text'
+            });
+        } catch (err) {
+            if (err && err.response) {
+                throw new Error(`SOAP Request: POST ${url} failed with status ${err.response.status} — ${err.message}`);
+            }
+            throw new Error(`SOAP Request: POST ${url} failed — ${(err && err.message) || err}`);
+        }
+
+        const responseText = typeof response.data === 'string' ? response.data : JSON.stringify(response.data || '');
+        const rows = [{ soapStatus: response.status, soapResponse: responseText }];
+        const columns = ['soapStatus', 'soapResponse'];
+
+        if (context && context.setActivityStats) {
+            context.setActivityStats({
+                soapStatus: response.status,
+                soapVersion,
+                responseLength: responseText.length,
+                url
+            });
+        }
+
+        if (context && typeof context.setVariable === 'function') {
+            context.setVariable('soapRequest', {
+                status: response.status,
+                statusText: response.statusText,
+                url,
+                soapAction
             });
         }
 

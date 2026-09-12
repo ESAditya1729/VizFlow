@@ -171,6 +171,36 @@ Join the current dataset with a second dataset loaded from a CSV or JSON file, m
 - **joinType**: `inner`, `left`, `right`, or `full` (default: `inner`).
 - **columnPrefix**: Prefix applied to right-side columns whose name collides with a left-side column (default: `right_`).
 
+#### `pivot` — Pivot Table
+Turn row values into columns and aggregate the remaining cells, like an Excel pivot table.
+- **idColumns** (required): Comma-separated columns that stay as rows (grouping keys).
+- **pivotColumn** (required): Column whose distinct values become new columns.
+- **valueColumn** (required): Column whose values are aggregated into each cell.
+- **aggregation**: `sum` (default), `avg`, `min`, `max` or `count` (non-null cell count).
+- **valuePrefix**: Optional prefix on the generated column names (e.g., `sum_`).
+- **maxPivotValues**: Guard on the number of distinct pivot values (default: `50`).
+
+#### `mergeColumns` — Merge Columns
+Concatenate two or more columns into a single new column.
+- **columns** (required): Comma-separated columns to merge.
+- **targetColumn** (required): Name of the new merged column.
+- **delimiter**: Separator between values (default: single space).
+- **dropOriginals**: Remove the source columns (default: `true`).
+
+#### `fuzzyDeduplicate` — Fuzzy Deduplicate
+Find near-duplicate rows using normalized Levenshtein similarity and either annotate the clusters or drop the duplicates.
+- **columns** (required): Comma-separated columns to compare.
+- **threshold**: Similarity threshold 0–1 (default: `0.8`).
+- **caseSensitive**: Case-sensitive comparison (default: `false`).
+- **mode**: `annotate` (default) adds `__match_group` and `__duplicate_of` columns (`__duplicate_of` = 1-based row of the cluster's first row); `removeDuplicates` keeps only one representative per cluster.
+- **includeSimilarity**: Also add a `__similarity` column (similarity to the cluster representative, default: `false`).
+
+#### `jsonTransform` — JSON Transform
+Flatten a column of JSON strings into new columns.
+- **column** (required): The column holding JSON text.
+- **prefix**: Optional prefix prepended to the first generated segment (e.g., `meta_` → `meta_user.name`).
+- **skipErrors**: Pass rows through unchanged instead of failing on unparseable JSON (default: `false`). Nested objects become dotted columns (`user.name`); arrays are appended as JSON strings.
+
 ---
 
 ### Query Activities
@@ -213,6 +243,11 @@ Group rows and compute per-group aggregates.
 
 #### `dataProfile` — Data Profile
 Full dataset profiling: column types, nulls, distinct values, top values, histograms.
+
+#### `validateData` — Validate Data
+Check dataset rows against quality rules.
+- **rules** (required): JSON array of `{ "column", "check", "value" }` rules. Checks: `notNull`, `notEmpty`, `numeric`, `integer`, `email`, `pattern` (with `pattern` regex), `min` / `max` (numeric boundary), `in` (allowed list) and `unique` (flags all but the first occurrence). Optional `message` overrides the default error text.
+- **mode**: `annotate` (default) adds `__validation_status` (`valid`/`invalid`) and `__validation_errors` columns; `filterInvalid` removes failing rows instead.
 
 ---
 
@@ -264,6 +299,17 @@ Call any REST API and convert the response into a Dataset.
 - **responsePath**: Dot path into the response to extract data (e.g., `"data.items"`). Leave empty for the whole body.
 - **timeout**: Request timeout in seconds (default: `30`).
 - **ignoreErrorStatus**: Keep non-2xx responses as data instead of failing.
+
+#### `soapRequest` — SOAP Request
+Call a SOAP web service: wraps the body in a SOAP envelope and returns the raw response as a single-row Dataset (`soapStatus`, `soapResponse`).
+- **url** (required): Endpoint URL. Supports `{{variable}}` interpolation.
+- **body** (required): XML to place inside `<soapenv:Body>`. An XML declaration is stripped automatically.
+- **operation**: Wraps the body in `<operation>` — e.g., `GetQuote`.
+- **namespace**: Optional XML namespace applied to the operation element (e.g., `http://tempuri.org/`).
+- **soapVersion**: `soap11` (default) or `soap12`.
+- **soapAction**: SOAP action. On SOAP 1.1 it becomes the `SOAPAction` header; on SOAP 1.2 it is appended to the `Content-Type` (`action="..."`).
+- **authType**: `none`, `basic` (with `username`/`password`), or `bearer` (with `bearerToken`).
+- **timeout**: Request timeout in seconds (default: `30`).
 
 ---
 
@@ -809,7 +855,12 @@ These are production-ready patterns that replace cloud ETL tools (Azure Logic Ap
 
 ### Use Case 4: Database ETL Pipeline
 
-**Problem:** Extract data from PostgreSQL, transform it, and load into MongoDB — a classic ETL pattern.
+**Problem:** Extract data from PostgreSQL, transform it, and stage it for loading into MongoDB (e.g. via `mongoimport`) — a classic ETL pattern.
+
+> Note: there is no `writeMongo` activity yet — `readMongo` / `mongoQuery`
+> are strictly read-only. Staging the transformed rows to JSON/CSV and
+> importing with `mongoimport` is the current pattern; a future release may
+> add a direct `writeMongo` output activity.
 
 **Replaces:** Azure Data Factory Pipeline (Copy Activity + Data Flow)
 
@@ -849,13 +900,11 @@ These are production-ready patterns that replace cloud ETL tools (Azure Logic Ap
       }
     },
     {
-      "id": "load_to_mongo",
-      "type": "writeMongo",
+      "id": "stage_for_mongo",
+      "type": "writeJson",
       "config": {
-        "connection": "Analytics MongoDB",
-        "database": "analytics",
-        "collection": "users_enriched",
-        "overwrite": false
+        "filePath": "staging/{{workflowName}}_{{timestamp}}.json",
+        "overwrite": true
       }
     },
     {
@@ -1250,7 +1299,7 @@ Use `httpRequest` to poll an API endpoint on a schedule, process the results, an
 | Daily CSV Report | 3 activities | 5 actions + connector | Pipeline + 2 activities | Free vs ~$0.50/run |
 | API Aggregator | 2 httpRequests | 2 HTTP actions + Transform | Pipeline + Lookup | Free vs ~$1/run |
 | File Watcher | forEachFile | Recurrence trigger + For_each | Tumbling Window + Copy | Free vs ~$0.25/run |
-| DB ETL | readSql → transform → writeMongo | SQL + Transform + Cosmos | Copy + Data Flow | Free vs ~$2/run |
+| DB ETL | readSql → transform → writeJson (stage for mongoimport) | SQL + Transform + Cosmos | Copy + Data Flow | Free vs ~$2/run |
 | Conditional Export | ifElse + exportMultiple | Switch + Parallel branches | If Condition + Copy | Free vs ~$1/run |
 | Data Quality Monitor | dataProfile + ifElse | HTTP + Condition + Response | Data Flow + Alert | Free vs ~$1.50/run |
 | PowerShell Automation | execPowerShell | PowerShell connector (needs VM) | N/A (no native support) | Free vs ~$0.10/min VM |

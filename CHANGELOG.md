@@ -8,6 +8,25 @@ This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 ### Added
 - **`writeExcel` activity** (Output): writes the current dataset to a local `.xlsx` file — sheet name, date formatting, overwrite, and timestamp-suffix options, mirroring `writeCsv`/`writeJson`.
 - **`joinDatasets` activity** (Transformation): joins the current pipeline dataset with a second CSV or JSON file on a key column (`inner` / `left` / `right` / `full`), with configurable column-name collision prefixing — a local VLOOKUP/Power-Query-style merge that needs no second pipeline branch.
+- **`listFiles` activity** (Input): lists files in a folder using a native, cross-platform `services/fileLister.js` implementation — glob filters, recursive search, folder exclusion, and optional file metadata (`Length` / `LastWriteTime`). No longer requires PowerShell.
+- **Shared activity helpers** (`engine/workflow/activities/shared.js`): single source of truth for `validateConfig`, `validateFile`, `ensureDirectory`, `checkFileWritable`, and `generateTimestampedFilename`, replacing per-module copies across every activity file.
+- **`pivot` activity** (Transformation): spreads distinct values of a column into new columns and aggregates the cells (`sum` / `avg` / `min` / `max` / `count`), with a `maxPivotValues` guard — a full Excel-style pivot table with no second pipeline branch.
+- **`mergeColumns` activity** (Transformation): concatenates two or more columns into a new column with a configurable delimiter, optionally dropping the originals.
+- **`fuzzyDeduplicate` activity** (Transformation): clusters near-duplicate rows by normalized Levenshtein similarity (configurable threshold, case sensitivity); either annotates clusters (`__match_group`, `__duplicate_of`, optional `__similarity`) or keeps one representative per cluster.
+- **`jsonTransform` activity** (Transformation): flattens a column of JSON strings into new columns — nested objects become dotted columns (`meta_user.name`), arrays are kept as JSON strings, and unparseable rows can pass through unchanged via `skipErrors`.
+- **`validateData` activity** (Analytics): runs configurable quality rules (`notNull`, `notEmpty`, `numeric`, `integer`, `email`, `pattern`, `min`, `max`, `in`, `unique`) with either `annotate` output (`__validation_status` / `__validation_errors`) or `filterInvalid` mode.
+- **`soapRequest` activity** (Integration): calls a SOAP web service — SOAP 1.1 / 1.2 envelopes, operation/namespace wrapping, `SOAPAction` handling, basic/bearer auth — and returns the raw XML response as a dataset row.
+
+### Changed
+- **`forEachFile` activity**: now enumerates files via native `services/fileLister.js` instead of invoking PowerShell, so file loops work identically on Windows, macOS, and Linux.
+
+### Fixed
+- **Powershell / file-system activities not registered**: `getPowerShellActivities()` in `activityRegistry.js` filtered by a non-existent `'powerShell'` category, so `execPowerShell` / `forEachFile` never appeared in the registry. It now reads the loaded activities directly.
+- **Remove dead `Dataset.getStatistics()`**: leftover commented-out method removed from `engine/dataset.js`.
+- **Config blank-value validation**: all activities now share the strictest `validateConfig` behavior (blank / whitespace-only values rejected) consistently across every activity module.
+
+### Removed
+- **PowerShell-only `listFiles` implementation**: the OS-specific PowerShell listing logic and the unused `parseCSVLine` helper were removed from `powerShellActivities.js` in favor of the native cross-platform service.
 
 ### Fixed
 - **Transform Column (Visual) operations dropdown**: the WebView's operation list and dynamic parameter fields were reading a stale data shape (`op.label` / `op.params`) from the operations catalogue, leaving the dropdown blank and parameter inputs broken for any operation with arguments. The WebView now consumes the same `description` / `paramDefs` shape as the CLI command.

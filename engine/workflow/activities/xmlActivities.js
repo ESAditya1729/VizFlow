@@ -20,10 +20,10 @@ const Dataset = require('../../dataset');
 const { parseXml } = require('../../xml/xmlParser');
 const { serializeXml } = require('../../xml/xmlSerializer');
 const { mapToRows, mapToTree, autoMapping } = require('../../xml/xmlMapper');
+const { validateConfig, validateFile, ensureDirectory, checkFileWritable } = require('./shared');
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 const DEFAULT_ENCODING = 'utf8';
-const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 const ENCODING_OPTIONS = [
     { label: 'UTF-8', value: 'utf8' },
     { label: 'ASCII', value: 'ascii' },
@@ -31,111 +31,6 @@ const ENCODING_OPTIONS = [
 ];
 
 // ─── Helper Functions ───────────────────────────────────────────────────────
-
-/**
- * Validate file exists and is readable (same contract as inputActivities.js's
- * helper of the same name — duplicated locally rather than imported, since
- * that file exports only its activities array).
- * @param {string} filePath
- * @param {number} maxSize
- * @returns {Promise<{ exists: boolean, size: number, error?: string }>}
- */
-async function validateFile(filePath, maxSize = MAX_FILE_SIZE) {
-    try {
-        const stats = await fs.promises.stat(filePath);
-        if (!stats.isFile()) {
-            return { exists: false, size: 0, error: 'Path is not a file' };
-        }
-        if (stats.size === 0) {
-            return { exists: true, size: 0, error: 'File is empty' };
-        }
-        if (stats.size > maxSize) {
-            return {
-                exists: true,
-                size: stats.size,
-                error: `File size (${(stats.size / 1024 / 1024).toFixed(2)}MB) exceeds maximum (${maxSize / 1024 / 1024}MB)`
-            };
-        }
-        return { exists: true, size: stats.size };
-    } catch (error) {
-        if (error.code === 'ENOENT') {
-            return { exists: false, size: 0, error: 'File not found' };
-        }
-        return { exists: false, size: 0, error: error.message };
-    }
-}
-
-/**
- * Ensure directory exists, create if not (same contract as
- * outputActivities.js's helper of the same name).
- * @param {string} dirPath
- * @returns {Promise<void>}
- */
-async function ensureDirectory(dirPath) {
-    if (!dirPath) return;
-    try {
-        await fs.promises.access(dirPath, fs.constants.F_OK);
-    } catch (error) {
-        if (error.code === 'ENOENT') {
-            await fs.promises.mkdir(dirPath, { recursive: true });
-        } else {
-            throw error;
-        }
-    }
-}
-
-/**
- * Check if a file is writable (same contract as outputActivities.js's helper
- * of the same name).
- * @param {string} filePath
- * @param {{ overwrite?: boolean, maxSize?: number }} [options]
- * @returns {Promise<{ writable: boolean, error?: string, warning?: string }>}
- */
-async function checkFileWritable(filePath, options = {}) {
-    const { overwrite = true, maxSize = MAX_FILE_SIZE } = options;
-
-    try {
-        await fs.promises.access(filePath, fs.constants.F_OK);
-        if (!overwrite) {
-            return { writable: false, error: `File "${path.basename(filePath)}" already exists and overwrite is disabled` };
-        }
-        const stats = await fs.promises.stat(filePath);
-        if (stats.size > maxSize) {
-            return {
-                writable: true,
-                warning: `File size (${(stats.size / 1024 / 1024).toFixed(2)}MB) exceeds recommended limit`
-            };
-        }
-        return { writable: true };
-    } catch (error) {
-        if (error.code === 'ENOENT') {
-            const dir = path.dirname(filePath);
-            try {
-                await fs.promises.access(dir, fs.constants.W_OK);
-                return { writable: true };
-            } catch {
-                return { writable: false, error: `Directory "${dir}" is not writable` };
-            }
-        }
-        return { writable: false, error: `Cannot access file: ${error.message}` };
-    }
-}
-
-/**
- * Validate config with required fields (same contract as inputActivities.js/
- * outputActivities.js's helper of the same name).
- * @param {Object} config
- * @param {Array<string>} required
- * @param {string} activityName
- * @throws {Error} If a required field is missing
- */
-function validateConfig(config, required, activityName) {
-    for (const field of required) {
-        if (config[field] === undefined || config[field] === null || config[field] === '') {
-            throw new Error(`${activityName}: "${field}" is required`);
-        }
-    }
-}
 
 /**
  * Wrap a single flat Dataset row into a synthetic element node in the same

@@ -12,6 +12,7 @@
 
 const Dataset = require('../../dataset');
 const { buildSelect, parseOrderBy, quoteIdentifier } = require('../../../services/database/sqlQueryBuilder');
+const { validateConfig } = require('./shared');
 
 // ─── Connection resolution ───────────────────────────────────────────────────
 
@@ -38,21 +39,6 @@ async function resolveConnection(name, context) {
 }
 
 // ─── Shared helpers ──────────────────────────────────────────────────────────
-
-/**
- * Validate required config fields (mirrors other activity modules).
- * @param {Object} config
- * @param {Array<string>} required
- * @param {string} activityName
- */
-function validateConfig(config, required, activityName) {
-    for (const field of required) {
-        const value = config[field];
-        if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) {
-            throw new Error(`${activityName}: "${field}" is required`);
-        }
-    }
-}
 
 /**
  * Parse a Mongo filter config into a filter document.

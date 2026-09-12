@@ -8,27 +8,13 @@
 
 const Dataset = require('../../dataset');
 const templateService = require('../../../services/templateService');
+const { validateConfig } = require('./shared');
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 const VALID_OPERATORS = ['==', '!=', '>', '>=', '<', '<=', 'contains', 'startsWith', 'endsWith', 'isEmpty', 'isNotEmpty', 'regex'];
 const VALID_SOURCE_TYPES = ['static', 'column', 'expression', 'variable', 'jsonPath'];
 
 // ─── Helper Functions ───────────────────────────────────────────────────────
-
-/**
- * Validate config with required fields
- * @param {Object} config - Configuration object
- * @param {Array} required - Array of required field names
- * @param {string} activityName - Activity name for error messages
- * @throws {Error} If required field is missing
- */
-function validateConfig(config, required, activityName) {
-    for (const field of required) {
-        if (config[field] === undefined || config[field] === null || config[field] === '') {
-            throw new Error(`${activityName}: "${field}" is required`);
-        }
-    }
-}
 
 /**
  * Check if a value matches a condition

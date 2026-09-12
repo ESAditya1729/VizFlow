@@ -14,12 +14,12 @@ Each activity below is a valid `type` for a `.vizflow` activity node:
 ## Index
 
 - **Input** (7): `listFiles`, `readCsv`, `readExcel`, `readMongo`, `readSql`, `readXml`, `sampleData`
-- **Transformation** (7): `filter`, `joinDatasets`, `removeDuplicates`, `selectColumns`, `sort`, `transform`, `xmlTransform`
+- **Transformation** (11): `filter`, `fuzzyDeduplicate`, `joinDatasets`, `jsonTransform`, `mergeColumns`, `pivot`, `removeDuplicates`, `selectColumns`, `sort`, `transform`, `xmlTransform`
 - **Query** (4): `mongoQuery`, `previewQuery`, `query`, `sqlQuery`
-- **Analytics** (4): `aggregate`, `columnStats`, `dataProfile`, `groupBy`
+- **Analytics** (5): `aggregate`, `columnStats`, `dataProfile`, `groupBy`, `validateData`
 - **Output** (7): `appendText`, `exportMultiple`, `writeCsv`, `writeExcel`, `writeJson`, `writeText`, `writeXml`
 - **Control** (8): `callWorkflow`, `execPowerShell`, `forEach`, `forEachFile`, `ifElse`, `multiTransform`, `setVariable`, `wait`
-- **Integration** (1): `httpRequest`
+- **Integration** (2): `httpRequest`, `soapRequest`
 
 ## Input
 
@@ -137,6 +137,20 @@ Filters rows based on a specified column condition.
 
 **`operator` options:** `==`, `!=`, `>`, `>=`, `<`, `<=`, `contains`, `startsWith`, `endsWith`, `regex`, `isNull`, `isNotNull`, `isEmpty`, `isNotEmpty`
 
+### `fuzzyDeduplicate` — 🔍 Fuzzy Deduplicate
+
+Groups near-duplicate rows by string similarity across one or more columns and marks each cluster, optionally removing the duplicates within it.
+
+| Config field | Type | Required | Default | Description |
+|--------------|------|----------|---------|-------------|
+| `columns` | string | yes | — | Comma-separated columns compared when scoring each row |
+| `threshold` | number | no | 0.8 | Minimum similarity (0–1) for a row to join an existing cluster (default: 0.8) |
+| `caseSensitive` | boolean | no | false | Treat values case-sensitively when comparing (default: false) |
+| `mode` | select | no | "annotate" | "annotate" marks clusters with extra columns; "removeDuplicates" keeps only the representative of each cluster (default: annotate) |
+| `includeSimilarity` | boolean | no | false | When annotating, also add a __similarity column with each duplicate’s score against its representative |
+
+**`mode` options:** `annotate`, `removeDuplicates`
+
 ### `joinDatasets` — 🔗 Join Datasets
 
 Joins the current dataset with a second dataset loaded from a CSV or JSON file, matching rows on a key column (like a lookup/VLOOKUP merge).
@@ -153,6 +167,42 @@ Joins the current dataset with a second dataset loaded from a CSV or JSON file, 
 **`rightSourceType` options:** `csv`, `json`
 
 **`joinType` options:** `inner`, `left`, `right`, `full`
+
+### `jsonTransform` — 🧩 JSON Transform
+
+Parses a JSON-string column and spreads nested object fields into new flattened columns. Nested arrays are kept as JSON string values.
+
+| Config field | Type | Required | Default | Description |
+|--------------|------|----------|---------|-------------|
+| `column` | string | yes | — | The column containing JSON strings to parse and flatten |
+| `prefix` | string | no | — | Optional prefix added to every generated column name |
+| `skipErrors` | boolean | no | false | When enabled, rows with invalid/non-object JSON are passed through unchanged instead of failing the workflow (default: false) |
+
+### `mergeColumns` — 🔀 Merge Columns
+
+Combines several columns into a single column, joined by a delimiter.
+
+| Config field | Type | Required | Default | Description |
+|--------------|------|----------|---------|-------------|
+| `columns` | string | yes | — | Comma-separated list of column names to merge |
+| `targetColumn` | string | yes | — | Name of the merged output column |
+| `delimiter` | string | no | " " | String placed between the merged values (default: single space) |
+| `dropOriginals` | boolean | no | true | Remove the source columns from the output (default: true) |
+
+### `pivot` — 🔃 Pivot Table
+
+Reshapes the dataset: rows are grouped by one or more id columns and the distinct values of a pivot column become new columns, aggregated over a value column.
+
+| Config field | Type | Required | Default | Description |
+|--------------|------|----------|---------|-------------|
+| `idColumns` | string | yes | — | Comma-separated columns that define each output row (the group key) |
+| `pivotColumn` | string | yes | — | Distinct values of this column become new columns |
+| `valueColumn` | string | yes | — | The column whose values are aggregated into each pivoted cell |
+| `aggregation` | select | no | "sum" | How values are aggregated per pivoted cell (default: sum) |
+| `valuePrefix` | string | no | — | Optional prefix added to each generated pivoted column name |
+| `maxPivotValues` | number | no | 200 | Maximum number of distinct pivot values allowed (guards against column explosion, default: 200) |
+
+**`aggregation` options:** `sum`, `avg`, `count`, `min`, `max`, `first`
 
 ### `removeDuplicates` — 🧹 Remove Duplicates
 
@@ -316,6 +366,17 @@ Groups data by a column and computes aggregations for each group.
 **`operation` options:** `sum`, `average`, `mean`, `min`, `max`, `count`, `median`, `stdDev`, `first`, `last`
 
 **`sortBy` options:** `groupAsc`, `groupDesc`, `aggAsc`, `aggDesc`, `none`
+
+### `validateData` — ✅ Validate Data
+
+Runs data-quality rules (non-null, numeric, email, pattern, min/max, allowed values, uniqueness) against the dataset and annotates every row with its validation status. Blanks, junk, and repeated emails across this column are precisely the patterns these checks catch.
+
+| Config field | Type | Required | Default | Description |
+|--------------|------|----------|---------|-------------|
+| `rules` | text | yes | — | JSON array of rule objects: {"column", "check", "value?", "pattern?", "message?"}. Checks: notNull, notEmpty, numeric, integer, email, pattern, min, max, in, unique. |
+| `mode` | select | no | "annotate" | "annotate" keeps every row and adds __validation_status / __validation_errors; "filterInvalid" removes failed rows (default: annotate) |
+
+**`mode` options:** `annotate`, `filterInvalid`
 
 ## Output
 
@@ -591,4 +652,26 @@ Calls a REST API (GET/POST/PUT/PATCH/DELETE/…) and converts the JSON response 
 **`method` options:** `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, `OPTIONS`
 
 **`contentType` options:** `json`, `text`, `form`
+
+### `soapRequest` — 🫧 SOAP Request
+
+Calls a SOAP web service by wrapping an XML body in a SOAP envelope and returns the raw XML response as a dataset row. {{variable}} interpolation is supported in URL, body, auth and headers.
+
+| Config field | Type | Required | Default | Description |
+|--------------|------|----------|---------|-------------|
+| `url` | string | yes | — | SOAP endpoint URL — {{variable}} interpolation supported |
+| `body` | text | yes | — | XML that goes inside <soapenv:Body> (the operation/method content). An XML declaration is stripped automatically. {{variable}} interpolation supported. |
+| `operation` | string | no | — | Optional wrapper element for the body, e.g. "GetQuote". When set, the body is wrapped in <Operation xmlns="...">…</Operation> |
+| `namespace` | string | no | — | Optional xmlns for the operation wrapper element |
+| `soapAction` | string | no | — | SOAPAction header (SOAP 1.1) or action parameter in the Content-Type (SOAP 1.2). Some SOAP 1.1 endpoints require it. |
+| `soapVersion` | select | no | "soap11" | SOAP envelope namespace and content type (default: SOAP 1.1) |
+| `authType` | select | no | "none" | HTTP authentication to attach (default: none) |
+| `username` | string | no | — | Username for basic auth — {{variable}} interpolation supported |
+| `password` | string | no | — | Password for basic auth — {{variable}} interpolation supported |
+| `bearerToken` | string | no | — | Token for bearer auth — {{variable}} interpolation supported |
+| `timeout` | number | no | 30 | Request timeout in seconds |
+
+**`soapVersion` options:** `soap11`, `soap12`
+
+**`authType` options:** `none`, `basic`, `bearer`
 

@@ -91,37 +91,6 @@ class Dataset {
     /**
      * @param {string | number} column
      */
-    // getStatistics(column) {
-
-    //     const duplicates = this.findDuplicates(column);
-
-    //     return {
-
-    //         count: this.count(column),
-
-    //         sum: this.sum(column),
-
-    //         average: this.average(column),
-
-    //         min: this.min(column),
-
-    //         max: this.max(column),
-
-    //         duplicateValues: duplicates.length,
-
-    //         duplicateRows: duplicates.reduce(
-    //             (total, item) => total + item.count,
-    //             0
-    //         ),
-    //         duplicates
-
-    //     };
-
-    // }
-
-    /**
- * @param {string | number} column
- */
     profileColumn(column) {
         return columnProfiler.profile(this, column);
     }

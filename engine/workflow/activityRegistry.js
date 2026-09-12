@@ -249,12 +249,25 @@ function getRegistrationStatus() {
 }
 
 /**
- * Get PowerShell activities specifically
+ * Get PowerShell activities specifically.
+ *
+ * The PowerShell activities (execPowerShell, forEachFile) declare category
+ * 'Control' — there is no 'powerShell' category in the registry. Rather than
+ * filtering the registry by a category that does not exist (which silently
+ * returned an empty array), the activities are read directly from the
+ * powerShellActivities module loaded at the top of this file. (The
+ * platform-independent `listFiles` activity lives in fsActivities.js and does
+ * NOT require PowerShell.)
  * @param {boolean} includeExecute - Include execute functions
  * @returns {Object[]} Array of PowerShell activities
  */
 function getPowerShellActivities(includeExecute = false) {
-    return getActivitiesByCategory('powerShell', { includeMetadata: false }).map(activity => {
+    const registryActivities = powerShellActivities.map(activity => {
+        const registered = getActivity(activity.type, true);
+        return registered || activity;
+    });
+
+    return registryActivities.map(activity => {
         if (includeExecute) {
             return activity;
         }

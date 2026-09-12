@@ -11,46 +11,15 @@ const path = require('path');
 const csvParser = require('../../../services/csvParser');
 const Dataset = require('../../dataset');
 const XLSX = require('xlsx');
+const { validateConfig, validateFile } = require('./shared');
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 const DEFAULT_ENCODING = 'utf8';
-const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 const SUPPORTED_CSV_DELIMITERS = [',', ';', '\t', '|'];
 const EXCEL_SERIAL_MIN = 1;
 const EXCEL_SERIAL_MAX = 50000;
 
 // ─── Helper Functions ───────────────────────────────────────────────────────
-
-/**
- * Validate file exists and is readable
- * @param {string} filePath - Path to file
- * @param {number} maxSize - Maximum file size in bytes
- * @returns {Promise<{ exists: boolean, size: number, error?: string }>}
- */
-async function validateFile(filePath, maxSize = MAX_FILE_SIZE) {
-    try {
-        const stats = await fs.promises.stat(filePath);
-        if (!stats.isFile()) {
-            return { exists: false, size: 0, error: 'Path is not a file' };
-        }
-        if (stats.size === 0) {
-            return { exists: true, size: 0, error: 'File is empty' };
-        }
-        if (stats.size > maxSize) {
-            return { 
-                exists: true, 
-                size: stats.size, 
-                error: `File size (${(stats.size / 1024 / 1024).toFixed(2)}MB) exceeds maximum (${maxSize / 1024 / 1024}MB)` 
-            };
-        }
-        return { exists: true, size: stats.size };
-    } catch (error) {
-        if (error.code === 'ENOENT') {
-            return { exists: false, size: 0, error: 'File not found' };
-        }
-        return { exists: false, size: 0, error: error.message };
-    }
-}
 
 /**
  * Convert Excel serial number to date string
@@ -183,21 +152,6 @@ function detectDelimiter(content) {
     }
     
     return detectedDelimiter;
-}
-
-/**
- * Validate config with required fields
- * @param {Object} config - Configuration object
- * @param {Array} required - Array of required field names
- * @param {string} activityName - Activity name for error messages
- * @throws {Error} If required field is missing
- */
-function validateConfig(config, required, activityName) {
-    for (const field of required) {
-        if (config[field] === undefined || config[field] === null || config[field] === '') {
-            throw new Error(`${activityName}: "${field}" is required`);
-        }
-    }
 }
 
 // ─── Activity Definitions ──────────────────────────────────────────────────

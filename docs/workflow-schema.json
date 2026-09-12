@@ -157,6 +157,9 @@
           "$ref": "#/definitions/activity/readXml"
         },
         {
+          "$ref": "#/definitions/activity/listFiles"
+        },
+        {
           "$ref": "#/definitions/activity/filter"
         },
         {
@@ -173,6 +176,18 @@
         },
         {
           "$ref": "#/definitions/activity/joinDatasets"
+        },
+        {
+          "$ref": "#/definitions/activity/pivot"
+        },
+        {
+          "$ref": "#/definitions/activity/mergeColumns"
+        },
+        {
+          "$ref": "#/definitions/activity/fuzzyDeduplicate"
+        },
+        {
+          "$ref": "#/definitions/activity/jsonTransform"
         },
         {
           "$ref": "#/definitions/activity/xmlTransform"
@@ -194,6 +209,9 @@
         },
         {
           "$ref": "#/definitions/activity/dataProfile"
+        },
+        {
+          "$ref": "#/definitions/activity/validateData"
         },
         {
           "$ref": "#/definitions/activity/writeCsv"
@@ -235,9 +253,6 @@
           "$ref": "#/definitions/activity/callWorkflow"
         },
         {
-          "$ref": "#/definitions/activity/listFiles"
-        },
-        {
           "$ref": "#/definitions/activity/execPowerShell"
         },
         {
@@ -257,6 +272,9 @@
         },
         {
           "$ref": "#/definitions/activity/httpRequest"
+        },
+        {
+          "$ref": "#/definitions/activity/soapRequest"
         }
       ]
     },
@@ -514,6 +532,62 @@
           },
           "required": [
             "filePath"
+          ]
+        }
+      }
+    },
+    "activity/listFiles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "listFiles"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "folderPath": {
+              "description": "Path to the folder to list files from",
+              "type": "string"
+            },
+            "filter": {
+              "description": "File pattern to filter (e.g., \"*.csv\", \"*report*.xlsx\")",
+              "type": "string"
+            },
+            "recursive": {
+              "description": "Search recursively in subfolders (default: false)",
+              "type": "boolean"
+            },
+            "includeMetadata": {
+              "description": "Include file size, modified date, etc. (default: true)",
+              "type": "boolean"
+            },
+            "excludeFolders": {
+              "description": "Comma-separated folder names to exclude (e.g., \"temp,archive\")",
+              "type": "string"
+            }
+          },
+          "required": [
+            "folderPath"
           ]
         }
       }
@@ -925,6 +999,237 @@
         }
       }
     },
+    "activity/pivot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "pivot"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "idColumns": {
+              "description": "Comma-separated columns that define each output row (the group key)",
+              "type": "string"
+            },
+            "pivotColumn": {
+              "description": "Distinct values of this column become new columns",
+              "type": "string"
+            },
+            "valueColumn": {
+              "description": "The column whose values are aggregated into each pivoted cell",
+              "type": "string"
+            },
+            "aggregation": {
+              "description": "How values are aggregated per pivoted cell (default: sum)",
+              "type": "string",
+              "enum": [
+                "sum",
+                "avg",
+                "count",
+                "min",
+                "max",
+                "first"
+              ]
+            },
+            "valuePrefix": {
+              "description": "Optional prefix added to each generated pivoted column name",
+              "type": "string"
+            },
+            "maxPivotValues": {
+              "description": "Maximum number of distinct pivot values allowed (guards against column explosion, default: 200)",
+              "type": "number"
+            }
+          },
+          "required": [
+            "idColumns",
+            "pivotColumn",
+            "valueColumn"
+          ]
+        }
+      }
+    },
+    "activity/mergeColumns": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "mergeColumns"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "columns": {
+              "description": "Comma-separated list of column names to merge",
+              "type": "string"
+            },
+            "targetColumn": {
+              "description": "Name of the merged output column",
+              "type": "string"
+            },
+            "delimiter": {
+              "description": "String placed between the merged values (default: single space)",
+              "type": "string"
+            },
+            "dropOriginals": {
+              "description": "Remove the source columns from the output (default: true)",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "columns",
+            "targetColumn"
+          ]
+        }
+      }
+    },
+    "activity/fuzzyDeduplicate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "fuzzyDeduplicate"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "columns": {
+              "description": "Comma-separated columns compared when scoring each row",
+              "type": "string"
+            },
+            "threshold": {
+              "description": "Minimum similarity (0–1) for a row to join an existing cluster (default: 0.8)",
+              "type": "number"
+            },
+            "caseSensitive": {
+              "description": "Treat values case-sensitively when comparing (default: false)",
+              "type": "boolean"
+            },
+            "mode": {
+              "description": "\"annotate\" marks clusters with extra columns; \"removeDuplicates\" keeps only the representative of each cluster (default: annotate)",
+              "type": "string",
+              "enum": [
+                "annotate",
+                "removeDuplicates"
+              ]
+            },
+            "includeSimilarity": {
+              "description": "When annotating, also add a __similarity column with each duplicate’s score against its representative",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "columns"
+          ]
+        }
+      }
+    },
+    "activity/jsonTransform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "jsonTransform"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "column": {
+              "description": "The column containing JSON strings to parse and flatten",
+              "type": "string"
+            },
+            "prefix": {
+              "description": "Optional prefix added to every generated column name",
+              "type": "string"
+            },
+            "skipErrors": {
+              "description": "When enabled, rows with invalid/non-object JSON are passed through unchanged instead of failing the workflow (default: false)",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "column"
+          ]
+        }
+      }
+    },
     "activity/xmlTransform": {
       "type": "object",
       "additionalProperties": false,
@@ -1320,6 +1625,54 @@
               "type": "number"
             }
           }
+        }
+      }
+    },
+    "activity/validateData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "validateData"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "rules": {
+              "description": "JSON array of rule objects: {\"column\", \"check\", \"value?\", \"pattern?\", \"message?\"}. Checks: notNull, notEmpty, numeric, integer, email, pattern, min, max, in, unique.",
+              "type": "string"
+            },
+            "mode": {
+              "description": "\"annotate\" keeps every row and adds __validation_status / __validation_errors; \"filterInvalid\" removes failed rows (default: annotate)",
+              "type": "string",
+              "enum": [
+                "annotate",
+                "filterInvalid"
+              ]
+            }
+          },
+          "required": [
+            "rules"
+          ]
         }
       }
     },
@@ -2262,62 +2615,6 @@
         }
       }
     },
-    "activity/listFiles": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "id",
-        "type",
-        "config"
-      ],
-      "properties": {
-        "id": {
-          "type": "string",
-          "pattern": "^[a-zA-Z0-9_-]+$",
-          "description": "Unique id within this workflow (and nested branches)."
-        },
-        "type": {
-          "const": "listFiles"
-        },
-        "displayName": {
-          "type": "string",
-          "description": "Custom display name for this activity on the canvas."
-        },
-        "notes": {
-          "type": "string",
-          "description": "Free-text notes/comments about this activity."
-        },
-        "config": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "folderPath": {
-              "description": "Path to the folder to list files from",
-              "type": "string"
-            },
-            "filter": {
-              "description": "File pattern to filter (e.g., \"*.csv\", \"*report*.xlsx\")",
-              "type": "string"
-            },
-            "recursive": {
-              "description": "Search recursively in subfolders (default: false)",
-              "type": "boolean"
-            },
-            "includeMetadata": {
-              "description": "Include file size, modified date, etc. (default: true)",
-              "type": "boolean"
-            },
-            "excludeFolders": {
-              "description": "Comma-separated folder names to exclude (e.g., \"temp,archive\")",
-              "type": "string"
-            }
-          },
-          "required": [
-            "folderPath"
-          ]
-        }
-      }
-    },
     "activity/execPowerShell": {
       "type": "object",
       "additionalProperties": false,
@@ -2786,6 +3083,96 @@
           "required": [
             "url",
             "method"
+          ]
+        }
+      }
+    },
+    "activity/soapRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "soapRequest"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "url": {
+              "description": "SOAP endpoint URL — {{variable}} interpolation supported",
+              "type": "string"
+            },
+            "body": {
+              "description": "XML that goes inside <soapenv:Body> (the operation/method content). An XML declaration is stripped automatically. {{variable}} interpolation supported.",
+              "type": "string"
+            },
+            "operation": {
+              "description": "Optional wrapper element for the body, e.g. \"GetQuote\". When set, the body is wrapped in <Operation xmlns=\"...\">…</Operation>",
+              "type": "string"
+            },
+            "namespace": {
+              "description": "Optional xmlns for the operation wrapper element",
+              "type": "string"
+            },
+            "soapAction": {
+              "description": "SOAPAction header (SOAP 1.1) or action parameter in the Content-Type (SOAP 1.2). Some SOAP 1.1 endpoints require it.",
+              "type": "string"
+            },
+            "soapVersion": {
+              "description": "SOAP envelope namespace and content type (default: SOAP 1.1)",
+              "type": "string",
+              "enum": [
+                "soap11",
+                "soap12"
+              ]
+            },
+            "authType": {
+              "description": "HTTP authentication to attach (default: none)",
+              "type": "string",
+              "enum": [
+                "none",
+                "basic",
+                "bearer"
+              ]
+            },
+            "username": {
+              "description": "Username for basic auth — {{variable}} interpolation supported",
+              "type": "string"
+            },
+            "password": {
+              "description": "Password for basic auth — {{variable}} interpolation supported",
+              "type": "string"
+            },
+            "bearerToken": {
+              "description": "Token for bearer auth — {{variable}} interpolation supported",
+              "type": "string"
+            },
+            "timeout": {
+              "description": "Request timeout in seconds",
+              "type": "number"
+            }
+          },
+          "required": [
+            "url",
+            "body"
           ]
         }
       }

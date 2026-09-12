@@ -18,13 +18,13 @@ export default [
     },
 
     rules: {
-        "no-const-assign": "warn",
-        "no-this-before-super": "warn",
-        "no-undef": "warn",
-        "no-unreachable": "warn",
+        "no-const-assign": "error",
+        "no-this-before-super": "error",
+        "no-undef": "error",
+        "no-unreachable": "error",
         "no-unused-vars": "warn",
-        "constructor-super": "warn",
-        "valid-typeof": "warn",
+        "constructor-super": "error",
+        "valid-typeof": "error",
     },
   },
   {
@@ -39,13 +39,13 @@ export default [
         sourceType: "script",
     },
     rules: {
-        "no-const-assign": "warn",
-        "no-this-before-super": "warn",
-        "no-undef": "warn",
-        "no-unreachable": "warn",
+        "no-const-assign": "error",
+        "no-this-before-super": "error",
+        "no-undef": "error",
+        "no-unreachable": "error",
         "no-unused-vars": "warn",
-        "constructor-super": "warn",
-        "valid-typeof": "warn",
+        "constructor-super": "error",
+        "valid-typeof": "error",
     },
   }
 ];
