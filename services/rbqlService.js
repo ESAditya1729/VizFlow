@@ -50,7 +50,7 @@ function preprocessInOperator(query) {
 
     return query.replace(
         /([\w.]+)\s+IN\s+([\(\[])([\s\S]*?)([\)\]])/gi,
-        function (match, lhs, open, contents, close) {
+        function (match, lhs, open, contents) {
             // Normalise single-quoted strings in the list to double-quoted
             // so the result is valid JS for the user_init_code context.
             // e.g.  ('A', 'B') → ["A","B"]
@@ -93,12 +93,14 @@ function preprocessInOperator(query) {
  * @param {Object} [opts] - Query options
  * @param {boolean} [opts.hasHeader] - Whether CSV has header row (default: true)
  * @param {import('../engine/dataset')} [opts.joinDataset] - Optional second dataset for JOINs
+ * @param {boolean} [opts.joinHasHeader] - Whether the join CSV has a header row
  * @returns {Promise<QueryResult>}
  */
 async function executeQuery(dataset, query, opts = {}) {
     const {
         hasHeader = true,
         joinDataset = null,
+        joinHasHeader,
     } = opts;
 
     const header = dataset.getColumns();
@@ -111,14 +113,25 @@ async function executeQuery(dataset, query, opts = {}) {
     );
 
     // Build join table if a join dataset was provided
+    let inputColumnNames = hasHeader ? header : null;
     let joinTable = null;
     let joinColumnNames = null;
     if (joinDataset) {
         const joinHeader = joinDataset.getColumns();
+        const joinHasColumnNames = joinHasHeader === undefined ? hasHeader : joinHasHeader;
         joinTable = joinDataset.rows.map(row =>
             joinHeader.map(col => (row[col] !== undefined && row[col] !== null ? String(row[col]) : ''))
         );
-        joinColumnNames = hasHeader ? joinHeader : null;
+        joinColumnNames = joinHasColumnNames ? joinHeader : null;
+
+        // RBQL requires both tables to agree on whether they have a header.
+        // When they differ, fall back to positional aliases for the table
+        // without a header so JOIN queries still work.
+        if (hasHeader && !joinHasColumnNames) {
+            joinColumnNames = joinHeader.map((_, i) => `b${i + 1}`);
+        } else if (!hasHeader && joinHasColumnNames) {
+            inputColumnNames = header.map((_, i) => `a${i + 1}`);
+        }
     }
 
     /** @type {any[][]} */
@@ -138,7 +151,7 @@ async function executeQuery(dataset, query, opts = {}) {
             outputTable,
             outputWarnings,
             /* join_table        */ joinTable,
-            /* input_column_names*/ hasHeader ? header : null,
+            /* input_column_names*/ inputColumnNames,
             /* join_column_names */ joinColumnNames,
             /* output_col_names  */ outputColumnNames,
             /* normalize_col_names */ true,
@@ -186,7 +199,14 @@ function validateQuery(query) {
         return { valid: false, error: 'Query must not be empty' };
     }
 
-    if (!/select\s+/i.test(query) && !/update\s+/i.test(query)) {
+    // Ignore leading blank lines and simple comments so `-- comment\nSELECT ...`
+    // validates the same way as a bare SELECT.
+    const withoutLeadingComments = query
+        .trim()
+        .replace(/^(?:(?:--|#)[^\n]*(?:\n|$)\s*)+/g, '')
+        .trim();
+
+    if (!/^(select|update)\b/i.test(withoutLeadingComments)) {
         return { valid: false, error: 'Query must start with SELECT or UPDATE' };
     }
 
@@ -197,45 +217,7 @@ function validateQuery(query) {
     return { valid: true, error: null };
 }
 
-/**
- * Format query results for display.
- *
- * @param {QueryResult} result
- * @param {'table'|'csv'|'json'} [format]
- * @returns {string | { columns: string[], rows: any[][], rowCount: number }}
- */
-function formatResult(result, format = 'table') {
-    if (!result.success) {
-        return `Error: ${result.error}`;
-    }
-
-    const { columns, rows } = result;
-
-    switch (format) {
-        case 'csv': {
-            const headerRow = columns.join(',');
-            const dataRows = rows.map(row => row.join(','));
-            return [headerRow, ...dataRows].join('\n');
-        }
-
-        case 'json': {
-            const data = rows.map(row => {
-                /** @type {Object.<string, any>} */
-                const obj = {};
-                columns.forEach((col, idx) => { obj[col] = row[idx]; });
-                return obj;
-            });
-            return JSON.stringify(data, null, 2);
-        }
-
-        case 'table':
-        default:
-            return { columns, rows, rowCount: rows.length };
-    }
-}
-
 module.exports = {
     executeQuery,
-    validateQuery,
-    formatResult
+    validateQuery
 };

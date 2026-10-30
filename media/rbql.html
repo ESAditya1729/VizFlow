@@ -44,6 +44,10 @@
         <button type="button" class="button-link" id="btnClearJoin" title="Remove join file">&#10005;</button>
       </span>
     </div>
+    <label class="checkbox-label join-header-option" id="joinHeaderWrap" style="display:none;">
+      <input type="checkbox" id="joinHasHeader" checked>
+      Join file has header row
+    </label>
   </div>
 
   <!-- ── Query Editor ── -->
@@ -74,9 +78,11 @@
   <!-- ── Actions ── -->
   <div class="button-row">
     <button class="btn-primary" id="executeBtn">&#9654; Execute Query</button>
+    <button class="btn-secondary" id="cancelBtn" style="display:none;">&#9632; Cancel</button>
     <button class="btn-secondary" id="clearBtn">&#x2715; Clear</button>
     <span class="shortcut-hint">Ctrl+Enter to run &middot; Tab for autocomplete</span>
   </div>
+  <div class="update-hint">UPDATE queries preview changed rows only &mdash; source files are never modified.</div>
 
   <!-- ── Progress ── -->
   <div id="progressBar" style="display:none;">
@@ -97,8 +103,10 @@
         <span class="result-warnings" id="resultWarnings"></span>
       </div>
       <div class="export-actions">
+        <button class="btn-small btn-secondary" id="copyResults">Copy</button>
         <button class="btn-small btn-secondary" id="exportCSV">CSV</button>
         <button class="btn-small btn-secondary" id="exportJSON">JSON</button>
+        <button class="btn-small btn-secondary" id="exportMarkdown">MD</button>
         <button class="btn-small btn-secondary" id="exportSQL">DuckDB SQL</button>
       </div>
     </div>
@@ -115,7 +123,10 @@
 
   <!-- ── Query History ── -->
   <div class="history-section">
-    <div class="history-header" id="historyToggle">Query History <span class="toggle-icon">&#9654;</span></div>
+    <div class="history-header">
+      <span id="historyToggle" class="history-toggle">Query History <span class="toggle-icon">&#9654;</span></span>
+      <button type="button" class="button-link" id="clearHistoryBtn" title="Clear all saved queries">Clear all</button>
+    </div>
     <div class="history-list" id="historyList" style="display:none;"></div>
   </div>
 
@@ -138,11 +149,16 @@
     let columnMap = [];
     let currentResults = null;
     let queryHistory = [];
+    let sourceFileName = '';
     let executing = false;
+    let currentRunId = 0;
+    let runStartedAt = 0;
+    let activeQuery = '';
 
     // ── DOM Refs ──────────────────────────────────────────────────────────────
     const queryEditor    = document.getElementById('queryEditor');
     const executeBtn     = document.getElementById('executeBtn');
+    const cancelBtn      = document.getElementById('cancelBtn');
     const clearBtn       = document.getElementById('clearBtn');
     const hasHeaderCheck = document.getElementById('hasHeader');
     const statusEl       = document.getElementById('status');
@@ -157,9 +173,12 @@
     const queryMeta      = document.getElementById('queryMeta');
     const exportCSV      = document.getElementById('exportCSV');
     const exportJSON     = document.getElementById('exportJSON');
+    const exportMarkdown = document.getElementById('exportMarkdown');
     const exportSQL      = document.getElementById('exportSQL');
+    const copyResults    = document.getElementById('copyResults');
     const historyList    = document.getElementById('historyList');
     const historyToggle  = document.getElementById('historyToggle');
+    const clearHistoryBtn = document.getElementById('clearHistoryBtn');
     const autocompletePopup = document.getElementById('autocompletePopup');
     const templatesToggle   = document.getElementById('templatesToggle');
     const templatesList     = document.getElementById('templatesList');
@@ -168,6 +187,8 @@
     const joinFileName      = document.getElementById('joinFileName');
     const joinMeta          = document.getElementById('joinMeta');
     const btnClearJoin      = document.getElementById('btnClearJoin');
+    const joinHeaderWrap    = document.getElementById('joinHeaderWrap');
+    const joinHasHeader     = document.getElementById('joinHasHeader');
 
     // ── Autocomplete State ──────────────────────────────────────────────
     let autocompleteItems = [];
@@ -251,6 +272,22 @@
       return div.innerHTML;
     }
 
+    function formatDuration(ms) {
+      if (!Number.isFinite(ms) || ms < 0) return '';
+      if (ms < 1000) return ms + ' ms';
+      return (ms / 1000).toFixed(ms < 10000 ? 2 : 1) + ' s';
+    }
+
+    function normalizeHistory(history) {
+      if (!Array.isArray(history)) return [];
+      return history.map(function(item) {
+        if (typeof item === 'string') {
+          return { query: item, timestamp: null, success: true, rowCount: null, durationMs: null };
+        }
+        return item || null;
+      }).filter(function(item) { return item && item.query; });
+    }
+
     function updateDatasetInfo(cols, rows) {
       document.getElementById('columnCount').textContent = cols.length;
       document.getElementById('rowCount').textContent = rows.toLocaleString();
@@ -270,9 +307,13 @@
       }
     }
 
-    function updateQueryMeta(query, backend, rows) {
+    function updateQueryMeta(query, backend, rows, durationMs) {
       const timestamp = new Date().toLocaleTimeString();
-      queryMeta.textContent = 'Executed at ' + timestamp + ' \u00b7 ' + backend + ' backend \u00b7 ' + rows + ' rows returned';
+      const duration = formatDuration(durationMs);
+      queryMeta.textContent = 'Executed at ' + timestamp
+        + ' \u00b7 ' + backend + ' backend'
+        + ' \u00b7 ' + rows + ' rows returned'
+        + (duration ? ' \u00b7 ' + duration : '');
     }
 
     // ── Autocomplete ──────────────────────────────────────────────────
@@ -428,7 +469,7 @@
     }
 
     // ── Render Results ──────────────────────────────────────────────────────
-    function renderResults(data) {
+    function renderResults(data, durationMs) {
       currentResults = data;
       resultsSection.style.display = 'block';
 
@@ -495,7 +536,7 @@
       }
 
       // Meta
-      updateQueryMeta(data.query, data.backend, data.rowCount);
+      updateQueryMeta(data.query, data.backend, data.rowCount, durationMs);
     }
 
     // ── Execute Query ──────────────────────────────────────────────────────────
@@ -509,7 +550,11 @@
       }
 
       executing = true;
+      currentRunId += 1;
+      runStartedAt = Date.now();
+      activeQuery = query;
       executeBtn.disabled = true;
+      cancelBtn.style.display = '';
       hideStatus();
       progressBar.style.display = 'block';
       progressFill.style.width = '0%';
@@ -517,16 +562,40 @@
 
       vscode.postMessage({
         type: 'execute',
+        runId: currentRunId,
         query: query,
-        hasHeader: hasHeaderCheck.checked
+        hasHeader: hasHeaderCheck.checked,
+        joinHasHeader: joinHasHeader.checked
       });
+    }
 
-      // Add to history
-      if (!queryHistory.includes(query)) {
-        queryHistory.unshift(query);
-        if (queryHistory.length > 20) queryHistory.pop();
-        renderHistory();
-      }
+    function cancelQuery() {
+      if (!executing) return;
+      vscode.postMessage({ type: 'cancel', runId: currentRunId });
+      currentRunId += 1;
+      executing = false;
+      executeBtn.disabled = false;
+      cancelBtn.style.display = 'none';
+      progressBar.style.display = 'none';
+      progressFill.style.width = '0%';
+      showStatus('Query cancelled.', 'info');
+    }
+
+    function rememberQuery(query, success, rows, durationMs) {
+      if (!query) return;
+      const entry = {
+        query: query,
+        timestamp: Date.now(),
+        success: success,
+        rowCount: rows,
+        durationMs: durationMs,
+        sourceFile: sourceFileName
+      };
+      queryHistory = queryHistory.filter(function(item) { return item.query !== query; });
+      queryHistory.unshift(entry);
+      if (queryHistory.length > 100) queryHistory.pop();
+      renderHistory();
+      vscode.postMessage({ type: 'saveHistory', entry: entry });
     }
 
     // ── Export ──────────────────────────────────────────────────────────────────
@@ -570,16 +639,54 @@
       }
 
       historyList.innerHTML = '';
-      queryHistory.forEach(function(q) {
+      queryHistory.forEach(function(entry) {
+        const q = entry.query;
         const div = document.createElement('div');
         div.className = 'history-item';
-        div.textContent = q.length > 60 ? q.substring(0, 60) + '\u2026' : q;
         div.title = q;
+
+        const main = document.createElement('span');
+        main.className = 'history-query';
+        main.textContent = q.length > 70 ? q.substring(0, 70) + '\u2026' : q;
+        div.appendChild(main);
+
+        const metaParts = [];
+        if (entry.timestamp) {
+          metaParts.push(new Date(entry.timestamp).toLocaleTimeString());
+        }
+        if (entry.success === false) {
+          metaParts.push('failed');
+        } else if (entry.rowCount !== null && entry.rowCount !== undefined) {
+          metaParts.push(entry.rowCount.toLocaleString() + ' rows');
+        }
+        if (entry.durationMs !== null && entry.durationMs !== undefined) {
+          metaParts.push(formatDuration(entry.durationMs));
+        }
+        if (entry.sourceFile) {
+          metaParts.push(entry.sourceFile);
+        }
+        if (metaParts.length) {
+          const meta = document.createElement('span');
+          meta.className = 'history-meta';
+          meta.textContent = metaParts.join(' \u00b7 ');
+          div.appendChild(meta);
+        }
+
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'history-delete';
+        del.title = 'Remove from history';
+        del.textContent = '\u2715';
+        del.addEventListener('click', function(e) {
+          e.stopPropagation();
+          vscode.postMessage({ type: 'deleteHistory', query: q });
+        });
+        div.appendChild(del);
+
         div.addEventListener('click', function() {
           queryEditor.value = q;
           queryEditor.dispatchEvent(new Event('input'));
           queryEditor.focus();
-          // Place cursor at end of inserted text
           queryEditor.setSelectionRange(q.length, q.length);
         });
         historyList.appendChild(div);
@@ -588,6 +695,7 @@
 
     // ── Event Listeners ──────────────────────────────────────────────────────
     executeBtn.addEventListener('click', executeQuery);
+    cancelBtn.addEventListener('click', cancelQuery);
 
     clearBtn.addEventListener('click', function() {
       queryEditor.value = '';
@@ -607,7 +715,21 @@
 
     exportCSV.addEventListener('click', function() { exportResults('csv'); });
     exportJSON.addEventListener('click', function() { exportResults('json'); });
+    exportMarkdown.addEventListener('click', function() { exportResults('markdown'); });
     exportSQL.addEventListener('click', function() { exportResults('duckdb_sql'); });
+
+    copyResults.addEventListener('click', function() {
+      if (!currentResults) {
+        showStatus('No results to copy.', 'error');
+        return;
+      }
+      vscode.postMessage({ type: 'copyResults', data: currentResults });
+    });
+
+    clearHistoryBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      vscode.postMessage({ type: 'clearHistory' });
+    });
 
     historyToggle.addEventListener('click', function() {
       const list = document.getElementById('historyList');
@@ -719,14 +841,26 @@
     // ── Messages from Extension Host ──────────────────────────────────────────
     window.addEventListener('message', function(event) {
       const data = event.data;
+      // Ignore late messages from a cancelled or superseded run.
+      if (data.runId !== undefined && data.runId !== currentRunId) return;
+
       switch (data.type) {
         case 'init':
           columns  = data.columns;
           rowCount = data.rowCount;
+          sourceFileName = data.sourceFileName || '';
           if (Array.isArray(data.positional)) positional = data.positional;
           if (Array.isArray(data.columnMap)) columnMap = data.columnMap;
+          queryHistory = normalizeHistory(data.history);
           updateDatasetInfo(columns, rowCount);
+          renderHistory();
           break;
+
+        case 'historyUpdated': {
+          queryHistory = normalizeHistory(data.history);
+          renderHistory();
+          break;
+        }
 
         case 'progress':
           if (data.pct === -1) {
@@ -737,20 +871,28 @@
           }
           break;
 
-        case 'result':
+        case 'result': {
+          const durationMs = Date.now() - runStartedAt;
           progressBar.style.display = 'none';
           executing = false;
           executeBtn.disabled = false;
-          renderResults(data.data);
+          cancelBtn.style.display = 'none';
+          renderResults(data.data, durationMs);
+          rememberQuery(data.data.query || activeQuery, true, data.data.rowCount, durationMs);
           showStatus('\u2705 Query executed successfully \u2014 ' + data.data.rowCount + ' rows returned.', 'success');
           break;
+        }
 
-        case 'error':
+        case 'error': {
+          const durationMs = Date.now() - runStartedAt;
           progressBar.style.display = 'none';
           executing = false;
           executeBtn.disabled = false;
+          cancelBtn.style.display = 'none';
+          rememberQuery(activeQuery, false, 0, durationMs);
           showErrorWithDetails(data.message);
           break;
+        }
 
         case 'exportDone': {
           const fname = (data.savedPath || '').replace(/.*[\\/]/, '');
@@ -758,12 +900,18 @@
           break;
         }
 
+        case 'copied':
+          showStatus('\u2705 Copied ' + data.rowCount + ' rows to the clipboard.', 'success');
+          break;
+
         case 'joinFileLoaded': {
           joinFileName.textContent = data.fileName;
           joinMeta.textContent = data.columns.length + ' columns \u00B7 ' + data.rowCount + ' rows';
           joinStatus.style.display = 'inline-flex';
           btnSelectJoin.style.display = 'none';
-          // Merge join columns into autocomplete suggestions
+          joinHeaderWrap.style.display = '';
+          // Replace any previous join-column suggestions before merging new ones.
+          columnMap = columnMap.filter(function(m) { return !/^b\d+$/.test(m.pos); });
           if (Array.isArray(data.columnMap)) {
             columnMap = columnMap.concat(data.columnMap);
           }
@@ -773,7 +921,11 @@
 
         case 'joinFileCleared': {
           joinStatus.style.display = 'none';
+          joinHeaderWrap.style.display = 'none';
+          joinHasHeader.checked = true;
           btnSelectJoin.style.display = '';
+          columnMap = columnMap.filter(function(m) { return !/^b\d+$/.test(m.pos); });
+          hideAutocomplete();
           showStatus('Join file removed.', 'info');
           break;
         }

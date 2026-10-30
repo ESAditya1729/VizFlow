@@ -6,6 +6,13 @@ This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 ## [Unreleased]
 
 ### Added
+- **CSV comparison rows mode**: compare records by one or more key columns and report added / removed / changed / unchanged rows, composite keys, duplicate-key counts, and per-column changes.
+- **CSV comparison normalization + input controls**: trim, case-insensitive, empty-as-null, numeric and date equivalence, plus encoding (auto BOM / UTF-8 / UTF-16LE / UTF-16BE / Latin-1) and delimiter overrides.
+- **CSV comparison exports**: CSV/JSON/Markdown reports with metadata, source-row links, and remembered comparison configuration.
+- **RBQL persistent history**: workspace-backed history with timestamp, source file, duration, row count, success state, per-item delete, and clear-all.
+- **RBQL export options**: clipboard copy, Markdown export, and shared serializers with correct CSV quoting for commas, quotes, and newlines.
+- **RBQL cancellation and timing**: run IDs ignore late results after Cancel, and each run shows elapsed time.
+- **Independent RBQL join-header option**: join files can declare their own header state independently of the primary CSV.
 - **`writeExcel` activity** (Output): writes the current dataset to a local `.xlsx` file — sheet name, date formatting, overwrite, and timestamp-suffix options, mirroring `writeCsv`/`writeJson`.
 - **`joinDatasets` activity** (Transformation): joins the current pipeline dataset with a second CSV or JSON file on a key column (`inner` / `left` / `right` / `full`), with configurable column-name collision prefixing — a local VLOOKUP/Power-Query-style merge that needs no second pipeline branch.
 - **`listFiles` activity** (Input): lists files in a folder using a native, cross-platform `services/fileLister.js` implementation — glob filters, recursive search, folder exclusion, and optional file metadata (`Length` / `LastWriteTime`). No longer requires PowerShell.
@@ -18,14 +25,25 @@ This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 - **`soapRequest` activity** (Integration): calls a SOAP web service — SOAP 1.1 / 1.2 envelopes, operation/namespace wrapping, `SOAPAction` handling, basic/bearer auth — and returns the raw XML response as a dataset row.
 
 ### Changed
+- **RBQL templates rewritten**: replaced misleading examples with verified filter, aggregate, join, dedupe, update, and preview queries; renamed labels to describe what each query actually does.
+- **RBQL `UPDATE` clarity**: the Query Console now states that UPDATE queries preview changed rows only and never modify source files.
+- **RBQL join parsing**: join files use their own header state, with positional aliases used when the primary and join files disagree.
 - **`forEachFile` activity**: now enumerates files via native `services/fileLister.js` instead of invoking PowerShell, so file loops work identically on Windows, macOS, and Linux.
 
 ### Fixed
+- **RBQL CSV export corrupted rows**: exports now use `Papa.unparse`, so values containing commas, quotes, or newlines are quoted correctly. JSON export is consistent and Markdown/clipboard export was added.
+- **RBQL join autocomplete leaked columns**: removing a join file now removes its `b1`, `b2`, ... suggestions instead of leaving stale entries behind.
+- **RBQL query validation rejected leading comments**: `-- comment` lines before SELECT/UPDATE now validate correctly.
+- **CSV comparison reopened with stale File A**: re-running Compare CSV now refreshes File A (and its URI) from the active editor instead of comparing against an outdated dataset.
+- **CSV comparison keyed rows used A's key names for B-only rows**: added rows now display using the B-side key columns.
 - **Powershell / file-system activities not registered**: `getPowerShellActivities()` in `activityRegistry.js` filtered by a non-existent `'powerShell'` category, so `execPowerShell` / `forEachFile` never appeared in the registry. It now reads the loaded activities directly.
 - **Remove dead `Dataset.getStatistics()`**: leftover commented-out method removed from `engine/dataset.js`.
 - **Config blank-value validation**: all activities now share the strictest `validateConfig` behavior (blank / whitespace-only values rejected) consistently across every activity module.
 
 ### Removed
+- **`VizFlow: Transform Column` CLI command**: removed; the visual Transform Studio covers the same operations.
+- **`VizFlow: Show Column Statistics` command**: removed; the Dataset Summary Dashboard covers column statistics.
+- **`vsc-extension-quickstart.md`**: removed default scaffolding.
 - **PowerShell-only `listFiles` implementation**: the OS-specific PowerShell listing logic and the unused `parseCSVLine` helper were removed from `powerShellActivities.js` in favor of the native cross-platform service.
 
 ### Fixed

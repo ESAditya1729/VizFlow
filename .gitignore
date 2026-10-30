@@ -2,3 +2,4 @@ node_modules
 .vscode-test/
 *.vsix
 .env
+RELEASE_2_PLAN.md

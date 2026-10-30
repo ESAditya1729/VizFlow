@@ -28,9 +28,10 @@ function detectDelimiter(text) {
 
 /**
  * @param {string} csvText
+ * @param {{ delimiter?: string, dynamicTyping?: boolean, header?: boolean }} [options]
  * @returns {import("../engine/dataset")}
  */
-function parse(csvText) {
+function parse(csvText, options = {}) {
 
     if (typeof csvText !== 'string') {
         throw new Error('CSV parser: input must be a string');
@@ -41,12 +42,14 @@ function parse(csvText) {
         throw new Error(`CSV input is too large (${sizeMb} MB). Maximum supported size is 100 MB.`);
     }
 
-    const delimiter = detectDelimiter(csvText);
+    const delimiter = options.delimiter || detectDelimiter(csvText);
+    const header = options.header !== false;
+    const dynamicTyping = options.dynamicTyping !== false;
 
     const result = Papa.parse(csvText, {
-        header: true,
+        header,
         skipEmptyLines: true,
-        dynamicTyping: true,
+        dynamicTyping,
         delimiter
     });
 

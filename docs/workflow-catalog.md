@@ -16,7 +16,7 @@ Each activity below is a valid `type` for a `.vizflow` activity node:
 - **Input** (7): `listFiles`, `readCsv`, `readExcel`, `readMongo`, `readSql`, `readXml`, `sampleData`
 - **Transformation** (11): `filter`, `fuzzyDeduplicate`, `joinDatasets`, `jsonTransform`, `mergeColumns`, `pivot`, `removeDuplicates`, `selectColumns`, `sort`, `transform`, `xmlTransform`
 - **Query** (4): `mongoQuery`, `previewQuery`, `query`, `sqlQuery`
-- **Analytics** (5): `aggregate`, `columnStats`, `dataProfile`, `groupBy`, `validateData`
+- **Analytics** (6): `aggregate`, `columnStats`, `compareCsv`, `dataProfile`, `groupBy`, `validateData`
 - **Output** (7): `appendText`, `exportMultiple`, `writeCsv`, `writeExcel`, `writeJson`, `writeText`, `writeXml`
 - **Control** (8): `callWorkflow`, `execPowerShell`, `forEach`, `forEachFile`, `ifElse`, `multiTransform`, `setVariable`, `wait`
 - **Integration** (2): `httpRequest`, `soapRequest`
@@ -338,6 +338,35 @@ Generates statistics for specified columns.
 | `stats` | select | no | — | Which statistics to compute (default: all) |
 
 **`stats` options:** `all`, `basic`, `quality`
+
+### `compareCsv` — 🔀 Compare CSV
+
+Compares the input dataset (File A) with a CSV file (File B) and outputs a diff dataset plus summary variables.
+
+| Config field | Type | Required | Default | Description |
+|--------------|------|----------|---------|-------------|
+| `filePathB` | file | yes | — | Absolute or workspace-relative path of the CSV to compare against File A |
+| `mode` | select | no | — | Row-level keyed comparison or distinct-value set comparison (default: rows) |
+| `columnA` | string | no | — | Column in File A for distinct-value mode |
+| `columnB` | string | no | — | Column in File B for distinct-value mode (defaults to Value Column A) |
+| `keyColumns` | string | no | — | Comma-separated key columns (default: first column) |
+| `keyColumnsB` | string | no | — | Optional comma-separated key columns in File B when names differ |
+| `compareColumns` | string | no | — | Comma-separated columns to compare, optionally "a=b" when names differ (default: all non-key columns) |
+| `includeUnchanged` | boolean | no | — | Include matching/unchanged rows in the diff dataset (default: false) |
+| `includeEmpty` | boolean | no | — | Treat empty key values as comparable instead of skipping them |
+| `trim` | boolean | no | — | Trim values before comparing |
+| `caseInsensitive` | boolean | no | — | Compare text case-insensitively |
+| `numeric` | boolean | no | — | Treat numerically equivalent values (e.g. 1 and 1.0) as equal |
+| `date` | boolean | no | — | Treat equivalent dates in different formats as equal |
+| `delimiterB` | select | no | — | Delimiter for File B (default: auto-detect) |
+| `hasHeaderB` | boolean | no | — | First row of File B contains column headers (default: true) |
+| `encodingB` | select | no | — | File B encoding (default: UTF-8) |
+
+**`mode` options:** `rows`, `values`
+
+**`delimiterB` options:** `auto`, `,`, `;`, `	`, `|`
+
+**`encodingB` options:** `utf8`, `utf8-bom`, `ascii`, `latin1`
 
 ### `dataProfile` — 📋 Data Profile
 

@@ -31,9 +31,7 @@
     "onLanguage:csv",
     "onLanguage:tsv",
     "onCommand:vizflow.duplicates",
-    "onCommand:vizflow.statistics",
     "onCommand:vizflow.distinctValues",
-    "onCommand:vizflow.transform",
     "onCommand:vizflow.transformWebview",
     "onCommand:vizflow.compareCSV",
     "onCommand:vizflow.about",
@@ -53,16 +51,8 @@
         "title": "VizFlow: Find Duplicate Values"
       },
       {
-        "command": "vizflow.statistics",
-        "title": "VizFlow: Show Column Statistics"
-      },
-      {
         "command": "vizflow.distinctValues",
         "title": "VizFlow: Show Distinct Values"
-      },
-      {
-        "command": "vizflow.transform",
-        "title": "VizFlow: Transform Column"
       },
       {
         "command": "vizflow.transformWebview",

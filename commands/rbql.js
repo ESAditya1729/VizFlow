@@ -16,6 +16,36 @@ const crypto = require('crypto');
 const csvReader = require('../services/csvReader');
 const csvParser = require('../services/csvParser');
 const rbqlService = require('../services/rbqlService');
+const rbqlExport = require('../services/rbqlExport');
+
+const HISTORY_KEY = 'vizflow.rbql.history';
+const MAX_HISTORY = 100;
+
+/**
+ * Read persisted query history from workspace state.
+ *
+ * @param {vscode.ExtensionContext} context
+ * @returns {Array<Object>}
+ */
+function loadHistory(context) {
+    const stored = context.workspaceState.get(HISTORY_KEY, []);
+    return Array.isArray(stored) ? stored : [];
+}
+
+/**
+ * Store a history entry, de-duplicating by query text.
+ *
+ * @param {vscode.ExtensionContext} context
+ * @param {Object} entry
+ * @returns {Array<Object>}
+ */
+function writeHistory(context, entry) {
+    const existing = loadHistory(context);
+    const filtered = existing.filter(item => item && item.query !== entry.query);
+    const updated = [entry, ...filtered].slice(0, MAX_HISTORY);
+    context.workspaceState.update(HISTORY_KEY, updated);
+    return updated;
+}
 
 /**
  * Factory — accepts `context` so we can resolve media URIs.
@@ -31,10 +61,13 @@ module.exports = function rbqlCommand(context) {
     let dataset;
     /** @type {import('../engine/dataset') | undefined} */
     let joinDataset;
+    let activeRunId = 0;
 
     return async function () {
 
         // ── 1. Load and parse the active CSV ────────────────────────────────
+        const activeEditor = vscode.window.activeTextEditor;
+        const sourceFileName = activeEditor ? path.basename(activeEditor.document.fileName) : '';
         const csvText = await csvReader.load();
         if (!csvText) return;
 
@@ -117,7 +150,15 @@ module.exports = function rbqlCommand(context) {
                 // Build positional mapping a1,a2,... to help users write RBQL queries
                 const positional = columns.map((_, i) => `a${i + 1}`);
                 const columnMap = columns.map((name, i) => ({ pos: `a${i + 1}`, name }));
-                panel.webview.postMessage({ type: 'init', columns, rowCount, positional, columnMap });
+                panel.webview.postMessage({
+                    type: 'init',
+                    columns,
+                    rowCount,
+                    positional,
+                    columnMap,
+                    sourceFileName,
+                    history: loadHistory(context),
+                });
             }
         });
 
@@ -127,10 +168,23 @@ module.exports = function rbqlCommand(context) {
                 try {
                     switch (message.type) {
                         case 'execute':
-                            await handleExecute(message, dataset, joinDataset, panel);
+                            activeRunId = message.runId || 0;
+                            await handleExecute(
+                                message,
+                                dataset,
+                                joinDataset,
+                                panel,
+                                () => message.runId === activeRunId
+                            );
+                            break;
+                        case 'cancel':
+                            activeRunId = -1;
                             break;
                         case 'export':
                             await handleExport(message, panel);
+                            break;
+                        case 'copyResults':
+                            await handleCopyResults(message, panel);
                             break;
                         case 'selectJoinFile':
                             joinDataset = await handleSelectJoinFile(panel);
@@ -138,6 +192,21 @@ module.exports = function rbqlCommand(context) {
                         case 'clearJoinFile':
                             joinDataset = undefined;
                             panel.webview.postMessage({ type: 'joinFileCleared' });
+                            break;
+                        case 'saveHistory': {
+                            const updated = writeHistory(context, message.entry);
+                            panel.webview.postMessage({ type: 'historyUpdated', history: updated });
+                            break;
+                        }
+                        case 'deleteHistory': {
+                            const updated = loadHistory(context).filter(item => item.query !== message.query);
+                            context.workspaceState.update(HISTORY_KEY, updated);
+                            panel.webview.postMessage({ type: 'historyUpdated', history: updated });
+                            break;
+                        }
+                        case 'clearHistory':
+                            context.workspaceState.update(HISTORY_KEY, []);
+                            panel.webview.postMessage({ type: 'historyUpdated', history: [] });
                             break;
                     }
                 } catch (err) {
@@ -165,12 +234,15 @@ module.exports = function rbqlCommand(context) {
  * @param {import('../engine/dataset')} ds
  * @param {import('../engine/dataset') | undefined} joinDs
  * @param {vscode.WebviewPanel} webviewPanel
+ * @param {() => boolean} isCurrent - Whether this run is still the active one
  */
-async function handleExecute(message, ds, joinDs, webviewPanel) {
-    const { query, hasHeader } = message;
+async function handleExecute(message, ds, joinDs, webviewPanel, isCurrent) {
+    const { query, hasHeader, joinHasHeader, runId } = message;
+
+    if (!isCurrent()) return;
 
     if (!query || !query.trim()) {
-        webviewPanel.webview.postMessage({ type: 'error', message: 'Please enter a query.' });
+        webviewPanel.webview.postMessage({ type: 'error', message: 'Please enter a query.', runId });
         return;
     }
 
@@ -179,23 +251,28 @@ async function handleExecute(message, ds, joinDs, webviewPanel) {
     if (!validation.valid) {
         webviewPanel.webview.postMessage({
             type: 'error',
-            message: `Query validation error: ${validation.error}`
+            message: `Query validation error: ${validation.error}`,
+            runId
         });
         return;
     }
 
-    webviewPanel.webview.postMessage({ type: 'progress', pct: 30 });
+    webviewPanel.webview.postMessage({ type: 'progress', pct: 30, runId });
 
     const result = await rbqlService.executeQuery(ds, query, {
         hasHeader: hasHeader !== false,
-        joinDataset: joinDs || null
+        joinDataset: joinDs || null,
+        joinHasHeader: joinHasHeader !== false,
     });
 
-    webviewPanel.webview.postMessage({ type: 'progress', pct: 90 });
+    if (!isCurrent()) return;
+
+    webviewPanel.webview.postMessage({ type: 'progress', pct: 90, runId });
 
     if (result.success) {
         webviewPanel.webview.postMessage({
             type: 'result',
+            runId,
             data: {
                 columns: result.columns,
                 rows: result.rows,
@@ -208,13 +285,18 @@ async function handleExecute(message, ds, joinDs, webviewPanel) {
     } else {
         webviewPanel.webview.postMessage({
             type: 'error',
-            message: `Query execution error: ${result.error}`
+            message: `Query execution error: ${result.error}`,
+            runId
         });
     }
 
-    webviewPanel.webview.postMessage({ type: 'progress', pct: 100 });
+    if (!isCurrent()) return;
+
+    webviewPanel.webview.postMessage({ type: 'progress', pct: 100, runId });
     setTimeout(() => {
-        webviewPanel.webview.postMessage({ type: 'progress', pct: -1 });
+        if (isCurrent()) {
+            webviewPanel.webview.postMessage({ type: 'progress', pct: -1, runId });
+        }
     }, 800);
 }
 
@@ -281,25 +363,21 @@ async function handleExport(message, webviewPanel) {
         filters = { 'SQL Files': ['sql'], 'All Files': ['*'] };
     } else {
         switch (format) {
-            case 'csv': {
-                const headerRow = data.columns.join(',');
-                const dataRows = data.rows.map(row => row.join(','));
-                content = [headerRow, ...dataRows].join('\n');
+            case 'csv':
+                content = rbqlExport.toCsv(data);
                 ext = 'csv';
                 filters = { 'CSV Files': ['csv'], 'All Files': ['*'] };
                 break;
-            }
-            case 'json': {
-                const jsonData = data.rows.map(row => {
-                    const obj = {};
-                    data.columns.forEach((col, idx) => { obj[col] = row[idx]; });
-                    return obj;
-                });
-                content = JSON.stringify(jsonData, null, 2);
+            case 'json':
+                content = rbqlExport.toJson(data);
                 ext = 'json';
                 filters = { 'JSON Files': ['json'], 'All Files': ['*'] };
                 break;
-            }
+            case 'markdown':
+                content = rbqlExport.toMarkdown(data);
+                ext = 'md';
+                filters = { 'Markdown Files': ['md'], 'All Files': ['*'] };
+                break;
             default:
                 vscode.window.showErrorMessage(`Unsupported format: ${format}`);
                 return;
@@ -325,6 +403,34 @@ async function handleExport(message, webviewPanel) {
         );
     } catch (err) {
         vscode.window.showErrorMessage(`Export failed: ${err.message}`);
+    }
+}
+
+/**
+ * Copy result rows to the clipboard as CSV.
+ *
+ * @param {any} message
+ * @param {vscode.WebviewPanel} webviewPanel
+ */
+async function handleCopyResults(message, webviewPanel) {
+    const data = message.data || {};
+    const columns = Array.isArray(data.columns) ? data.columns : [];
+    const rows = Array.isArray(data.rows) ? data.rows : [];
+
+    if (!columns.length) {
+        webviewPanel.webview.postMessage({ type: 'error', message: 'No results to copy.' });
+        return;
+    }
+
+    try {
+        const content = rbqlExport.toCsv({ columns, rows });
+        await vscode.env.clipboard.writeText(content);
+        webviewPanel.webview.postMessage({ type: 'copied', rowCount: rows.length });
+    } catch (err) {
+        webviewPanel.webview.postMessage({
+            type: 'error',
+            message: `Copy failed: ${err.message}`
+        });
     }
 }
 

@@ -139,7 +139,7 @@ function detectDelimiter(content) {
     const counts = {};
     
     for (const delimiter of SUPPORTED_CSV_DELIMITERS) {
-        counts[delimiter] = (firstLine.match(new RegExp(delimiter, 'g')) || []).length;
+        counts[delimiter] = firstLine.split(delimiter).length - 1;
     }
     
     let maxCount = 0;

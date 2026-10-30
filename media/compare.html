@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; script-src 'nonce-{{NONCE}}'; style-src 'nonce-{{NONCE}}'; img-src vscode-resource: https:;">
+        content="default-src 'none'; script-src 'nonce-{{NONCE}}'; style-src 'nonce-{{NONCE}}' 'unsafe-inline'; img-src vscode-resource: https: data:;">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>VizFlow — Compare CSV Files</title>
   <link nonce="{{NONCE}}" rel="stylesheet" href="{{THEME_CSS_URI}}">
@@ -26,6 +26,68 @@
     <span class="badge">powered by VizFlow</span>
   </h1>
 
+  <!-- ── Comparison options ──────────────────────── -->
+  <div class="section-label">⚙️ Comparison options</div>
+
+  <div class="options-panel">
+    <div class="option-row">
+      <div class="option-group">
+        <label>Mode</label>
+        <div class="mode-toggle" role="group" aria-label="Comparison mode">
+          <button type="button" class="mode-btn active" data-mode="values">Values</button>
+          <button type="button" class="mode-btn" data-mode="rows">Rows (keyed)</button>
+        </div>
+      </div>
+
+      <div class="option-group">
+        <label for="encodingSelect">Encoding</label>
+        <select id="encodingSelect">
+          <option value="auto">Auto (BOM)</option>
+          <option value="utf8">UTF-8</option>
+          <option value="utf16le">UTF-16 LE</option>
+          <option value="utf16be">UTF-16 BE</option>
+          <option value="latin1">Latin-1</option>
+        </select>
+      </div>
+
+      <div class="option-group">
+        <label for="delimiterSelect">Delimiter</label>
+        <select id="delimiterSelect">
+          <option value="">Auto-detect</option>
+          <option value=",">Comma</option>
+          <option value="&#9;">Tab</option>
+          <option value=";">Semicolon</option>
+          <option value="|">Pipe</option>
+        </select>
+      </div>
+
+      <div class="option-group option-group-checks">
+        <label class="checkbox-label">
+          <input type="checkbox" id="includeEmpty">
+          Include blank keys
+        </label>
+        <div class="hint">Encoding and delimiter apply when a file is loaded.</div>
+      </div>
+    </div>
+
+    <div class="option-row option-row-wrap">
+      <span class="option-title">Normalization</span>
+      <label class="checkbox-label"><input type="checkbox" id="normTrim" checked> Trim whitespace</label>
+      <label class="checkbox-label"><input type="checkbox" id="normCase"> Ignore case</label>
+      <label class="checkbox-label"><input type="checkbox" id="normEmpty" checked> Empty = null</label>
+      <label class="checkbox-label"><input type="checkbox" id="normNumeric"> Numeric equality</label>
+      <label class="checkbox-label"><input type="checkbox" id="normDate"> Date equality</label>
+    </div>
+
+    <div class="option-row" id="compareColumnsRow" style="display:none;">
+      <div class="option-group option-group-grow">
+        <label for="compareColumns">Columns to compare (Rows mode)</label>
+        <select id="compareColumns" multiple size="5" title="Ctrl/Cmd-click to select multiple columns"></select>
+        <div class="hint">Leave all unselected to compare every shared non-key column. Ctrl/Cmd-click to multi-select.</div>
+      </div>
+    </div>
+  </div>
+
   <!-- ── File Setup ──────────────────────────────── -->
   <div class="section-label">📂 Select files &amp; columns to compare</div>
 
@@ -37,12 +99,19 @@
         <span class="file-label-a">▌</span> File A
       </div>
       <div class="file-name" id="fileNameA">No file loaded — open a CSV then run this command.</div>
-      <div class="form-group">
+
+      <div class="form-group" id="valueColumnAGroup">
         <label for="columnSelectA">Column</label>
         <select id="columnSelectA" disabled>
           <option value="">— load a file first —</option>
         </select>
       </div>
+
+      <div class="form-group key-columns" id="keyColumnsAGroup" style="display:none;">
+        <label>Key columns</label>
+        <div class="checkbox-list" id="keyColumnsAList"></div>
+      </div>
+
       <button class="btn-secondary btn-small" id="browseA">📂 Browse…</button>
     </div>
 
@@ -52,12 +121,19 @@
         <span class="file-label-b">▌</span> File B
       </div>
       <div class="file-name" id="fileNameB">No file loaded.</div>
-      <div class="form-group">
+
+      <div class="form-group" id="valueColumnBGroup">
         <label for="columnSelectB">Column</label>
         <select id="columnSelectB" disabled>
           <option value="">— load a file first —</option>
         </select>
       </div>
+
+      <div class="form-group key-columns" id="keyColumnsBGroup" style="display:none;">
+        <label>Key columns</label>
+        <div class="checkbox-list" id="keyColumnsBList"></div>
+      </div>
+
       <button class="btn-secondary btn-small" id="browseB">📂 Browse…</button>
     </div>
 
@@ -94,24 +170,29 @@
         <div class="card-value" id="cardRowsB">—</div>
       </div>
       <div class="summary-card card-match">
-        <div class="card-label">Common values</div>
+        <div class="card-label" id="cardMatchLabel">Common values</div>
         <div class="card-value" id="cardMatch">—</div>
         <div class="card-sub" id="cardMatchPct"></div>
       </div>
       <div class="summary-card card-only-a">
-        <div class="card-label">Only in A</div>
+        <div class="card-label" id="cardOnlyALabel">Only in A</div>
         <div class="card-value" id="cardOnlyA">—</div>
         <div class="card-sub" id="cardOnlyAPct"></div>
       </div>
       <div class="summary-card card-only-b">
-        <div class="card-label">Only in B</div>
+        <div class="card-label" id="cardOnlyBLabel">Only in B</div>
         <div class="card-value" id="cardOnlyB">—</div>
         <div class="card-sub" id="cardOnlyBPct"></div>
+      </div>
+      <div class="summary-card card-changed" id="cardChangedCard" style="display:none;">
+        <div class="card-label">Changed</div>
+        <div class="card-value" id="cardChanged">—</div>
+        <div class="card-sub" id="cardChangedPct"></div>
       </div>
     </div>
 
     <!-- Column Profiles -->
-    <div class="section-label">🔍 Column Profiles</div>
+    <div class="section-label" id="profileSectionLabel">🔍 Column Profiles</div>
     <div class="profile-grid">
       <div class="profile-card profile-card-a">
         <div class="profile-card-title">File A — <span id="profileColA"></span></div>
@@ -134,14 +215,17 @@
       <button class="tab tab-all   active"   data-filter="all"    id="tabAll" role="tab" aria-selected="true">
         All <span class="tab-count" id="tabCountAll">0</span>
       </button>
-      <button class="tab tab-match"          data-filter="common" id="tabMatch" role="tab" aria-selected="false">
-        Common <span class="tab-count" id="tabCountMatch">0</span>
+      <button class="tab tab-match"          data-filter="match"  id="tabMatch" role="tab" aria-selected="false">
+        <span id="tabMatchLabel">Common</span> <span class="tab-count" id="tabCountMatch">0</span>
       </button>
       <button class="tab tab-only-a"         data-filter="onlyA"  id="tabOnlyA" role="tab" aria-selected="false">
-        Only in A <span class="tab-count" id="tabCountOnlyA">0</span>
+        <span id="tabOnlyALabel">Only in A</span> <span class="tab-count" id="tabCountOnlyA">0</span>
       </button>
       <button class="tab tab-only-b"         data-filter="onlyB"  id="tabOnlyB" role="tab" aria-selected="false">
-        Only in B <span class="tab-count" id="tabCountOnlyB">0</span>
+        <span id="tabOnlyBLabel">Only in B</span> <span class="tab-count" id="tabCountOnlyB">0</span>
+      </button>
+      <button class="tab tab-changed"        data-filter="changed" id="tabChanged" role="tab" aria-selected="false" style="display:none;">
+        Changed <span class="tab-count" id="tabCountChanged">0</span>
       </button>
     </div>
 
@@ -154,16 +238,7 @@
 
     <div class="table-wrapper">
       <table id="resultTable">
-        <thead>
-          <tr>
-            <th data-col="type">Type <span class="sort-indicator">↕</span></th>
-            <th data-col="value">Value <span class="sort-indicator">↕</span></th>
-            <th data-col="countA">Count A <span class="sort-indicator">↕</span></th>
-            <th data-col="rowsA">Rows A</th>
-            <th data-col="countB">Count B <span class="sort-indicator">↕</span></th>
-            <th data-col="rowsB">Rows B</th>
-          </tr>
-        </thead>
+        <thead id="resultHead"></thead>
         <tbody id="resultBody"></tbody>
       </table>
     </div>
@@ -177,6 +252,7 @@
     <div class="export-row">
       <button class="btn-secondary btn-small" id="exportCSVBtn">📄 Export as CSV</button>
       <button class="btn-secondary btn-small" id="exportJSONBtn">📦 Export as JSON</button>
+      <button class="btn-secondary btn-small" id="exportMarkdownBtn">📝 Export as Markdown</button>
     </div>
 
   </div><!-- /#results-section -->
@@ -194,14 +270,15 @@
     const vscode = acquireVsCodeApi();
 
     // ── State ──────────────────────────────────────────────────────────────────
-    let allRows     = [];   // full ComparisonResult.rows from host
-    let activeFilter = 'all';
-    let searchQuery  = '';
-    let sortCol      = 'type';
-    let sortDir      = 1;   // 1 = asc, -1 = desc
-
-    // Result snapshot kept for export
-    let lastResult = null;
+    let allRows       = [];
+    let activeFilter  = 'all';
+    let searchQuery   = '';
+    let sortCol       = 'type';
+    let sortDir       = 1;
+    let lastResult    = null;
+    let currentMode   = 'values';
+    let columnsA      = [];
+    let columnsB      = [];
 
     // ── DOM refs ────────────────────────────────────────────────────────────────
     const fileNameA      = document.getElementById('fileNameA');
@@ -217,6 +294,24 @@
     const statusEl       = document.getElementById('status');
     const resultsSection = document.getElementById('results-section');
 
+    const encodingSelect = document.getElementById('encodingSelect');
+    const delimiterSelect = document.getElementById('delimiterSelect');
+    const includeEmpty   = document.getElementById('includeEmpty');
+    const normTrim       = document.getElementById('normTrim');
+    const normCase       = document.getElementById('normCase');
+    const normEmpty      = document.getElementById('normEmpty');
+    const normNumeric    = document.getElementById('normNumeric');
+    const normDate       = document.getElementById('normDate');
+    const compareColumns = document.getElementById('compareColumns');
+    const compareColumnsRow = document.getElementById('compareColumnsRow');
+
+    const valueColumnAGroup = document.getElementById('valueColumnAGroup');
+    const valueColumnBGroup = document.getElementById('valueColumnBGroup');
+    const keyColumnsAGroup  = document.getElementById('keyColumnsAGroup');
+    const keyColumnsBGroup  = document.getElementById('keyColumnsBGroup');
+    const keyColumnsAList   = document.getElementById('keyColumnsAList');
+    const keyColumnsBList   = document.getElementById('keyColumnsBList');
+
     // Cards
     const cardRowsA    = document.getElementById('cardRowsA');
     const cardRowsB    = document.getElementById('cardRowsB');
@@ -226,8 +321,15 @@
     const cardOnlyAPct = document.getElementById('cardOnlyAPct');
     const cardOnlyB    = document.getElementById('cardOnlyB');
     const cardOnlyBPct = document.getElementById('cardOnlyBPct');
+    const cardMatchLabel = document.getElementById('cardMatchLabel');
+    const cardOnlyALabel = document.getElementById('cardOnlyALabel');
+    const cardOnlyBLabel = document.getElementById('cardOnlyBLabel');
+    const cardChangedCard = document.getElementById('cardChangedCard');
+    const cardChanged = document.getElementById('cardChanged');
+    const cardChangedPct = document.getElementById('cardChangedPct');
 
     // Profiles
+    const profileSectionLabel = document.getElementById('profileSectionLabel');
     const profileColA  = document.getElementById('profileColA');
     const profileColB  = document.getElementById('profileColB');
     const pDistinctA   = document.getElementById('pDistinctA');
@@ -243,14 +345,20 @@
     const tabCountMatch  = document.getElementById('tabCountMatch');
     const tabCountOnlyA  = document.getElementById('tabCountOnlyA');
     const tabCountOnlyB  = document.getElementById('tabCountOnlyB');
+    const tabCountChanged  = document.getElementById('tabCountChanged');
+    const tabMatchLabel = document.getElementById('tabMatchLabel');
+    const tabOnlyALabel = document.getElementById('tabOnlyALabel');
+    const tabOnlyBLabel = document.getElementById('tabOnlyBLabel');
+    const tabChanged = document.getElementById('tabChanged');
 
     // Table
     const searchInput  = document.getElementById('searchInput');
+    const resultHead   = document.getElementById('resultHead');
     const resultBody   = document.getElementById('resultBody');
     const emptyState   = document.getElementById('emptyState');
-    const tableEl      = document.getElementById('resultTable');
     const exportCSVBtn = document.getElementById('exportCSVBtn');
     const exportJSONBtn = document.getElementById('exportJSONBtn');
+    const exportMarkdownBtn = document.getElementById('exportMarkdownBtn');
 
     // ── Utilities ───────────────────────────────────────────────────────────────
     function escHtml(s) {
@@ -276,15 +384,28 @@
       statusEl.style.display = 'none';
     }
 
-    function tryEnableRunBtn() {
-      const colA = columnSelectA.value;
-      const colB = columnSelectB.value;
-      const hasA = columnSelectA.options.length > 0 && colA && !columnSelectA.disabled;
-      const hasB = columnSelectB.options.length > 0 && colB && !columnSelectB.disabled;
-      runBtn.disabled = !(hasA && hasB);
+    function isRowsMode() {
+      return currentMode === 'rows';
     }
 
-    // ── Populate column dropdowns ────────────────────────────────────────────────
+    function checkedValues(container) {
+      return Array.from(container.querySelectorAll('input[type="checkbox"]:checked')).map(input => input.value);
+    }
+
+    function tryEnableRunBtn() {
+      if (!isRowsMode()) {
+        const colA = columnSelectA.value;
+        const colB = columnSelectB.value;
+        const hasA = columnSelectA.options.length > 0 && colA && !columnSelectA.disabled;
+        const hasB = columnSelectB.options.length > 0 && colB && !columnSelectB.disabled;
+        runBtn.disabled = !(hasA && hasB);
+        return;
+      }
+
+      runBtn.disabled = checkedValues(keyColumnsAList).length === 0 || checkedValues(keyColumnsBList).length === 0;
+    }
+
+    // ── Populate column dropdowns / key lists ────────────────────────────────────
     function populateColumns(selectEl, columns) {
       selectEl.innerHTML = '';
       columns.forEach(col => {
@@ -296,21 +417,204 @@
       selectEl.disabled = false;
     }
 
-    // ── Render table ─────────────────────────────────────────────────────────────
-    function getFilteredRows() {
-      const q = searchQuery.toLowerCase();
-      return allRows.filter(row => {
-        // Tab filter
-        if (activeFilter === 'common' && row.type !== 'common') return false;
-        if (activeFilter === 'onlyA'  && row.type !== 'onlyA')  return false;
-        if (activeFilter === 'onlyB'  && row.type !== 'onlyB')  return false;
-        // Search
-        if (q && !row.value.toLowerCase().includes(q)) return false;
-        return true;
+    function renderKeyColumns(container, columns, checkedNames) {
+      container.innerHTML = '';
+      columns.forEach(col => {
+        const label = document.createElement('label');
+        label.className = 'checkbox-label';
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.value = col;
+        if (checkedNames && checkedNames.includes(col)) input.checked = true;
+        input.addEventListener('change', tryEnableRunBtn);
+        const span = document.createElement('span');
+        span.textContent = col;
+        label.appendChild(input);
+        label.appendChild(span);
+        container.appendChild(label);
       });
     }
 
-    const TYPE_ORDER = { 'onlyA': 0, 'onlyB': 1, 'common': 2 };
+    function renderCompareColumns(columns) {
+      compareColumns.innerHTML = '';
+      columns.forEach(col => {
+        const opt = document.createElement('option');
+        opt.value = col;
+        opt.textContent = col;
+        compareColumns.appendChild(opt);
+      });
+    }
+
+    function updateModeUi() {
+      const rows = isRowsMode();
+
+      valueColumnAGroup.style.display = rows ? 'none' : '';
+      valueColumnBGroup.style.display = rows ? 'none' : '';
+      keyColumnsAGroup.style.display  = rows ? '' : 'none';
+      keyColumnsBGroup.style.display  = rows ? '' : 'none';
+      compareColumnsRow.style.display = rows ? '' : 'none';
+      cardChangedCard.style.display   = rows ? '' : 'none';
+      tabChanged.style.display        = rows ? '' : 'none';
+
+      cardMatchLabel.textContent = rows ? 'Unchanged' : 'Common values';
+      cardOnlyALabel.textContent = rows ? 'Removed (only A)' : 'Only in A';
+      cardOnlyBLabel.textContent = rows ? 'Added (only B)' : 'Only in B';
+      tabMatchLabel.textContent  = rows ? 'Unchanged' : 'Common';
+      tabOnlyALabel.textContent  = rows ? 'Removed' : 'Only in A';
+      tabOnlyBLabel.textContent  = rows ? 'Added' : 'Only in B';
+      profileSectionLabel.textContent = rows ? '🔍 Key Column Profiles' : '🔍 Column Profiles';
+
+      document.querySelectorAll('.mode-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.mode === currentMode);
+      });
+
+      tryEnableRunBtn();
+    }
+
+    const CONFIG_KEY = 'vizflow.compare.lastConfig';
+
+    function saveConfig() {
+      try {
+        localStorage.setItem(CONFIG_KEY, JSON.stringify({
+          mode: currentMode,
+          columnA: columnSelectA.value,
+          columnB: columnSelectB.value,
+          keyColumnsA: checkedValues(keyColumnsAList),
+          keyColumnsB: checkedValues(keyColumnsBList),
+          compareColumns: Array.from(compareColumns.selectedOptions).map(option => option.value),
+          includeEmpty: includeEmpty.checked,
+          normalization: {
+            trim: normTrim.checked,
+            caseInsensitive: normCase.checked,
+            emptyAsNull: normEmpty.checked,
+            numeric: normNumeric.checked,
+            date: normDate.checked,
+          },
+        }));
+      } catch {
+        // localStorage can be unavailable in hardened environments
+      }
+    }
+
+    function restoreConfig() {
+      let config;
+      try {
+        config = JSON.parse(localStorage.getItem(CONFIG_KEY) || 'null');
+      } catch {
+        config = null;
+      }
+      if (!config) return;
+
+      currentMode = config.mode === 'rows' ? 'rows' : 'values';
+
+      if (Array.isArray(columnsA) && columnsA.length > 0) {
+        if (columnsA.includes(config.columnA)) columnSelectA.value = config.columnA;
+        renderKeyColumns(keyColumnsAList, columnsA, config.keyColumnsA || []);
+      }
+      if (Array.isArray(columnsB) && columnsB.length > 0) {
+        if (columnsB.includes(config.columnB)) columnSelectB.value = config.columnB;
+        renderKeyColumns(keyColumnsBList, columnsB, config.keyColumnsB || []);
+      }
+
+      const selectedCompare = new Set(config.compareColumns || []);
+      Array.from(compareColumns.options).forEach(option => {
+        option.selected = selectedCompare.has(option.value);
+      });
+
+      includeEmpty.checked = config.includeEmpty === true;
+      const norm = config.normalization || {};
+      normTrim.checked = norm.trim === true;
+      normCase.checked = norm.caseInsensitive === true;
+      normEmpty.checked = norm.emptyAsNull !== false;
+      normNumeric.checked = norm.numeric === true;
+      normDate.checked = norm.date === true;
+
+      updateModeUi();
+    }
+
+    function resetResults() {
+      lastResult = null;
+      allRows = [];
+      resultsSection.style.display = 'none';
+      hideStatus();
+    }
+
+    // ── Render table head ─────────────────────────────────────────────────────────
+    function renderTableHead() {
+      const rows = isRowsMode();
+      const headers = rows
+        ? [
+            { col: 'type', label: 'Type' },
+            { col: 'value', label: 'Key' },
+            { col: 'countA', label: 'Count A' },
+            { col: 'rowsA', label: 'Rows A' },
+            { col: 'countB', label: 'Count B' },
+            { col: 'rowsB', label: 'Rows B' },
+            { col: 'changes', label: 'Changes' },
+          ]
+        : [
+            { col: 'type', label: 'Type' },
+            { col: 'value', label: 'Value' },
+            { col: 'countA', label: 'Count A' },
+            { col: 'rowsA', label: 'Rows A' },
+            { col: 'countB', label: 'Count B' },
+            { col: 'rowsB', label: 'Rows B' },
+          ];
+
+      resultHead.innerHTML = '';
+      const tr = document.createElement('tr');
+      headers.forEach(header => {
+        const th = document.createElement('th');
+        th.dataset.col = header.col;
+        th.textContent = header.label + (['type', 'value', 'countA', 'countB'].includes(header.col) ? ' ' : '');
+        if (['type', 'value', 'countA', 'countB'].includes(header.col)) {
+          const indicator = document.createElement('span');
+          indicator.className = 'sort-indicator';
+          indicator.textContent = '↕';
+          th.appendChild(indicator);
+          th.addEventListener('click', () => {
+            if (sortCol === header.col) {
+              sortDir = -sortDir;
+            } else {
+              sortCol = header.col;
+              sortDir = 1;
+            }
+            document.querySelectorAll('thead th').forEach(h => h.classList.remove('sorted'));
+            th.classList.add('sorted');
+            indicator.textContent = sortDir === 1 ? '↑' : '↓';
+            renderTable();
+          });
+        }
+        tr.appendChild(th);
+      });
+      resultHead.appendChild(tr);
+    }
+
+    // ── Render table ─────────────────────────────────────────────────────────────
+    function matchesFilter(row) {
+      if (activeFilter === 'all') return true;
+      if (activeFilter === 'match') return row.type === 'common' || row.type === 'unchanged';
+      if (activeFilter === 'onlyA') return row.type === 'onlyA' || row.type === 'removed';
+      if (activeFilter === 'onlyB') return row.type === 'onlyB' || row.type === 'added';
+      if (activeFilter === 'changed') return row.type === 'changed';
+      return true;
+    }
+
+    function getFilteredRows() {
+      const q = searchQuery.toLowerCase();
+      return allRows.filter(row => {
+        if (!matchesFilter(row)) return false;
+        if (!q) return true;
+        const haystack = row.value + ' ' + (row.changes || []).map(change => change.columnA + ' ' + change.valueA + ' ' + change.valueB).join(' ');
+        return haystack.toLowerCase().includes(q);
+      });
+    }
+
+    const TYPE_ORDER = {
+      onlyA: 0, removed: 0,
+      onlyB: 1, added: 1,
+      common: 2, changed: 2, unchanged: 3,
+    };
 
     function sortRows(rows) {
       return [...rows].sort((a, b) => {
@@ -320,6 +624,7 @@
           case 'value':  va = a.value.toLowerCase(); vb = b.value.toLowerCase(); break;
           case 'countA': va = a.countA; vb = b.countA; break;
           case 'countB': va = a.countB; vb = b.countB; break;
+          case 'changes': va = (a.changes || []).length; vb = (b.changes || []).length; break;
           default:       va = a.value;  vb = b.value;
         }
         if (va < vb) return -sortDir;
@@ -330,18 +635,39 @@
 
     function MAX_ROWS_DISPLAY() { return 2000; }
 
+    function typeChip(row) {
+      const type = row.type;
+      if (type === 'common' || type === 'unchanged') return { cls: 'chip-common', label: type === 'common' ? 'Common' : 'Unchanged', val: 'val-common' };
+      if (type === 'onlyA' || type === 'removed') return { cls: 'chip-only-a', label: type === 'onlyA' ? 'Only A' : 'Removed', val: 'val-only-a' };
+      if (type === 'onlyB' || type === 'added') return { cls: 'chip-only-b', label: type === 'onlyB' ? 'Only B' : 'Added', val: 'val-only-b' };
+      return { cls: 'chip-changed', label: 'Changed', val: 'val-changed' };
+    }
+
+    function renderRows(row) {
+      const display = (row.rowsA.length > 8 ? row.rowsA.slice(0, 8).join(', ') + '…' : row.rowsA.join(', ')) || '—';
+      return '<td>' + escHtml(display) + '</td>';
+    }
+
+    function rowLinks(row, file, list) {
+      if (!list || list.length === 0) return '<td>—</td>';
+      const shown = list.slice(0, 8);
+      const links = shown.map(num => '<a href="#" class="row-link" data-file="' + file + '" data-row="' + num + '">' + num + '</a>');
+      const suffix = list.length > shown.length ? ' …' : '';
+      return '<td>' + links.join(', ') + suffix + '</td>';
+    }
+
     function renderTable() {
       const filtered = sortRows(getFilteredRows());
       resultBody.innerHTML = '';
 
       if (filtered.length === 0) {
         emptyState.style.display = 'block';
-        tableEl.style.display    = 'none';
+        resultBody.parentElement.style.display = 'none';
         return;
       }
 
       emptyState.style.display = 'none';
-      tableEl.style.display    = '';
+      resultBody.parentElement.style.display = '';
 
       const limit = Math.min(filtered.length, MAX_ROWS_DISPLAY());
       const frag  = document.createDocumentFragment();
@@ -349,36 +675,25 @@
       for (let i = 0; i < limit; i++) {
         const row = filtered[i];
         const tr  = document.createElement('tr');
+        const chip = typeChip(row);
 
-        const chipClass = row.type === 'common' ? 'chip-common'
-                        : row.type === 'onlyA'  ? 'chip-only-a'
-                        : 'chip-only-b';
-
-        const chipLabel = row.type === 'common' ? 'Common'
-                        : row.type === 'onlyA'  ? 'Only A'
-                        : 'Only B';
-
-        const valClass  = row.type === 'common' ? 'val-common'
-                        : row.type === 'onlyA'  ? 'val-only-a'
-                        : 'val-only-b';
-
-        // Truncate row lists for display
-        const rowsADisplay = row.rowsA.length > 8
-          ? row.rowsA.slice(0, 8).join(', ') + '…'
-          : row.rowsA.join(', ') || '—';
-
-        const rowsBDisplay = row.rowsB.length > 8
-          ? row.rowsB.slice(0, 8).join(', ') + '…'
-          : row.rowsB.join(', ') || '—';
-
-        tr.innerHTML =
-          '<td><span class="type-chip ' + chipClass + '">' + chipLabel + '</span></td>' +
-          '<td class="' + valClass + '">' + escHtml(row.value) + '</td>' +
+        let html =
+          '<td><span class="type-chip ' + chip.cls + '">' + chip.label + '</span></td>' +
+          '<td class="' + chip.val + '">' + escHtml(row.value || (row.isBlank ? '(empty)' : '')) + '</td>' +
           '<td>' + (row.countA || '—') + '</td>' +
-          '<td>' + escHtml(rowsADisplay) + '</td>' +
+          rowLinks(row, 'A', row.rowsA) +
           '<td>' + (row.countB || '—') + '</td>' +
-          '<td>' + escHtml(rowsBDisplay) + '</td>';
+          rowLinks(row, 'B', row.rowsB);
 
+        if (isRowsMode()) {
+          const changes = row.changes || [];
+          const text = changes.length === 0
+            ? '—'
+            : changes.map(change => escHtml(change.columnA) + ': ' + escHtml(change.valueA) + ' → ' + escHtml(change.valueB)).join('<br>');
+          html += '<td class="changed-cell">' + text + '</td>';
+        }
+
+        tr.innerHTML = html;
         frag.appendChild(tr);
       }
 
@@ -386,49 +701,74 @@
 
       if (filtered.length > limit) {
         const tr = document.createElement('tr');
-        tr.innerHTML = '<td colspan="6" style="text-align:center;color:var(--vscode-descriptionForeground);padding:8px;">… ' + (filtered.length - limit) + ' more rows hidden. Narrow filter or export to see all.</td>';
+        const span = isRowsMode() ? 7 : 6;
+        tr.innerHTML = '<td colspan="' + span + '" style="text-align:center;color:var(--vscode-descriptionForeground);padding:8px;">… ' + (filtered.length - limit) + ' more rows hidden. Narrow filter or export to see all.</td>';
         resultBody.appendChild(tr);
       }
     }
 
     // ── Update tab counts ─────────────────────────────────────────────────────────
     function updateTabCounts() {
-      const countCommon = allRows.filter(r => r.type === 'common').length;
-      const countOnlyA  = allRows.filter(r => r.type === 'onlyA').length;
-      const countOnlyB  = allRows.filter(r => r.type === 'onlyB').length;
+      const countMatch   = allRows.filter(r => r.type === 'common' || r.type === 'unchanged').length;
+      const countOnlyA   = allRows.filter(r => r.type === 'onlyA' || r.type === 'removed').length;
+      const countOnlyB   = allRows.filter(r => r.type === 'onlyB' || r.type === 'added').length;
+      const countChanged = allRows.filter(r => r.type === 'changed').length;
 
-      tabCountAll.textContent   = allRows.length;
-      tabCountMatch.textContent = countCommon;
-      tabCountOnlyA.textContent = countOnlyA;
-      tabCountOnlyB.textContent = countOnlyB;
+      tabCountAll.textContent     = allRows.length;
+      tabCountMatch.textContent   = countMatch;
+      tabCountOnlyA.textContent   = countOnlyA;
+      tabCountOnlyB.textContent   = countOnlyB;
+      tabCountChanged.textContent = countChanged;
     }
 
     // ── Render full results ───────────────────────────────────────────────────────
     function renderResults(result) {
       lastResult = result;
       allRows    = result.rows;
+      currentMode = result.mode;
+      updateModeUi();
 
-      const total = result.matchCount + result.onlyACount + result.onlyBCount;
+      const total = result.mode === 'rows'
+        ? result.unchangedCount + result.removedCount + result.addedCount + result.changedCount
+        : result.matchCount + result.onlyACount + result.onlyBCount;
 
       // Summary cards
       cardRowsA.textContent    = result.totalRowsA.toLocaleString();
       cardRowsB.textContent    = result.totalRowsB.toLocaleString();
-      cardMatch.textContent    = result.matchCount.toLocaleString();
-      cardMatchPct.textContent = pct(result.matchCount, total) + ' of distinct values';
-      cardOnlyA.textContent    = result.onlyACount.toLocaleString();
-      cardOnlyAPct.textContent = pct(result.onlyACount, total) + ' of distinct values';
-      cardOnlyB.textContent    = result.onlyBCount.toLocaleString();
-      cardOnlyBPct.textContent = pct(result.onlyBCount, total) + ' of distinct values';
+
+      if (result.mode === 'rows') {
+        cardMatch.textContent    = (result.unchangedCount || 0).toLocaleString();
+        cardMatchPct.textContent = pct(result.unchangedCount || 0, total) + ' of keys';
+        cardOnlyA.textContent    = (result.removedCount || 0).toLocaleString();
+        cardOnlyAPct.textContent = pct(result.removedCount || 0, total) + ' of keys';
+        cardOnlyB.textContent    = (result.addedCount || 0).toLocaleString();
+        cardOnlyBPct.textContent = pct(result.addedCount || 0, total) + ' of keys';
+        cardChanged.textContent  = (result.changedCount || 0).toLocaleString();
+        cardChangedPct.textContent = pct(result.changedCount || 0, total) + ' of keys';
+      } else {
+        cardMatch.textContent    = result.matchCount.toLocaleString();
+        cardMatchPct.textContent = pct(result.matchCount, total) + ' of distinct values';
+        cardOnlyA.textContent    = result.onlyACount.toLocaleString();
+        cardOnlyAPct.textContent = pct(result.onlyACount, total) + ' of distinct values';
+        cardOnlyB.textContent    = result.onlyBCount.toLocaleString();
+        cardOnlyBPct.textContent = pct(result.onlyBCount, total) + ' of distinct values';
+      }
 
       // Profiles
-      profileColA.textContent = result.columnA;
-      profileColB.textContent = result.columnB;
-      pDistinctA.textContent  = result.profileA.distinctCount;
-      pNullA.textContent      = result.profileA.nullCount;
-      pTypeA.textContent      = result.profileA.dataType;
-      pDistinctB.textContent  = result.profileB.distinctCount;
-      pNullB.textContent      = result.profileB.nullCount;
-      pTypeB.textContent      = result.profileB.dataType;
+      const profileA = result.profileA || {};
+      const profileB = result.profileB || {};
+      profileColA.textContent = result.columnA || (result.keyColumnsA || []).join(', ');
+      profileColB.textContent = result.columnB || (result.keyColumnsB || []).join(', ');
+      pDistinctA.textContent  = profileA.distinctCount ?? '—';
+      pNullA.textContent      = profileA.nullCount ?? '—';
+      pTypeA.textContent      = profileA.dataType ?? '—';
+      pDistinctB.textContent  = profileB.distinctCount ?? '—';
+      pNullB.textContent      = profileB.nullCount ?? '—';
+      pTypeB.textContent      = profileB.dataType ?? '—';
+
+      if (result.warnings && result.warnings.length > 0) {
+        showStatus(result.warnings.join(' '), 'warning');
+      }
 
       // Tab counts
       updateTabCounts();
@@ -445,8 +785,19 @@
 
       // Show results
       resultsSection.style.display = 'block';
+      renderTableHead();
       renderTable();
     }
+
+    // ── Mode toggle ───────────────────────────────────────────────────────────────
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        currentMode = btn.dataset.mode === 'rows' ? 'rows' : 'values';
+        resetResults();
+        updateModeUi();
+        showStatus('Mode changed. Run the comparison again to see updated results.', 'info');
+      });
+    });
 
     // ── Tab clicks ─────────────────────────────────────────────────────────────────
     tabs.forEach(tab => {
@@ -465,24 +816,6 @@
       renderTable();
     });
 
-    // ── Column header sort ─────────────────────────────────────────────────────────
-    tableEl.querySelectorAll('thead th[data-col]').forEach(th => {
-      th.addEventListener('click', () => {
-        const col = th.dataset.col;
-        if (['rowsA', 'rowsB'].includes(col)) return; // not sortable
-        if (sortCol === col) {
-          sortDir = -sortDir;
-        } else {
-          sortCol = col;
-          sortDir = 1;
-        }
-        tableEl.querySelectorAll('thead th').forEach(h => h.classList.remove('sorted'));
-        th.classList.add('sorted');
-        th.querySelector('.sort-indicator').textContent = sortDir === 1 ? '↑' : '↓';
-        renderTable();
-      });
-    });
-
     // ── Sort buttons ────────────────────────────────────────────────────────────────
     document.getElementById('sortValueBtn').addEventListener('click', () => {
       if (sortCol === 'value') { sortDir = -sortDir; } else { sortCol = 'value'; sortDir = 1; }
@@ -497,17 +830,39 @@
       renderTable();
     });
 
+    // ── Reveal source row ──────────────────────────────────────────────────────────
+    resultBody.addEventListener('click', event => {
+      const link = event.target.closest('.row-link');
+      if (!link) return;
+      event.preventDefault();
+      vscode.postMessage({
+        type: 'revealRow',
+        file: link.dataset.file,
+        row: Number(link.dataset.row),
+      });
+    });
+
     // ── Browse buttons ──────────────────────────────────────────────────────────────
     browseA.addEventListener('click', () => {
-      vscode.postMessage({ type: 'loadFileA' });
+      vscode.postMessage({
+        type: 'loadFileA',
+        encoding: encodingSelect.value,
+        delimiter: delimiterSelect.value || undefined,
+      });
     });
 
     browseB.addEventListener('click', () => {
-      vscode.postMessage({ type: 'loadFileB' });
+      vscode.postMessage({
+        type: 'loadFileB',
+        encoding: encodingSelect.value,
+        delimiter: delimiterSelect.value || undefined,
+      });
     });
 
     columnSelectA.addEventListener('change', tryEnableRunBtn);
     columnSelectB.addEventListener('change', tryEnableRunBtn);
+    encodingSelect.addEventListener('change', () => showStatus('Reload File A and File B to apply the new encoding.', 'info'));
+    delimiterSelect.addEventListener('change', () => showStatus('Reload File A and File B to apply the new delimiter.', 'info'));
 
     // ── Run comparison ──────────────────────────────────────────────────────────────
     runBtn.addEventListener('click', () => {
@@ -518,10 +873,25 @@
       progressLabel.textContent = 'Comparing…';
       runBtn.disabled = true;
 
+      const selectedCompareColumns = Array.from(compareColumns.selectedOptions).map(option => option.value);
+      saveConfig();
+
       vscode.postMessage({
-        type:    'runCompare',
+        type: 'runCompare',
+        mode: currentMode,
         columnA: columnSelectA.value,
         columnB: columnSelectB.value,
+        keyColumnsA: checkedValues(keyColumnsAList),
+        keyColumnsB: checkedValues(keyColumnsBList),
+        compareColumns: selectedCompareColumns,
+        includeEmpty: includeEmpty.checked,
+        normalization: {
+          trim: normTrim.checked,
+          caseInsensitive: normCase.checked,
+          emptyAsNull: normEmpty.checked,
+          numeric: normNumeric.checked,
+          date: normDate.checked,
+        },
       });
     });
 
@@ -530,30 +900,39 @@
       if (!lastResult) return;
       const filtered = sortRows(getFilteredRows());
       vscode.postMessage({
-        type:    'exportResult',
+        type: 'exportResult',
         format,
-        rows:    filtered,
-        columnA: lastResult.columnA,
-        columnB: lastResult.columnB,
+        rows: filtered,
+        result: lastResult,
       });
     }
 
     exportCSVBtn.addEventListener('click', () => exportRows('csv'));
     exportJSONBtn.addEventListener('click', () => exportRows('json'));
+    exportMarkdownBtn.addEventListener('click', () => exportRows('markdown'));
 
     // ── Messages from extension host ───────────────────────────────────────────────
     window.addEventListener('message', ({ data }) => {
       switch (data.type) {
 
         case 'initFileA':
+          resetResults();
           fileNameA.textContent = data.fileName || 'Loaded';
-          populateColumns(columnSelectA, data.columns);
+          columnsA = data.columns || [];
+          populateColumns(columnSelectA, columnsA);
+          renderKeyColumns(keyColumnsAList, columnsA, []);
+          renderCompareColumns(columnsA);
+          restoreConfig();
           tryEnableRunBtn();
           break;
 
         case 'columnsB':
+          resetResults();
           fileNameB.textContent = data.fileName || 'Loaded';
-          populateColumns(columnSelectB, data.columns);
+          columnsB = data.columns || [];
+          populateColumns(columnSelectB, columnsB);
+          renderKeyColumns(keyColumnsBList, columnsB, []);
+          restoreConfig();
           tryEnableRunBtn();
           break;
 
@@ -581,6 +960,8 @@
         }
       }
     });
+
+    updateModeUi();
   </script>
 </body>
 </html>

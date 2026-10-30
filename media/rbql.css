@@ -825,3 +825,61 @@ button:focus-visible {
     text-decoration-style: dotted;
     text-decoration-color: var(--vscode-contrastActiveBorder, #ffffff);
 }
+
+/* ── History + join header refinements ─────────── */
+.join-header-option {
+    margin-top: 6px;
+    font-size: 11px;
+}
+
+.history-header {
+    cursor: default;
+    justify-content: space-between;
+}
+
+.history-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+}
+
+.history-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.history-query {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.history-meta {
+    flex-shrink: 0;
+    font-family: var(--vscode-font-family, sans-serif);
+    font-size: 10px;
+    color: var(--vscode-descriptionForeground);
+}
+
+.history-delete {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    color: var(--vscode-descriptionForeground);
+    cursor: pointer;
+    font-size: 11px;
+    padding: 0 2px;
+    line-height: 1;
+}
+
+.history-delete:hover { color: var(--vscode-errorForeground, #f44); }
+
+.update-hint {
+    margin: -4px 0 12px;
+    font-size: 10px;
+    color: var(--vscode-descriptionForeground);
+}
