@@ -1,0 +1,15 @@
+---
+import { url } from '../data/site';
+import type { Feature } from '../data/features';
+
+interface Props {
+  feature: Feature;
+}
+const { feature } = Astro.props;
+---
+
+<a class="card card-link" href={`${url('features/')}#${feature.id}`}>
+  <div class="glyph" aria-hidden="true">{feature.glyph}</div>
+  <h3>{feature.title}</h3>
+  <p>{feature.tagline}</p>
+</a>

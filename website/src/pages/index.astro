@@ -1,0 +1,102 @@
+---
+import Base from '../layouts/Base.astro';
+import InstallBox from '../components/InstallBox.astro';
+import FeatureCard from '../components/FeatureCard.astro';
+import { SITE, url } from '../data/site';
+import { FEATURES, HIGHLIGHTS, WHATS_NEW } from '../data/features';
+
+const tagClass = (t: string) => `tag tag-${t.toLowerCase()}`;
+---
+
+<Base>
+  <section class="hero">
+    <div class="container hero-inner">
+      <span class="eyebrow">Free VS Code extension</span>
+      <h1>Compare, query and automate your data — <span class="grad">without leaving VS Code.</span></h1>
+      <p class="lead">{SITE.description}</p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href={SITE.marketplaceUrl} rel="noopener">Install from Marketplace</a>
+        <a class="btn btn-ghost" href={url('features/')}>Explore features</a>
+      </div>
+      <InstallBox id="hero-install" />
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <div class="section-head">
+        <h2>Everything you need for everyday data work</h2>
+        <p>Six tools that live inside your editor and work on the files you already have.</p>
+      </div>
+      <div class="grid grid-3">
+        {FEATURES.map((feature) => <FeatureCard feature={feature} />)}
+      </div>
+    </div>
+  </section>
+
+  <section class="section band">
+    <div class="container">
+      <div class="grid grid-3">
+        {
+          HIGHLIGHTS.map((h) => (
+            <div class="card">
+              <h3>{h.title}</h3>
+              <p>{h.text}</p>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <div class="section-head">
+        <h2>What’s new</h2>
+        <p>Recent improvements shipped in VizFlow Studio.</p>
+      </div>
+      <div class="grid grid-3">
+        {
+          WHATS_NEW.map((item) => (
+            <div class="card">
+              <span class={tagClass(item.tag)}>{item.tag}</span>
+              <h3>{item.title}</h3>
+              <p>{item.text}</p>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  <section class="section band">
+    <div class="container">
+      <div class="section-head">
+        <h2>Join the community</h2>
+        <p>VizFlow Studio is built in the open. Ask questions, share ideas and help shape what comes next.</p>
+      </div>
+      <div class="grid grid-3">
+        <a class="card card-link" href={SITE.discussionsUrl} rel="noopener">
+          <h3>Discussions</h3>
+          <p>Ask questions and share how you use VizFlow.</p>
+        </a>
+        <a class="card card-link" href={SITE.issuesUrl} rel="noopener">
+          <h3>Report an issue</h3>
+          <p>Found a bug or have a feature request? Open an issue.</p>
+        </a>
+        <a class="card card-link" href={SITE.reviewsUrl} rel="noopener">
+          <h3>Leave a review</h3>
+          <p>Rate VizFlow Studio on the Visual Studio Marketplace.</p>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <section class="cta">
+    <div class="container">
+      <h2>Ready to try it?</h2>
+      <p class="muted">Install in seconds and open your first CSV.</p>
+      <InstallBox id="cta-install" />
+    </div>
+  </section>
+</Base>

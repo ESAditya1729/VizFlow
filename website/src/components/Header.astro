@@ -1,0 +1,41 @@
+---
+import { SITE, NAV, url } from '../data/site';
+
+const current = Astro.url.pathname;
+---
+
+<header class="site-header">
+  <div class="container header-inner">
+    <a class="brand" href={url()}>
+      <img src={url('icon.png')} alt="" width="32" height="32" />
+      <span>Viz<span class="flow">Flow</span> Studio</span>
+    </a>
+    <nav class="nav" aria-label="Main">
+      {
+        NAV.map((item) => {
+          const href = url(item.href);
+          return (
+            <a href={href} aria-current={current === href ? 'page' : undefined}>
+              {item.label}
+            </a>
+          );
+        })
+      }
+      <a href={SITE.repoUrl} rel="noopener">GitHub</a>
+      <button type="button" class="icon-btn" id="theme-toggle" aria-label="Toggle light/dark theme">◐</button>
+    </nav>
+  </div>
+</header>
+
+<script>
+  const btn = document.getElementById('theme-toggle');
+  btn?.addEventListener('click', () => {
+    const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+    document.documentElement.dataset.theme = next;
+    try {
+      localStorage.setItem('vizflow-theme', next);
+    } catch {
+      /* storage unavailable */
+    }
+  });
+</script>

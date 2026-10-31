@@ -1,0 +1,13 @@
+---
+interface Props {
+  label: string;
+  glyph?: string;
+}
+const { label, glyph = '▣' } = Astro.props;
+---
+
+<figure class="shot" role="img" aria-label={`Screenshot placeholder: ${label}`} style="margin:0">
+  <span class="shot-glyph" aria-hidden="true">{glyph}</span>
+  <span>{label}</span>
+  <span class="shot-soon">Screenshot coming soon</span>
+</figure>

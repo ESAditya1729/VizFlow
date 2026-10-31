@@ -3,3 +3,7 @@ node_modules
 *.vsix
 .env
 RELEASE_2_PLAN.md
+
+# Website build output
+website/dist/
+website/.astro/
