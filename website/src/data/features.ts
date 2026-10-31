@@ -62,6 +62,28 @@ export const FEATURES: Feature[] = [
       'UPDATE is clearly a preview — your source file is never modified',
     ],
     shot: 'RBQL Query Console — results grid',
+    images: [
+      {
+        src: 'RBQL-SS1.png',
+        alt: 'RBQL Query Console showing dataset info with a1–a10 column mapping, a SELECT * LIMIT 10 query and the results grid with positional column headers',
+        caption: 'Query any CSV with positional columns',
+      },
+      {
+        src: 'RBQL-SS2.png',
+        alt: 'RBQL query with DISTINCT, a calculated net-total column, a WHERE filter, ORDER BY and LIMIT, returning the top 8 delivered orders',
+        caption: 'Filter, calculate and sort in one query',
+      },
+      {
+        src: 'RBQL-SS3.png',
+        alt: 'GROUP BY query summarizing orders, units and net revenue by region, with the column autocomplete popup suggesting a8 Region',
+        caption: 'Aggregate with GROUP BY and column autocomplete',
+      },
+      {
+        src: 'RBQL-SS4.png',
+        alt: 'Query history list showing each saved query with its time, row count, duration and source file, plus Copy, CSV, JSON, MD and DuckDB SQL export buttons',
+        caption: 'Query history and one-click exports',
+      },
+    ],
   },
   {
     id: 'dashboard',
@@ -76,6 +98,23 @@ export const FEATURES: Feature[] = [
       'Starting point for the other tools',
     ],
     shot: 'Dashboard — data profile',
+    images: [
+      {
+        src: 'Dashboard-SS1.png',
+        alt: 'Dataset Summary dashboard with overview tiles for rows, columns, file size, quality score, null values and duplicate rows, plus a column type distribution bar',
+        caption: 'Dataset overview and quality score at a glance',
+      },
+      {
+        src: 'Dashboard-SS2.png',
+        alt: 'Column Explorer table listing each column with type, nulls, distinct values, duplicates and completeness, with a detail panel of basic and numeric statistics for the selected column',
+        caption: 'Explore every column in depth',
+      },
+      {
+        src: 'Dashboard-SS3.png',
+        alt: 'Insights and Recommendations cards flagging duplicate rows and potentially similar columns, with View Duplicates and Compare CSV actions',
+        caption: 'Actionable data-quality insights',
+      },
+    ],
   },
   {
     id: 'workflow-builder',
