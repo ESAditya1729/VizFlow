@@ -2,6 +2,7 @@
 import Base from '../layouts/Base.astro';
 import InstallBox from '../components/InstallBox.astro';
 import ScreenshotPlaceholder from '../components/ScreenshotPlaceholder.astro';
+import ScreenshotGallery from '../components/ScreenshotGallery.astro';
 import { FEATURES } from '../data/features';
 ---
 
@@ -18,7 +19,10 @@ import { FEATURES } from '../data/features';
 
       {
         FEATURES.map((feature, i) => (
-          <article class={`feature-row${i % 2 ? ' reverse' : ''}`} id={feature.id}>
+          <article
+            class={`feature-row${i % 2 ? ' reverse' : ''}${feature.images?.length ? ' has-gallery' : ''}`}
+            id={feature.id}
+          >
             <div class="feature-copy">
               <span class="feature-glyph" aria-hidden="true">{feature.glyph}</span>
               <h2>{feature.title}</h2>
@@ -30,7 +34,11 @@ import { FEATURES } from '../data/features';
                 ))}
               </ul>
             </div>
-            <ScreenshotPlaceholder label={feature.shot} glyph={feature.glyph} />
+            {feature.images?.length ? (
+              <ScreenshotGallery images={feature.images} label={feature.title} />
+            ) : (
+              <ScreenshotPlaceholder label={feature.shot} glyph={feature.glyph} />
+            )}
           </article>
         ))
       }

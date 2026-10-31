@@ -1,0 +1,158 @@
+---
+import { url } from '../data/site';
+import type { FeatureImage } from '../data/features';
+
+interface Props {
+  images: FeatureImage[];
+  /** Used in the group's accessible name. */
+  label: string;
+}
+const { images, label } = Astro.props;
+const multiple = images.length > 1;
+---
+
+<div class="gallery" data-gallery role="group" aria-label={`${label} screenshots`}>
+  <div class="gallery-stage">
+    {
+      images.map((img, i) => (
+        <figure class={`gallery-slide${i === 0 ? ' active' : ''}`} data-slide={i}>
+          <a href={url(img.src)} target="_blank" rel="noopener" title="Open full size">
+            <img src={url(img.src)} alt={img.alt} loading={i === 0 ? 'eager' : 'lazy'} decoding="async" />
+          </a>
+          {img.caption && <figcaption>{img.caption}</figcaption>}
+        </figure>
+      ))
+    }
+  </div>
+
+  {
+    multiple && (
+      <div class="gallery-thumbs" data-thumbs hidden>
+        {images.map((img, i) => (
+          <button
+            type="button"
+            class={`gallery-thumb${i === 0 ? ' active' : ''}`}
+            data-thumb={i}
+            aria-label={`Show screenshot ${i + 1} of ${images.length}${img.caption ? `: ${img.caption}` : ''}`}
+            aria-pressed={i === 0 ? 'true' : 'false'}
+          >
+            <img src={url(img.src)} alt="" loading="lazy" decoding="async" />
+            <span>{img.caption ?? `Screenshot ${i + 1}`}</span>
+          </button>
+        ))}
+      </div>
+    )
+  }
+</div>
+
+<style>
+  .gallery {
+    min-width: 0;
+  }
+  .gallery-slide {
+    margin: 0;
+  }
+  .gallery-slide a {
+    display: block;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--code-bg);
+    box-shadow: var(--shadow);
+  }
+  .gallery-slide img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  .gallery-slide figcaption {
+    margin-top: 8px;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    text-align: center;
+  }
+
+  /* Without JS every screenshot is shown, stacked. */
+  .gallery-slide + .gallery-slide {
+    margin-top: 20px;
+  }
+
+  /* With JS: one slide at a time, switched via the thumbnail strip. */
+  .gallery.enhanced .gallery-slide {
+    display: none;
+    margin-top: 0;
+  }
+  .gallery.enhanced .gallery-slide.active {
+    display: block;
+  }
+
+  .gallery-thumbs {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+    margin-top: 14px;
+  }
+  .gallery-thumbs[hidden] {
+    display: none;
+  }
+  .gallery-thumb {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 6px;
+    font: inherit;
+    font-size: 0.8rem;
+    line-height: 1.3;
+    text-align: left;
+    color: var(--text-muted);
+    background: var(--bg-card);
+    border: 2px solid var(--border);
+    border-radius: 10px;
+    cursor: pointer;
+  }
+  .gallery-thumb img {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    object-fit: cover;
+    object-position: top left;
+    border-radius: 6px;
+    background: var(--code-bg);
+  }
+  .gallery-thumb:hover {
+    border-color: var(--accent);
+  }
+  .gallery-thumb.active {
+    border-color: var(--accent);
+    color: var(--text);
+  }
+</style>
+
+<script>
+  document.querySelectorAll<HTMLElement>('[data-gallery]').forEach((gallery) => {
+    const thumbs = gallery.querySelector<HTMLElement>('[data-thumbs]');
+    if (!thumbs) return; // single image: nothing to switch
+
+    const slides = Array.from(gallery.querySelectorAll<HTMLElement>('.gallery-slide'));
+    const buttons = Array.from(gallery.querySelectorAll<HTMLButtonElement>('[data-thumb]'));
+
+    const show = (index: number) => {
+      slides.forEach((s, i) => s.classList.toggle('active', i === index));
+      buttons.forEach((b, i) => {
+        b.classList.toggle('active', i === index);
+        b.setAttribute('aria-pressed', String(i === index));
+      });
+    };
+
+    buttons.forEach((b, i) => b.addEventListener('click', () => show(i)));
+    gallery.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+      const current = slides.findIndex((s) => s.classList.contains('active'));
+      const next = (current + (e.key === 'ArrowRight' ? 1 : -1) + slides.length) % slides.length;
+      show(next);
+      buttons[next]?.focus();
+    });
+
+    thumbs.hidden = false;
+    gallery.classList.add('enhanced');
+  });
+</script>

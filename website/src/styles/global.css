@@ -423,6 +423,14 @@ kbd {
   background: linear-gradient(135deg, rgba(30, 107, 255, 0.18), rgba(34, 197, 255, 0.14));
   border: 1px solid var(--border);
 }
+/* Rows with real (wide) screenshots: copy on top, gallery full width below. */
+.feature-row.has-gallery {
+  grid-template-columns: 1fr;
+  align-items: start;
+}
+.feature-row.has-gallery.reverse .feature-copy {
+  order: 0;
+}
 .feature-copy ul {
   padding-left: 1.1em;
   color: var(--text-muted);

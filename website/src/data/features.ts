@@ -1,3 +1,10 @@
+export interface FeatureImage {
+  /** Path relative to website/public (e.g. 'screenshots/compare-1.png'). */
+  src: string;
+  alt: string;
+  caption?: string;
+}
+
 export interface Feature {
   id: string;
   glyph: string;
@@ -5,7 +12,10 @@ export interface Feature {
   tagline: string;
   summary: string;
   bullets: string[];
+  /** Placeholder label, shown when `images` is empty or missing. */
   shot: string;
+  /** One or more screenshots; rendered as a gallery. */
+  images?: FeatureImage[];
 }
 
 export const FEATURES: Feature[] = [
@@ -24,6 +34,18 @@ export const FEATURES: Feature[] = [
       'Safe CSV, JSON and Markdown exports with metadata',
     ],
     shot: 'CSV Compare — keyed rows view',
+    images: [
+      {
+        src: 'CompareCSV-SS1.png',
+        alt: 'Compare CSV options panel with Rows (keyed) mode, normalization toggles and File A / File B key column pickers',
+        caption: 'Configure keys, normalization and columns',
+      },
+      {
+        src: 'CompareCSV-SS2.png',
+        alt: 'Compare CSV results with summary tiles for unchanged, removed, added and changed rows and a detail table',
+        caption: 'Review added / removed / changed rows',
+      },
+    ],
   },
   {
     id: 'rbql',
