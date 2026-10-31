@@ -72,6 +72,7 @@ VizFlow brings **data exploration** and **lightweight analytics** directly into 
 ### 🔗 Reusable Workflows
 - **Workflow parameters**: declare inputs (name, label, type, required, default) that flow into any step config as `{{paramName}}`
 - **Call Workflow**: run another `.vizflow` file as a sub-workflow, pass parameters, and receive its output dataset and variables back
+- **Compare CSV** (`compareCsv`): diff two CSV files inside a workflow; outputs a diff dataset and summary variables (`compare`, `compareAdded`, `compareRemoved`, `compareChanged`, `compareUnchanged`, `compareDiffRows`) for downstream steps
 - Circular-call detection and a max call-depth guard keep nested workflows safe
 - Edit parameters and Call Workflow mappings with the built-in key/value editors (🧩)
 
@@ -97,6 +98,10 @@ VizFlow brings **data exploration** and **lightweight analytics** directly into 
 2. Open a CSV/TSV file in the editor
 3. Press `Ctrl+Shift+P` (`Cmd+Shift+P` on macOS)
 4. Run any `VizFlow:` command, for example: `VizFlow: Dataset Summary Dashboard`
+
+## 🌐 Community Website
+
+Feature tours, install instructions and guides live at **[esaditya1729.github.io/VizFlow](https://esaditya1729.github.io/VizFlow/)**.
 
 ---
 
@@ -135,6 +140,7 @@ VizFlow runs **locally by default** — parsing, transforms, and queries are per
 
 ## 📚 Documentation
 
+- **Community Website**: [esaditya1729.github.io/VizFlow](https://esaditya1729.github.io/VizFlow/) — features, install and guides
 - **Workflow Builder Guide**: [docs/workflow-builder-guide.md](./docs/workflow-builder-guide.md) — complete user guide with activity reference, real-world use cases, and troubleshooting
 - **Activity Catalog**: [docs/workflow-catalog.md](./docs/workflow-catalog.md) — auto-generated reference for every activity type and config field
 - **Architecture & Implementation**: [ARCHITECTURE.md](./ARCHITECTURE.md)
@@ -163,11 +169,32 @@ Run these locally during development:
 npm install          # Install dependencies
 npm run lint         # Run linter
 npm test             # Run tests
+npm run gen:context  # Regenerate AI workflow docs (catalog + schema)
 ```
+
+### Website
+
+The community site is an [Astro](https://astro.build) project in [`website/`](./website).
+
+```bash
+cd website
+npm ci
+npm run dev          # Local dev server
+npm run build        # Static output in website/dist
+```
+
+It is deployed by [`.github/workflows/pages.yml`](./.github/workflows/pages.yml) on pushes to `main` and `feature/**` that touch `website/**` (or run it manually via **Actions → Run workflow**). Only `website/dist` is published, not the whole repository. One-time setup:
+
+- **Settings → Pages → Source** must be **GitHub Actions**
+- **Settings → Environments → github-pages → Deployment branches** must allow `main` and `feature/**`
+
+There is a single live site, so the most recent deploy (from any branch) wins.
 
 ## 🤝 Support & Links
 
+- **Website**: [esaditya1729.github.io/VizFlow](https://esaditya1729.github.io/VizFlow/)
 - **GitHub**: [ESAditya1729/VizFlow](https://github.com/ESAditya1729/VizFlow)
+- **Contributing**: [CONTRIBUTING.md](./CONTRIBUTING.md)
 - **Creator**: Aditya Mukherjee (IBM)
 - **LinkedIn**: [Aditya Mukherjee](https://www.linkedin.com/in/aditya-mukherjee-b15428239/)
 
