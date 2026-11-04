@@ -124,10 +124,13 @@
   <!-- ── Query History ── -->
   <div class="history-section">
     <div class="history-header">
-      <span id="historyToggle" class="history-toggle">Query History <span class="toggle-icon">&#9654;</span></span>
-      <button type="button" class="button-link" id="clearHistoryBtn" title="Clear all saved queries">Clear all</button>
+      <span id="historyToggle" class="history-toggle"><span id="historyToggleLabel">Query History</span> <span class="toggle-icon">&#9654;</span></span>
+      <button type="button" class="button-link" id="clearHistoryBtn" title="Clear unpinned queries (pinned queries are kept)">Clear unpinned</button>
     </div>
-    <div class="history-list" id="historyList" style="display:none;"></div>
+    <div id="historyBody" style="display:none;">
+      <input type="search" id="historySearch" class="history-search" placeholder="Search history (query text or file name)…" aria-label="Search query history" spellcheck="false">
+      <div class="history-list" id="historyList"></div>
+    </div>
   </div>
 
   <!-- ═══════════════ FOOTER ════════════════════ -->
@@ -177,6 +180,9 @@
     const exportSQL      = document.getElementById('exportSQL');
     const copyResults    = document.getElementById('copyResults');
     const historyList    = document.getElementById('historyList');
+    const historyBody    = document.getElementById('historyBody');
+    const historySearch  = document.getElementById('historySearch');
+    const historyToggleLabel = document.getElementById('historyToggleLabel');
     const historyToggle  = document.getElementById('historyToggle');
     const clearHistoryBtn = document.getElementById('clearHistoryBtn');
     const autocompletePopup = document.getElementById('autocompletePopup');
@@ -282,7 +288,7 @@
       if (!Array.isArray(history)) return [];
       return history.map(function(item) {
         if (typeof item === 'string') {
-          return { query: item, timestamp: null, success: true, rowCount: null, durationMs: null };
+          return { query: item, timestamp: null, success: true, rowCount: null, durationMs: null, pinned: false };
         }
         return item || null;
       }).filter(function(item) { return item && item.query; });
@@ -591,10 +597,8 @@
         durationMs: durationMs,
         sourceFile: sourceFileName
       };
-      queryHistory = queryHistory.filter(function(item) { return item.query !== query; });
-      queryHistory.unshift(entry);
-      if (queryHistory.length > 100) queryHistory.pop();
-      renderHistory();
+      // The host owns persistence (dedupe, pin state, trimming) and replies
+      // with 'historyUpdated', which re-renders the list.
       vscode.postMessage({ type: 'saveHistory', entry: entry });
     }
 
@@ -633,17 +637,46 @@
 
     // ── History ─────────────────────────────────────────────────────────────────
     function renderHistory() {
+      const needle = historySearch.value.trim().toLowerCase();
+      const visible = needle
+        ? queryHistory.filter(function(entry) {
+            return entry.query.toLowerCase().indexOf(needle) !== -1
+              || (entry.sourceFile || '').toLowerCase().indexOf(needle) !== -1;
+          })
+        : queryHistory;
+
+      const pinnedCount = queryHistory.filter(function(e) { return e.pinned; }).length;
+      historyToggleLabel.textContent = 'Query History (' + queryHistory.length
+        + (pinnedCount ? ', ' + pinnedCount + ' pinned' : '') + ')';
+
       if (queryHistory.length === 0) {
         historyList.innerHTML = '<div class="history-empty">No queries in history.</div>';
         return;
       }
+      if (visible.length === 0) {
+        historyList.innerHTML = '<div class="history-empty">No history entries match “'
+          + escapeHtml(historySearch.value.trim()) + '”.</div>';
+        return;
+      }
 
       historyList.innerHTML = '';
-      queryHistory.forEach(function(entry) {
+      visible.forEach(function(entry) {
         const q = entry.query;
         const div = document.createElement('div');
-        div.className = 'history-item';
+        div.className = 'history-item' + (entry.pinned ? ' pinned' : '');
         div.title = q;
+
+        const pin = document.createElement('button');
+        pin.type = 'button';
+        pin.className = 'history-pin' + (entry.pinned ? ' active' : '');
+        pin.title = entry.pinned ? 'Unpin (allow it to be cleared)' : 'Pin (keep through Clear)';
+        pin.setAttribute('aria-pressed', entry.pinned ? 'true' : 'false');
+        pin.textContent = entry.pinned ? '★' : '☆';
+        pin.addEventListener('click', function(e) {
+          e.stopPropagation();
+          vscode.postMessage({ type: 'pinHistory', query: q });
+        });
+        div.appendChild(pin);
 
         const main = document.createElement('span');
         main.className = 'history-query';
@@ -732,14 +765,21 @@
     });
 
     historyToggle.addEventListener('click', function() {
-      const list = document.getElementById('historyList');
       const icon = historyToggle.querySelector('.toggle-icon');
-      if (list.style.display === 'none') {
-        list.style.display = 'block';
+      if (historyBody.style.display === 'none') {
+        historyBody.style.display = 'block';
         icon.textContent = '\u25BC';
       } else {
-        list.style.display = 'none';
+        historyBody.style.display = 'none';
         icon.textContent = '\u25BA';
+      }
+    });
+
+    historySearch.addEventListener('input', renderHistory);
+    historySearch.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape' && historySearch.value) {
+        historySearch.value = '';
+        renderHistory();
       }
     });
 
@@ -810,7 +850,7 @@
     templatesToggle.addEventListener('click', function() {
       const icon = templatesToggle.querySelector('.toggle-icon');
       if (templatesList.style.display === 'none') {
-        templatesList.style.display = 'grid';
+        templatesList.style.display = 'block';
         icon.textContent = '\u25BC';
       } else {
         templatesList.style.display = 'none';
@@ -820,6 +860,14 @@
 
     // Template click handlers — use event delegation so they work
     // with dynamically rendered template items.
+    templatesList.addEventListener('keydown', function(e) {
+      if ((e.key === 'Enter' || e.key === ' ') && e.target.classList
+          && e.target.classList.contains('template-item')) {
+        e.preventDefault();
+        e.target.click();
+      }
+    });
+
     templatesList.addEventListener('click', function(e) {
       var item = e.target;
       // Walk up to find the .template-item parent
@@ -938,19 +986,51 @@
     (function() {
       var list = document.getElementById('templatesList');
       if (!list || typeof RBQL_TEMPLATES === 'undefined') return;
-      RBQL_TEMPLATES.forEach(function(t) {
-        var div = document.createElement('div');
-        div.className = 'template-item';
-        div.setAttribute('data-query', t.query);
-        var lbl = document.createElement('span');
-        lbl.className = 'template-label';
-        lbl.textContent = t.label;
-        var dsc = document.createElement('span');
-        dsc.className = 'template-desc';
-        dsc.textContent = t.desc;
-        div.appendChild(lbl);
-        div.appendChild(dsc);
-        list.appendChild(div);
+      var categories = (typeof RBQL_TEMPLATE_CATEGORIES !== 'undefined')
+        ? RBQL_TEMPLATE_CATEGORIES
+        : [];
+      // Any template whose category isn't listed still shows up, under "Other".
+      var known = {};
+      categories.forEach(function(c) { known[c] = true; });
+      var order = categories.slice();
+      if (RBQL_TEMPLATES.some(function(t) { return !known[t.category]; })) order.push('Other');
+
+      order.forEach(function(cat) {
+        var group = RBQL_TEMPLATES.filter(function(t) {
+          return cat === 'Other' ? !known[t.category] : t.category === cat;
+        });
+        if (!group.length) return;
+
+        var heading = document.createElement('div');
+        heading.className = 'template-category';
+        heading.textContent = cat;
+        list.appendChild(heading);
+
+        var grid = document.createElement('div');
+        grid.className = 'template-grid';
+        group.forEach(function(t) {
+          var div = document.createElement('div');
+          div.className = 'template-item';
+          div.setAttribute('data-query', t.query);
+          div.setAttribute('role', 'button');
+          div.tabIndex = 0;
+          var lbl = document.createElement('span');
+          lbl.className = 'template-label';
+          lbl.textContent = t.label;
+          if (t.needsJoin) {
+            var tag = document.createElement('span');
+            tag.className = 'template-tag';
+            tag.textContent = 'needs join table';
+            lbl.appendChild(tag);
+          }
+          var dsc = document.createElement('span');
+          dsc.className = 'template-desc';
+          dsc.textContent = t.desc;
+          div.appendChild(lbl);
+          div.appendChild(dsc);
+          grid.appendChild(div);
+        });
+        list.appendChild(grid);
       });
     })();
   </script>

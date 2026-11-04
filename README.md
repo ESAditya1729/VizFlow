@@ -46,8 +46,8 @@ VizFlow brings **data exploration** and **lightweight analytics** directly into 
 ### ⚡ RBQL Query Console
 - Write SQL-like queries using `a1`, `a2` or header names, with **syntax-highlighted keywords** as you type
 - **JOIN support** across two files, right in the query editor, with an independent "join file has header" option
-- **Pre-defined query templates** to get started fast (filter, sort, aggregate, join, dedupe, and more)
-- **Persistent query history** with timestamp, source file, duration, row count, success state, delete, and clear-all
+- **Categorized, verified query templates** (Explore, Filter, Aggregate, Transform, Join) — every template is executed by the test suite
+- **Persistent query history** with search, pinning, timestamp, source file, duration, row count, and success state
 - **Safe exports**: copy to clipboard or save CSV / JSON / Markdown with correct quoting
 - **Run cancellation and elapsed time**, with late results ignored after cancelling
 - Progress indicators for long-running queries

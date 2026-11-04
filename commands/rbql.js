@@ -17,34 +17,31 @@ const csvReader = require('../services/csvReader');
 const csvParser = require('../services/csvParser');
 const rbqlService = require('../services/rbqlService');
 const rbqlExport = require('../services/rbqlExport');
+const rbqlHistory = require('../services/rbqlHistory');
 
 const HISTORY_KEY = 'vizflow.rbql.history';
-const MAX_HISTORY = 100;
 
 /**
- * Read persisted query history from workspace state.
+ * Read persisted query history from workspace state, migrating legacy
+ * (unversioned array) data to the current schema.
  *
  * @param {vscode.ExtensionContext} context
  * @returns {Array<Object>}
  */
 function loadHistory(context) {
-    const stored = context.workspaceState.get(HISTORY_KEY, []);
-    return Array.isArray(stored) ? stored : [];
+    return rbqlHistory.fromStored(context.workspaceState.get(HISTORY_KEY));
 }
 
 /**
- * Store a history entry, de-duplicating by query text.
+ * Persist history in the versioned envelope and return the display list.
  *
  * @param {vscode.ExtensionContext} context
- * @param {Object} entry
+ * @param {Array<Object>} entries
  * @returns {Array<Object>}
  */
-function writeHistory(context, entry) {
-    const existing = loadHistory(context);
-    const filtered = existing.filter(item => item && item.query !== entry.query);
-    const updated = [entry, ...filtered].slice(0, MAX_HISTORY);
-    context.workspaceState.update(HISTORY_KEY, updated);
-    return updated;
+function saveHistory(context, entries) {
+    context.workspaceState.update(HISTORY_KEY, rbqlHistory.toStored(entries));
+    return rbqlHistory.ordered(entries);
 }
 
 /**
@@ -157,7 +154,7 @@ module.exports = function rbqlCommand(context) {
                     positional,
                     columnMap,
                     sourceFileName,
-                    history: loadHistory(context),
+                    history: rbqlHistory.ordered(loadHistory(context)),
                 });
             }
         });
@@ -194,20 +191,34 @@ module.exports = function rbqlCommand(context) {
                             panel.webview.postMessage({ type: 'joinFileCleared' });
                             break;
                         case 'saveHistory': {
-                            const updated = writeHistory(context, message.entry);
+                            const updated = saveHistory(
+                                context, rbqlHistory.upsert(loadHistory(context), message.entry)
+                            );
                             panel.webview.postMessage({ type: 'historyUpdated', history: updated });
                             break;
                         }
                         case 'deleteHistory': {
-                            const updated = loadHistory(context).filter(item => item.query !== message.query);
-                            context.workspaceState.update(HISTORY_KEY, updated);
+                            const updated = saveHistory(
+                                context, rbqlHistory.remove(loadHistory(context), message.query)
+                            );
                             panel.webview.postMessage({ type: 'historyUpdated', history: updated });
                             break;
                         }
-                        case 'clearHistory':
-                            context.workspaceState.update(HISTORY_KEY, []);
-                            panel.webview.postMessage({ type: 'historyUpdated', history: [] });
+                        case 'pinHistory': {
+                            const updated = saveHistory(
+                                context, rbqlHistory.togglePin(loadHistory(context), message.query)
+                            );
+                            panel.webview.postMessage({ type: 'historyUpdated', history: updated });
                             break;
+                        }
+                        case 'clearHistory': {
+                            // Pinned queries survive "clear" so they can't be lost by accident.
+                            const updated = saveHistory(
+                                context, rbqlHistory.clear(loadHistory(context))
+                            );
+                            panel.webview.postMessage({ type: 'historyUpdated', history: updated });
+                            break;
+                        }
                     }
                 } catch (err) {
                     if (panel) {

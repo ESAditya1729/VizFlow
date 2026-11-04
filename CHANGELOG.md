@@ -9,7 +9,9 @@ This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 - **CSV comparison rows mode**: compare records by one or more key columns and report added / removed / changed / unchanged rows, composite keys, duplicate-key counts, and per-column changes.
 - **CSV comparison normalization + input controls**: trim, case-insensitive, empty-as-null, numeric and date equivalence, plus encoding (auto BOM / UTF-8 / UTF-16LE / UTF-16BE / Latin-1) and delimiter overrides.
 - **CSV comparison exports**: CSV/JSON/Markdown reports with metadata, source-row links, and remembered comparison configuration.
-- **RBQL persistent history**: workspace-backed history with timestamp, source file, duration, row count, success state, per-item delete, and clear-all.
+- **RBQL persistent history**: workspace-backed history with timestamp, source file, duration, row count, success state, per-item delete, and clear.
+- **RBQL history search and pinning**: filter history by query text or file name, and pin (★) queries so they sort first and survive "Clear unpinned" and the 100-entry cap. History is stored in a versioned format; older history is migrated automatically.
+- **RBQL categorized templates**: templates are grouped into Explore, Filter, Aggregate, Transform and Join, join templates are tagged "needs join table", and a new "Rows Without a Match" anti-join template was added. Templates are keyboard-accessible.
 - **RBQL export options**: clipboard copy, Markdown export, and shared serializers with correct CSV quoting for commas, quotes, and newlines.
 - **RBQL cancellation and timing**: run IDs ignore late results after Cancel, and each run shows elapsed time.
 - **Independent RBQL join-header option**: join files can declare their own header state independently of the primary CSV.
@@ -33,6 +35,7 @@ This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 ### Fixed
 - **RBQL CSV export corrupted rows**: exports now use `Papa.unparse`, so values containing commas, quotes, or newlines are quoted correctly. JSON export is consistent and Markdown/clipboard export was added.
 - **RBQL join autocomplete leaked columns**: removing a join file now removes its `b1`, `b2`, ... suggestions instead of leaving stale entries behind.
+- **RBQL templates that failed on run**: "Combine Conditions" (`AND`/`LIKE`), "Sum and Sort" (`ORDER BY` on an aggregate), "Count Distinct" (`COUNT(DISTINCT)`) and "String Transform" (`UPPER()`) used syntax RBQL's JavaScript backend rejects. They now use `&&`/`like()`, a plain per-group sum, `ARRAY_AGG` with a callback, and `.toUpperCase()`. A test now executes every template.
 - **RBQL query validation rejected leading comments**: `-- comment` lines before SELECT/UPDATE now validate correctly.
 - **CSV comparison reopened with stale File A**: re-running Compare CSV now refreshes File A (and its URI) from the active editor instead of comparing against an outdated dataset.
 - **CSV comparison keyed rows used A's key names for B-only rows**: added rows now display using the B-side key columns.
