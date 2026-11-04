@@ -108,6 +108,9 @@ module.exports = function dashboardCommand(context) {
             .replace('{{THEME_CSS_URI}}', themeUri)
             .replace('{{WEBVIEW_CSS_URI}}', cssUri)
             .replace('{{ICON_URI}}', iconUri)
+            .split('{{PAGE_TITLE}}').join('Dataset Summary')
+            .split('{{REPORT_HEADER_TITLE}}').join('VizFlow')
+            .split('{{REPORT_HEADER_SUBTITLE}}').join('Data quality & structure overview')
             .split('{{VERSION}}').join(version);
 
         panel.webview.html = html;
@@ -599,9 +602,8 @@ async function handleMessage(msg, sourceUri) {
         distinct:   'vizflow.distinctValues',
         transform:  'vizflow.transformWebview',
         compare:    'vizflow.compareCSV',
-        statistics: 'vizflow.statistics',
-        export:     null,   // future: report generation
-        chart:      null,   // future: chart view
+        chart:      'vizflow.charts',
+        query:      'vizflow.rbqlQuery',
     });
 
     const cmd = cmdMap[msg.action];

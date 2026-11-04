@@ -2,3 +2,8 @@ node_modules
 .vscode-test/
 *.vsix
 .env
+RELEASE_2_PLAN.md
+
+# Website build output
+website/dist/
+website/.astro/

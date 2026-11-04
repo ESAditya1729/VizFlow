@@ -577,7 +577,7 @@ function renderHeaderActions() {
   headerActions.innerHTML =
     '<button data-action="transform">🔄 Transform</button>' +
     '<button data-action="compare">⚖️ Compare CSV</button>' +
-    '<button data-action="export">📤 Export Report</button>';
+    '<button data-action="query">▶️ Run Query</button>';
 
   // Attach listeners after innerHTML is written (CSP forbids inline onclick)
   headerActions.querySelectorAll('[data-action]').forEach(btn => {

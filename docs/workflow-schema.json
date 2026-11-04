@@ -214,6 +214,9 @@
           "$ref": "#/definitions/activity/validateData"
         },
         {
+          "$ref": "#/definitions/activity/compareCsv"
+        },
+        {
           "$ref": "#/definitions/activity/writeCsv"
         },
         {
@@ -1672,6 +1675,123 @@
           },
           "required": [
             "rules"
+          ]
+        }
+      }
+    },
+    "activity/compareCsv": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique id within this workflow (and nested branches)."
+        },
+        "type": {
+          "const": "compareCsv"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Custom display name for this activity on the canvas."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text notes/comments about this activity."
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "filePathB": {
+              "description": "Absolute or workspace-relative path of the CSV to compare against File A",
+              "type": "string"
+            },
+            "mode": {
+              "description": "Row-level keyed comparison or distinct-value set comparison (default: rows)",
+              "type": "string",
+              "enum": [
+                "rows",
+                "values"
+              ]
+            },
+            "columnA": {
+              "description": "Column in File A for distinct-value mode",
+              "type": "string"
+            },
+            "columnB": {
+              "description": "Column in File B for distinct-value mode (defaults to Value Column A)",
+              "type": "string"
+            },
+            "keyColumns": {
+              "description": "Comma-separated key columns (default: first column)",
+              "type": "string"
+            },
+            "keyColumnsB": {
+              "description": "Optional comma-separated key columns in File B when names differ",
+              "type": "string"
+            },
+            "compareColumns": {
+              "description": "Comma-separated columns to compare, optionally \"a=b\" when names differ (default: all non-key columns)",
+              "type": "string"
+            },
+            "includeUnchanged": {
+              "description": "Include matching/unchanged rows in the diff dataset (default: false)",
+              "type": "boolean"
+            },
+            "includeEmpty": {
+              "description": "Treat empty key values as comparable instead of skipping them",
+              "type": "boolean"
+            },
+            "trim": {
+              "description": "Trim values before comparing",
+              "type": "boolean"
+            },
+            "caseInsensitive": {
+              "description": "Compare text case-insensitively",
+              "type": "boolean"
+            },
+            "numeric": {
+              "description": "Treat numerically equivalent values (e.g. 1 and 1.0) as equal",
+              "type": "boolean"
+            },
+            "date": {
+              "description": "Treat equivalent dates in different formats as equal",
+              "type": "boolean"
+            },
+            "delimiterB": {
+              "description": "Delimiter for File B (default: auto-detect)",
+              "type": "string",
+              "enum": [
+                "auto",
+                ",",
+                ";",
+                "\t",
+                "|"
+              ]
+            },
+            "hasHeaderB": {
+              "description": "First row of File B contains column headers (default: true)",
+              "type": "boolean"
+            },
+            "encodingB": {
+              "description": "File B encoding (default: UTF-8)",
+              "type": "string",
+              "enum": [
+                "utf8",
+                "utf8-bom",
+                "ascii",
+                "latin1"
+              ]
+            }
+          },
+          "required": [
+            "filePathB"
           ]
         }
       }

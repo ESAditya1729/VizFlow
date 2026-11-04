@@ -1,0 +1,40 @@
+---
+import { SITE } from '../data/site';
+
+interface Props {
+  id?: string;
+}
+const { id = 'install' } = Astro.props;
+---
+
+<div class="install-box" data-install-box>
+  <p class="label" id={`${id}-label`}>Install from the VS Code terminal or Quick Open (Ctrl+P):</p>
+  <div class="install-row">
+    <code aria-labelledby={`${id}-label`}>{SITE.installCommand}</code>
+    <button type="button" class="copy-btn" data-copy={SITE.installCommand} aria-live="polite">Copy</button>
+  </div>
+  <p class="install-note">Or search “VizFlow Studio” in the Extensions view.</p>
+</div>
+
+<script>
+  document.querySelectorAll<HTMLButtonElement>('[data-copy]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const text = btn.dataset.copy ?? '';
+      try {
+        await navigator.clipboard.writeText(text);
+        btn.textContent = 'Copied!';
+      } catch {
+        const range = document.createRange();
+        const code = btn.parentElement?.querySelector('code');
+        if (code) {
+          range.selectNodeContents(code);
+          const sel = window.getSelection();
+          sel?.removeAllRanges();
+          sel?.addRange(range);
+        }
+        btn.textContent = 'Press Ctrl+C';
+      }
+      setTimeout(() => (btn.textContent = 'Copy'), 2000);
+    });
+  });
+</script>

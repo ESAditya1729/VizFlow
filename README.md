@@ -45,9 +45,11 @@ VizFlow brings **data exploration** and **lightweight analytics** directly into 
 
 ### ⚡ RBQL Query Console
 - Write SQL-like queries using `a1`, `a2` or header names, with **syntax-highlighted keywords** as you type
-- **JOIN support** across two files, right in the query editor
-- **Pre-defined query templates** to get started fast (filter, sort, aggregate, join, and more)
-- History tracking for reproducible analysis
+- **JOIN support** across two files, right in the query editor, with an independent "join file has header" option
+- **Categorized, verified query templates** (Explore, Filter, Aggregate, Transform, Join) — every template is executed by the test suite
+- **Persistent query history** with search, pinning, timestamp, source file, duration, row count, and success state
+- **Safe exports**: copy to clipboard or save CSV / JSON / Markdown with correct quoting
+- **Run cancellation and elapsed time**, with late results ignored after cancelling
 - Progress indicators for long-running queries
 
 ### 📊 Interactive Charts
@@ -55,15 +57,22 @@ VizFlow brings **data exploration** and **lightweight analytics** directly into 
 - Live mapping with instant updates
 
 ### 🔄 CSV Comparison
-- Value-based set comparison across two files
+- **Values mode**: distinct-value set comparison with optional normalization
+- **Rows mode**: keyed comparison with added / removed / changed / unchanged rows
+- Composite keys, per-column change details, duplicate-key counts, and source-row links
+- Encoding controls (auto BOM / UTF-8 / UTF-16LE / UTF-16BE / Latin-1) and delimiter overrides
+- Trim, case-insensitive, empty-as-null, numeric, and date equivalence
+- CSV / JSON / Markdown reports with metadata
 
 ### 💾 Exports
-- CSV / JSON export
+- CSV / JSON / Markdown export with correct quoting for commas, quotes, and newlines
+- Clipboard copy from the RBQL result grid
 - DuckDB-compatible SQL with `{{INPUT_PATH}}` / `{{OUTPUT_PATH}}` placeholders
 
 ### 🔗 Reusable Workflows
 - **Workflow parameters**: declare inputs (name, label, type, required, default) that flow into any step config as `{{paramName}}`
 - **Call Workflow**: run another `.vizflow` file as a sub-workflow, pass parameters, and receive its output dataset and variables back
+- **Compare CSV** (`compareCsv`): diff two CSV files inside a workflow; outputs a diff dataset and summary variables (`compare`, `compareAdded`, `compareRemoved`, `compareChanged`, `compareUnchanged`, `compareDiffRows`) for downstream steps
 - Circular-call detection and a max call-depth guard keep nested workflows safe
 - Edit parameters and Call Workflow mappings with the built-in key/value editors (🧩)
 
@@ -90,14 +99,18 @@ VizFlow brings **data exploration** and **lightweight analytics** directly into 
 3. Press `Ctrl+Shift+P` (`Cmd+Shift+P` on macOS)
 4. Run any `VizFlow:` command, for example: `VizFlow: Dataset Summary Dashboard`
 
+## 🌐 Community Website
+
+Feature tours, install instructions and guides live at **[esaditya1729.github.io/VizFlow](https://esaditya1729.github.io/VizFlow/)**.
+
 ---
 
 ## 📝 Commands
 
 | Category | Command |
 |----------|---------|
-| **Profiling & Quality** | Show Statistics, Find Duplicates, List Distinct Values |
-| **Transformation** | Transform Column (CLI), Transform Column (Visual) |
+| **Profiling & Quality** | Dataset Summary Dashboard, Find Duplicates, Show Distinct Values |
+| **Transformation** | Transform Column (Visual) |
 | **Analysis** | Dataset Summary Dashboard, Interactive Charts |
 | **Comparison** | Compare CSV Files |
 | **RBQL** | Run RBQL Queries (with syntax highlighting, JOINs, and templates), Export Results |
@@ -111,7 +124,10 @@ VizFlow brings **data exploration** and **lightweight analytics** directly into 
 ## 🧠 RBQL Notes
 
 - Use **positional references** (`a1`, `a2`, ...) or enable **Has Header Row** to use header names
-- Export results to CSV, JSON, or DuckDB SQL scripts
+- When joining, use `b1`, `b2`, ... and set **Join file has header row** independently if needed
+- Export results to CSV, JSON, Markdown, or DuckDB SQL scripts, or copy them to the clipboard
+- Query history and the last comparison configuration are remembered across sessions
+- `UPDATE` queries preview changed rows only; source files are never modified
 - Placeholders like `{{INPUT_PATH}}` / `{{OUTPUT_PATH}}` make scripts reproducible
 
 ---
@@ -124,6 +140,7 @@ VizFlow runs **locally by default** — parsing, transforms, and queries are per
 
 ## 📚 Documentation
 
+- **Community Website**: [esaditya1729.github.io/VizFlow](https://esaditya1729.github.io/VizFlow/) — features, install and guides
 - **Workflow Builder Guide**: [docs/workflow-builder-guide.md](./docs/workflow-builder-guide.md) — complete user guide with activity reference, real-world use cases, and troubleshooting
 - **Activity Catalog**: [docs/workflow-catalog.md](./docs/workflow-catalog.md) — auto-generated reference for every activity type and config field
 - **Architecture & Implementation**: [ARCHITECTURE.md](./ARCHITECTURE.md)
@@ -152,11 +169,32 @@ Run these locally during development:
 npm install          # Install dependencies
 npm run lint         # Run linter
 npm test             # Run tests
+npm run gen:context  # Regenerate AI workflow docs (catalog + schema)
 ```
+
+### Website
+
+The community site is an [Astro](https://astro.build) project in [`website/`](./website).
+
+```bash
+cd website
+npm ci
+npm run dev          # Local dev server
+npm run build        # Static output in website/dist
+```
+
+It is deployed by [`.github/workflows/pages.yml`](./.github/workflows/pages.yml) on pushes to `main` and `feature/**` that touch `website/**` (or run it manually via **Actions → Run workflow**). Only `website/dist` is published, not the whole repository. One-time setup:
+
+- **Settings → Pages → Source** must be **GitHub Actions**
+- **Settings → Environments → github-pages → Deployment branches** must allow `main` and `feature/**`
+
+There is a single live site, so the most recent deploy (from any branch) wins.
 
 ## 🤝 Support & Links
 
+- **Website**: [esaditya1729.github.io/VizFlow](https://esaditya1729.github.io/VizFlow/)
 - **GitHub**: [ESAditya1729/VizFlow](https://github.com/ESAditya1729/VizFlow)
+- **Contributing**: [CONTRIBUTING.md](./CONTRIBUTING.md)
 - **Creator**: Aditya Mukherjee (IBM)
 - **LinkedIn**: [Aditya Mukherjee](https://www.linkedin.com/in/aditya-mukherjee-b15428239/)
 

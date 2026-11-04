@@ -10,6 +10,10 @@ docs/**
 AI_CONTEXT.md
 AGENTS.md
 
+# Marketing website & CI (not part of the extension)
+website/**
+.github/**
+
 # Contributor docs
 CONTRIBUTING.md
 

@@ -1,9 +1,7 @@
 const vscode = require('vscode');
 const path = require('path');
 const duplicateCommand = require('./commands/duplicate');
-const statsCommand = require('./commands/statistics');
 const distinctValuesCommand = require('./commands/distinctValues');
-const transformCommand = require('./commands/transform');
 const transformWebviewCommand = require('./commands/transformWebview');
 const compareCSVCommand = require('./commands/compareCSV');
 const aboutCommand = require('./commands/about');
@@ -57,19 +55,11 @@ function activate(context) {
             duplicateCommand
         ),
         vscode.commands.registerCommand(
-            'vizflow.statistics',
-            statsCommand
-        ),
-        vscode.commands.registerCommand(
             'vizflow.distinctValues',
             distinctValuesCommand
         ),
 
         // ─── Transformation Commands ──────────────────────────────────
-        vscode.commands.registerCommand(
-            'vizflow.transform',
-            transformCommand
-        ),
         vscode.commands.registerCommand(
             'vizflow.transformWebview',
             transformWebviewCommand(context)

@@ -6,8 +6,11 @@
 
 'use strict';
 
+const fs = require('fs');
 const Dataset = require('../../dataset');
-const { validateConfig, isNumeric, validateColumn } = require('./shared');
+const csvParser = require('../../../services/csvParser');
+const csvCompare = require('../../../services/csvCompare');
+const { validateConfig, isNumeric, validateColumn, validateFile } = require('./shared');
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 const VALID_AGGREGATIONS = ['sum', 'average', 'mean', 'min', 'max', 'count', 'distinct', 'median', 'stdDev', 'variance'];
@@ -814,6 +817,308 @@ analyticsActivities.push({
                     passed: ruleTallies[r].passed,
                     failed: ruleTallies[r].failed
                 }))
+            });
+        }
+
+        return outputDataset;
+    }
+});
+
+// ─── Compare CSV Activity ───────────────────────────────────────────────────
+
+/**
+ * Split a comma-separated config value into a clean string array.
+ * @param {string|string[]|undefined} value
+ * @returns {string[]}
+ */
+function parseList(value) {
+    if (Array.isArray(value)) return value.map(v => String(v).trim()).filter(Boolean);
+    if (typeof value !== 'string') return [];
+    return value.split(',').map(v => v.trim()).filter(Boolean);
+}
+
+/**
+ * Parse compare-column config: "a", "a=b", or a mix.
+ * @param {string|string[]|undefined} value
+ * @returns {{ a: string, b: string }[]}
+ */
+function parseCompareColumns(value) {
+    return parseList(value).map(entry => {
+        const [a, b] = entry.split('=').map(v => v.trim());
+        return { a, b: b || a };
+    }).filter(pair => pair.a && pair.b);
+}
+
+/**
+ * Read a CSV file for comparison.
+ * @param {string} filePath
+ * @param {Object} config
+ * @param {Object} context
+ * @returns {Promise<Dataset>}
+ */
+async function readComparisonCsv(filePath, config, context) {
+    const {
+        delimiter = 'auto',
+        hasHeader = true,
+        encoding = 'utf8',
+    } = config;
+
+    const resolvedPath = context.resolvePath ? context.resolvePath(filePath) : filePath;
+    const fileValidation = await validateFile(resolvedPath);
+    if (!fileValidation.exists) {
+        throw new Error(`Compare CSV: ${fileValidation.error} - ${filePath}`);
+    }
+
+    const rawContent = await fs.promises.readFile(resolvedPath, encoding === 'utf8-bom' ? 'utf8' : encoding);
+    let content = rawContent.toString();
+    if (content.charCodeAt(0) === 0xFEFF) content = content.slice(1);
+
+    const usedDelimiter = delimiter === 'auto' ? csvParser.detectDelimiter(content) : delimiter;
+    return csvParser.parse(content, { delimiter: usedDelimiter, header: hasHeader });
+}
+
+analyticsActivities.push({
+    type: 'compareCsv',
+    displayName: '🔀 Compare CSV',
+    description: 'Compares the input dataset (File A) with a CSV file (File B) and outputs a diff dataset plus summary variables.',
+    category: 'Analytics',
+    configRequirements: [
+        {
+            name: 'filePathB',
+            label: 'File B Path',
+            type: 'file',
+            required: true,
+            description: 'Absolute or workspace-relative path of the CSV to compare against File A'
+        },
+        {
+            name: 'mode',
+            label: 'Comparison Mode',
+            type: 'select',
+            required: false,
+            options: [
+                { label: 'Keyed rows', value: 'rows' },
+                { label: 'Distinct values', value: 'values' }
+            ],
+            description: 'Row-level keyed comparison or distinct-value set comparison (default: rows)'
+        },
+        {
+            name: 'columnA',
+            label: 'Value Column A',
+            type: 'string',
+            required: false,
+            description: 'Column in File A for distinct-value mode'
+        },
+        {
+            name: 'columnB',
+            label: 'Value Column B',
+            type: 'string',
+            required: false,
+            description: 'Column in File B for distinct-value mode (defaults to Value Column A)'
+        },
+        {
+            name: 'keyColumns',
+            label: 'Key Columns',
+            type: 'string',
+            required: false,
+            description: 'Comma-separated key columns (default: first column)'
+        },
+        {
+            name: 'keyColumnsB',
+            label: 'Key Columns (File B)',
+            type: 'string',
+            required: false,
+            description: 'Optional comma-separated key columns in File B when names differ'
+        },
+        {
+            name: 'compareColumns',
+            label: 'Compare Columns',
+            type: 'string',
+            required: false,
+            description: 'Comma-separated columns to compare, optionally "a=b" when names differ (default: all non-key columns)'
+        },
+        {
+            name: 'includeUnchanged',
+            label: 'Include Unchanged Rows',
+            type: 'boolean',
+            required: false,
+            description: 'Include matching/unchanged rows in the diff dataset (default: false)'
+        },
+        {
+            name: 'includeEmpty',
+            label: 'Include Empty Keys',
+            type: 'boolean',
+            required: false,
+            description: 'Treat empty key values as comparable instead of skipping them'
+        },
+        {
+            name: 'trim',
+            label: 'Trim Whitespace',
+            type: 'boolean',
+            required: false,
+            description: 'Trim values before comparing'
+        },
+        {
+            name: 'caseInsensitive',
+            label: 'Ignore Case',
+            type: 'boolean',
+            required: false,
+            description: 'Compare text case-insensitively'
+        },
+        {
+            name: 'numeric',
+            label: 'Numeric Equality',
+            type: 'boolean',
+            required: false,
+            description: 'Treat numerically equivalent values (e.g. 1 and 1.0) as equal'
+        },
+        {
+            name: 'date',
+            label: 'Date Equality',
+            type: 'boolean',
+            required: false,
+            description: 'Treat equivalent dates in different formats as equal'
+        },
+        {
+            name: 'delimiterB',
+            label: 'File B Delimiter',
+            type: 'select',
+            required: false,
+            options: [
+                { label: 'Auto-detect', value: 'auto' },
+                { label: 'Comma (,)', value: ',' },
+                { label: 'Semicolon (;)', value: ';' },
+                { label: 'Tab (\\t)', value: '\t' },
+                { label: 'Pipe (|)', value: '|' }
+            ],
+            description: 'Delimiter for File B (default: auto-detect)'
+        },
+        {
+            name: 'hasHeaderB',
+            label: 'File B Has Header',
+            type: 'boolean',
+            required: false,
+            description: 'First row of File B contains column headers (default: true)'
+        },
+        {
+            name: 'encodingB',
+            label: 'File B Encoding',
+            type: 'select',
+            required: false,
+            options: [
+                { label: 'UTF-8', value: 'utf8' },
+                { label: 'UTF-8 with BOM', value: 'utf8-bom' },
+                { label: 'ASCII', value: 'ascii' },
+                { label: 'ISO-8859-1', value: 'latin1' }
+            ],
+            description: 'File B encoding (default: UTF-8)'
+        }
+    ],
+    async execute(config, context, inputDataset) {
+        if (!inputDataset) {
+            throw new Error('Compare CSV: Input dataset (File A) is required');
+        }
+
+        const { filePathB } = config;
+        validateConfig({ filePathB }, ['filePathB'], 'Compare CSV');
+
+        const datasetB = await readComparisonCsv(filePathB, {
+            delimiter: config.delimiterB,
+            hasHeader: config.hasHeaderB !== false,
+            encoding: config.encodingB,
+        }, context);
+
+        const mode = config.mode === 'values' ? 'values' : 'rows';
+        const includeUnchanged = config.includeUnchanged === true;
+
+        const result = csvCompare.compareDatasets(inputDataset, datasetB, {
+            mode,
+            columnA: config.columnA || undefined,
+            columnB: config.columnB || undefined,
+            keyColumnsA: parseList(config.keyColumns),
+            keyColumnsB: parseList(config.keyColumnsB),
+            compareColumns: parseCompareColumns(config.compareColumns),
+            includeEmpty: config.includeEmpty === true,
+            normalization: {
+                trim: config.trim === true,
+                caseInsensitive: config.caseInsensitive === true,
+                numeric: config.numeric === true,
+                date: config.date === true,
+            },
+        });
+
+        const outputRows = [];
+        for (const row of result.rows) {
+            if (!includeUnchanged && (row.type === 'common' || row.type === 'unchanged')) continue;
+
+            if (row.type === 'changed' && row.changes && row.changes.length > 0) {
+                for (const change of row.changes) {
+                    outputRows.push({
+                        status: row.type,
+                        key: row.key,
+                        value: row.value,
+                        columnA: change.columnA,
+                        columnB: change.columnB,
+                        valueA: change.valueA,
+                        valueB: change.valueB,
+                        rowsA: row.rowsA.join(','),
+                        rowsB: row.rowsB.join(','),
+                        countA: row.countA,
+                        countB: row.countB,
+                    });
+                }
+                continue;
+            }
+
+            outputRows.push({
+                status: row.type,
+                key: row.key,
+                value: row.value,
+                columnA: '',
+                columnB: '',
+                valueA: '',
+                valueB: '',
+                rowsA: row.rowsA.join(','),
+                rowsB: row.rowsB.join(','),
+                countA: row.countA,
+                countB: row.countB,
+            });
+        }
+
+        const outputColumns = ['status', 'key', 'value', 'columnA', 'columnB', 'valueA', 'valueB', 'rowsA', 'rowsB', 'countA', 'countB'];
+        const outputDataset = new Dataset(outputRows, outputColumns);
+
+        const summary = {
+            mode: result.mode,
+            totalRowsA: result.totalRowsA,
+            totalRowsB: result.totalRowsB,
+            matchCount: result.matchCount,
+            onlyACount: result.onlyACount,
+            onlyBCount: result.onlyBCount,
+            addedCount: result.addedCount,
+            removedCount: result.removedCount,
+            changedCount: result.changedCount,
+            unchangedCount: result.unchangedCount,
+            duplicateKeyCountA: result.duplicateKeyCountA || 0,
+            duplicateKeyCountB: result.duplicateKeyCountB || 0,
+            diffRowCount: outputRows.length,
+            warnings: result.warnings || [],
+        };
+
+        if (context && typeof context.setVariable === 'function') {
+            context.setVariable('compare', summary);
+            context.setVariable('compareAdded', summary.addedCount);
+            context.setVariable('compareRemoved', summary.removedCount);
+            context.setVariable('compareChanged', summary.changedCount);
+            context.setVariable('compareUnchanged', summary.unchangedCount);
+            context.setVariable('compareDiffRows', summary.diffRowCount);
+        }
+
+        if (context && context.setActivityStats) {
+            context.setActivityStats({
+                inputRowCount: inputDataset.getRowCount(),
+                comparedRowCount: datasetB.getRowCount(),
+                outputRowCount: outputDataset.getRowCount(),
+                ...summary,
             });
         }
 
